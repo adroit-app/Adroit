@@ -2,6 +2,7 @@
 //! then of the directories to start one in, narrowed by a fuzzy query, or, for
 //! a directory the list does not offer, a directory tree.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -10,6 +11,8 @@ use adroit_protocol::Offers;
 
 use super::filer::{Filer, Row};
 use super::fuzzy::{Query, best};
+use crate::attention::{self, Changes};
+use crate::completion::Completions;
 
 /// One row of the list as drawn: the heading of the group it starts, what
 /// the query marks, where it is, and a badge beside it.
@@ -43,6 +46,22 @@ pub enum Choice {
     Session(SessionOffer),
     /// A directory to start a session in.
     Directory(Candidate),
+}
+
+impl Choice {
+    /// Whether `other` is this row, however it now stands.
+    pub fn same_row(&self, other: &Choice) -> bool {
+        match (self, other) {
+            (Choice::Scratch, Choice::Scratch) => true,
+            (Choice::Session(a), Choice::Session(b)) => {
+                a.environment == b.environment && a.id == b.id
+            }
+            (Choice::Directory(a), Choice::Directory(b)) => {
+                a.environment == b.environment && a.path == b.path
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Where a candidate came from.
@@ -86,18 +105,64 @@ pub struct SessionOffer {
     pub name: String,
     /// The workspace, and the worktree when the sidebar shows one.
     pub place: String,
+    /// The state as the sidebar shows it: a finished session the user has
+    /// seen stands idle.
     pub state: &'static str,
+    /// When the window saw its state last change, as [`Changes`] counts.
+    pub changed: u64,
+}
+
+/// What was typed, cut into the states it names and the rest: a term `@`
+/// followed by a state's word, or the start of one, keeps the sessions in
+/// that state, and the rest is matched as fzf would.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Narrowing {
+    /// What is matched against the rows, the state terms taken out.
+    pub text: String,
+    /// The states the sessions kept stand in; [`None`] when no term names
+    /// one, and every row is kept.
+    pub states: Option<Vec<&'static str>>,
+}
+
+impl Narrowing {
+    pub fn new(query: &str) -> Self {
+        let (named, rest): (Vec<&str>, Vec<&str>) =
+            query.split_whitespace().partition(|t| t.starts_with('@'));
+        let states = (!named.is_empty()).then(|| {
+            let mut states: Vec<&'static str> = named
+                .iter()
+                .flat_map(|t| attention::named(&t[1..]))
+                .collect();
+            states.sort_by_key(|w| attention::rank(w));
+            states.dedup();
+            states
+        });
+        Self {
+            text: rest.join(" "),
+            states,
+        }
+    }
+
+    fn keeps(&self, state: &str) -> bool {
+        self.states.as_ref().is_none_or(|s| s.contains(&state))
+    }
 }
 
 /// Every session of `environment`, listed as `tree`, in the sidebar's
-/// order.
-pub fn sessions(environment: &EnvironmentId, tree: &Tree) -> Vec<SessionOffer> {
+/// order, each standing as `completions` and `changes` have it.
+pub fn sessions(
+    environment: &EnvironmentId,
+    tree: &Tree,
+    completions: &Completions,
+    changes: &Changes,
+) -> Vec<SessionOffer> {
     let offer = |s: &Session, place: String| SessionOffer {
         environment: environment.clone(),
         id: s.id.clone(),
         name: s.name.clone(),
         place,
-        state: s.state.word(),
+        state: completions.state(s).word(),
+        changed: changes.last(environment, &s.id),
     };
     tree.workspaces
         .iter()
@@ -122,12 +187,21 @@ pub fn sessions(environment: &EnvironmentId, tree: &Tree) -> Vec<SessionOffer> {
 }
 
 /// The best `cap` sessions for `query`, best first, each matched by its name
-/// and where it runs, its name counting for more; with nothing typed, the
-/// first `cap` as given.
+/// and where it runs, its name counting for more. With nothing typed but
+/// states, the first `cap` by how much they need the user: by
+/// [`attention::ORDER`], then the latest to change first, then as given.
 pub fn matching_sessions(offers: &[SessionOffer], query: &str, cap: usize) -> Vec<SessionOffer> {
-    let query = Query::new(query);
+    let narrowing = Narrowing::new(query);
+    let query = Query::new(&narrowing.text);
+    let kept = offers.iter().filter(|s| narrowing.keeps(s.state));
+    if query.is_empty() {
+        let mut kept: Vec<SessionOffer> = kept.cloned().collect();
+        kept.sort_by_key(|s| (attention::rank(s.state), Reverse(s.changed)));
+        kept.truncate(cap);
+        return kept;
+    }
     best(
-        offers.iter().filter_map(|s| {
+        kept.filter_map(|s| {
             let text = format!("{} {}", s.name, s.place);
             query
                 .rank_named(&text, &s.name)
@@ -183,7 +257,8 @@ pub fn matching(candidates: &[Candidate], query: &str, home: &Path, cap: usize) 
 
 /// The scratch row while `query` answers to it, the sessions for `query`,
 /// then the directories, each group ranked among its own and cut at `cap`: a
-/// directory never comes between sessions.
+/// directory never comes between sessions. A query that names a state offers
+/// only sessions, since nothing else stands in one.
 pub fn choices(
     sessions: &[SessionOffer],
     directories: &[Candidate],
@@ -191,10 +266,14 @@ pub fn choices(
     home: &Path,
     cap: usize,
 ) -> Vec<Choice> {
+    let sessions = matching_sessions(sessions, query, cap).into_iter();
+    let narrowing = Narrowing::new(query);
+    if narrowing.states.is_some() {
+        return sessions.map(Choice::Session).collect();
+    }
     let scratch = Query::new(query)
         .rank_named(SCRATCH, SCRATCH)
         .map(|_| Choice::Scratch);
-    let sessions = matching_sessions(sessions, query, cap).into_iter();
     let directories = matching(directories, query, home, cap).into_iter();
     scratch
         .into_iter()
@@ -285,6 +364,9 @@ pub struct Picker {
     pub cursor: usize,
     pub mode: Mode,
     pub filer: Filer,
+    /// What was typed, where the cursor was and the row it was on when the
+    /// rows were last drawn.
+    pub(crate) held: Option<(String, usize, Choice)>,
     /// The directories sessions ran in when the picker opened, by the
     /// environment they are in.
     pub running: BTreeMap<EnvironmentId, Vec<PathBuf>>,
@@ -332,6 +414,7 @@ mod tests {
     use adroit_model::{State, Wait};
 
     use super::*;
+    use crate::completion::Viewed;
 
     fn paths(ps: &[&str]) -> Vec<PathBuf> {
         ps.iter().map(PathBuf::from).collect()
@@ -551,7 +634,12 @@ mod tests {
     #[test]
     fn every_session_is_offered_in_the_sidebar_s_order_with_where_it_runs_and_how_it_stands() {
         assert_eq!(
-            offered(&sessions(&EnvironmentId::default(), &tree())),
+            offered(&sessions(
+                &EnvironmentId::default(),
+                &tree(),
+                &Completions::default(),
+                &Changes::default()
+            )),
             vec![
                 ("a", "api › main", "working"),
                 ("o", "api › oauth", "waiting"),
@@ -562,7 +650,12 @@ mod tests {
 
     #[test]
     fn a_session_is_found_by_its_name_or_by_where_it_runs() {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let ids = |q: &str| -> Vec<String> {
             matching_sessions(&all, q, 10)
                 .into_iter()
@@ -572,7 +665,7 @@ mod tests {
         assert_eq!(ids("login"), ["a"]);
         assert_eq!(ids("oauth"), ["o"]);
         assert_eq!(ids("api"), ["a", "o"]);
-        assert_eq!(ids(""), ["a", "o", "z"]);
+        assert_eq!(ids(""), ["o", "a", "z"], "the one waiting first");
         assert!(ids("nothing").is_empty());
     }
 
@@ -582,11 +675,19 @@ mod tests {
             .session(session("x").name("docs").cwd("/w/scratch"))
             .session(session("s").name("scratch").cwd("/w/docs"))
             .build();
-        let ids: Vec<String> =
-            matching_sessions(&sessions(&EnvironmentId::default(), &t), "scratch", 10)
-                .into_iter()
-                .map(|s| s.id)
-                .collect();
+        let ids: Vec<String> = matching_sessions(
+            &sessions(
+                &EnvironmentId::default(),
+                &t,
+                &Completions::default(),
+                &Changes::default(),
+            ),
+            "scratch",
+            10,
+        )
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
         assert_eq!(ids, ["s", "x"]);
     }
 
@@ -607,10 +708,15 @@ mod tests {
 
     #[test]
     fn the_sessions_come_before_the_directories_each_ranked_among_its_own() {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let ds = dirs(&["/w/x/api", "/w/api"]);
         let pick = |q: &str| chosen(&choices(&all, &ds, q, Path::new(HOME), 10));
-        assert_eq!(pick(""), ["scratch", "a", "o", "z", "/w/x/api", "/w/api"]);
+        assert_eq!(pick(""), ["scratch", "o", "a", "z", "/w/x/api", "/w/api"]);
         // A directory answering better than a session still comes after it.
         assert_eq!(pick("api"), ["a", "o", "/w/api", "/w/x/api"]);
         assert_eq!(pick("login"), ["a"]);
@@ -619,15 +725,25 @@ mod tests {
 
     #[test]
     fn each_group_keeps_no_more_than_the_cap() {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let ds = dirs(&["/a", "/b", "/c"]);
         let found = choices(&all, &ds, "", Path::new(HOME), 2);
-        assert_eq!(chosen(&found), ["scratch", "a", "o", "/a", "/b"]);
+        assert_eq!(chosen(&found), ["scratch", "o", "a", "/a", "/b"]);
     }
 
     #[test]
     fn a_scratch_session_is_offered_above_everything_while_the_query_answers_to_it() {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let pick = |q: &str| chosen(&choices(&all, &[], q, Path::new(HOME), 10));
         assert_eq!(pick("")[0], "scratch");
         // The session named scratch answers too, after it.
@@ -638,7 +754,12 @@ mod tests {
 
     #[test]
     fn each_group_is_headed_once_above_its_first_row() {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let ds = dirs(&["/a", "/b"]);
         let headings = |found: &[Choice]| -> Vec<Option<&str>> {
             lines(found, Path::new(HOME))
@@ -660,7 +781,12 @@ mod tests {
     #[test]
     fn a_row_draws_a_directory_by_its_short_path_a_session_by_its_name_and_place_and_the_scratch_row_by_what_it_starts()
      {
-        let all = sessions(&EnvironmentId::default(), &tree());
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
         let found = [
             Choice::Scratch,
             Choice::Session(all[1].clone()),
@@ -696,6 +822,154 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn offer(id: &str, state: &'static str, changed: u64) -> SessionOffer {
+        SessionOffer {
+            environment: EnvironmentId::default(),
+            id: id.into(),
+            name: format!("{id} name"),
+            place: "api".into(),
+            state,
+            changed,
+        }
+    }
+
+    fn ids_for(offers: &[SessionOffer], query: &str) -> Vec<String> {
+        matching_sessions(offers, query, 10)
+            .into_iter()
+            .map(|s| s.id)
+            .collect()
+    }
+
+    #[test]
+    fn with_nothing_typed_the_sessions_stand_by_what_needs_the_user_the_latest_change_first() {
+        let offers = [
+            offer("idle", "idle", 9),
+            offer("working-old", "working", 1),
+            offer("done", "done", 0),
+            offer("working-new", "working", 5),
+            offer("starting", "starting", 8),
+            offer("waiting-unseen", "waiting", 0),
+            offer("failed", "failed", 2),
+            offer("waiting-new", "waiting", 7),
+            offer("waiting-unseen-too", "waiting", 0),
+        ];
+        assert_eq!(
+            ids_for(&offers, ""),
+            [
+                "waiting-new",
+                "waiting-unseen",
+                "waiting-unseen-too",
+                "done",
+                "failed",
+                "working-new",
+                "working-old",
+                "starting",
+                "idle",
+            ],
+            "sessions never seen to change keep the sidebar's order among their own"
+        );
+    }
+
+    #[test]
+    fn a_query_ranks_by_how_well_each_answers_however_it_stands() {
+        let mut offers = [offer("a", "idle", 0), offer("b", "waiting", 3)];
+        offers[0].name = "login".into();
+        offers[1].name = "the slow logging in".into();
+        assert_eq!(ids_for(&offers, "login"), ["a", "b"]);
+    }
+
+    #[test]
+    fn a_term_at_a_state_keeps_the_sessions_in_that_state() {
+        let offers = [
+            offer("i", "idle", 0),
+            offer("w", "waiting", 0),
+            offer("r", "working", 0),
+            offer("d", "done", 0),
+        ];
+        for (query, kept) in [
+            ("@w", &["w"][..]),
+            ("@waiting", &["w"]),
+            ("@wo", &["r"]),
+            ("@d", &["d"]),
+            ("@i", &["i"]),
+            ("@W", &["w"]),
+            // Two state terms keep either.
+            ("@i @w", &["w", "i"]),
+            // A term no state's word starts with keeps none.
+            ("@x", &[]),
+            // `@` alone names no state in particular.
+            ("@", &["w", "d", "r", "i"]),
+            // The rest is matched as before.
+            ("@w w", &["w"]),
+            ("@w nothing", &[]),
+        ] {
+            assert_eq!(ids_for(&offers, query), kept, "{query:?}");
+        }
+    }
+
+    #[test]
+    fn a_query_naming_a_state_offers_only_sessions() {
+        let all = sessions(
+            &EnvironmentId::default(),
+            &tree(),
+            &Completions::default(),
+            &Changes::default(),
+        );
+        let ds = dirs(&["/w/api"]);
+        let pick = |q: &str| chosen(&choices(&all, &ds, q, Path::new(HOME), 10));
+        assert_eq!(pick("@"), ["o", "a", "z"]);
+        assert_eq!(pick("@wo api"), ["a"]);
+        assert_eq!(pick("api"), ["a", "o", "/w/api"]);
+    }
+
+    #[test]
+    fn the_terms_naming_states_are_taken_out_of_what_is_matched() {
+        for (query, text, states) in [
+            ("api", "api", None),
+            ("@w api", "api", Some(vec!["waiting"])),
+            ("fix  @d  login", "fix login", Some(vec!["done"])),
+            ("@w @w", "", Some(vec!["waiting"])),
+            ("@i @w", "", Some(vec!["waiting", "idle"])),
+            // `@` inside a term is the term's own.
+            ("me@host", "me@host", None),
+        ] {
+            assert_eq!(
+                Narrowing::new(query),
+                Narrowing {
+                    text: text.into(),
+                    states
+                },
+                "{query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_finished_session_the_user_has_seen_is_offered_as_idle() {
+        let t = testing::tree()
+            .session(session("d").cwd("/w/api").state(State::Done))
+            .session(session("u").cwd("/w/api").state(State::Done))
+            .build();
+        let seen = Completions::default().updated(&t, Some(Viewed::Session("d")));
+        let found = sessions(&EnvironmentId::default(), &t, &seen, &Changes::default());
+        assert_eq!(
+            found
+                .iter()
+                .map(|s| (s.id.as_str(), s.state))
+                .collect::<Vec<_>>(),
+            [("d", "idle"), ("u", "done")]
+        );
+    }
+
+    #[test]
+    fn a_row_is_the_same_row_however_it_now_stands() {
+        let was = Choice::Session(offer("a", "working", 1));
+        assert!(was.same_row(&Choice::Session(offer("a", "waiting", 4))));
+        assert!(!was.same_row(&Choice::Session(offer("b", "working", 1))));
+        assert!(Choice::Scratch.same_row(&Choice::Scratch));
+        assert!(!was.same_row(&Choice::Scratch));
     }
 
     #[test]

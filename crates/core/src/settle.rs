@@ -38,6 +38,7 @@ const RULES: &[Rule] = &[
     tree_kept,
     tree_switched,
     tree_completions,
+    tree_changes,
     tree_filter_left,
     overlay_rename,
     details_shown,
@@ -47,6 +48,7 @@ const RULES: &[Rule] = &[
     details_refreshed,
     details_gone,
     picker_offered,
+    picker_kept,
     picker_listed,
     watched,
 ];
@@ -213,6 +215,18 @@ fn tree_completions(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::see_completions(&mut state.tree, shown.as_ref(), state.chrome.focused, work);
 }
 
+/// Every state each host lists is taken in, to tell which changed last.
+fn tree_changes(state: &mut ViewState, _: &mut Vec<Effect>) {
+    for (environment, host) in state.hosts.each() {
+        if host.work.is_some() {
+            state
+                .tree
+                .changes
+                .see(environment, tree::listed(host.work.as_ref()));
+        }
+    }
+}
+
 /// Leaving the sidebar, or opening a menu, stops typing into the filter.
 fn tree_filter_left(state: &mut ViewState, effects: &mut Vec<Effect>) {
     let left =
@@ -293,6 +307,11 @@ fn details_gone(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// What the host offered the picker is taken into its list and its tree.
 fn picker_offered(state: &mut ViewState, _: &mut Vec<Effect>) {
     picker::take_offers(&mut state.picker, &state.hosts);
+}
+
+/// The picker's cursor stays on its row while the rows move under it.
+fn picker_kept(state: &mut ViewState, _: &mut Vec<Effect>) {
+    picker::keep_cursor(&mut state.picker, &state.hosts, &state.tree);
 }
 
 /// A directory opened in the picker's tree before it was listed is moved

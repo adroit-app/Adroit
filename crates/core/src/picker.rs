@@ -13,7 +13,7 @@ use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::keymap::{Context, Step};
 use crate::state::ViewState;
-use crate::tree;
+use crate::tree::{self, TreeView};
 
 mod choices;
 pub mod filer;
@@ -139,8 +139,9 @@ fn listed_dirs(work: Option<&WorkSnapshot>, dir: &Path) -> Option<Vec<PathBuf>> 
 }
 
 /// What the picker going to a session lists from every environment
-/// `hosts` holds, best first for what is typed.
-pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts) -> Vec<Choice> {
+/// `hosts` holds, best first for what is typed, each session standing as
+/// `tree` shows it.
+pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Choice> {
     let mut all_sessions = Vec::new();
     let mut directories = Vec::new();
     for (environment, host) in hosts.each() {
@@ -156,16 +157,21 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts) -> Vec<Choice> {
             &offered.ghq,
             &offered.listed,
         ));
-        all_sessions.extend(sessions(environment, tree::listed(host.work.as_ref())));
+        all_sessions.extend(sessions(
+            environment,
+            tree::listed(host.work.as_ref()),
+            &tree.completions,
+            &tree.changes,
+        ));
     }
     choices(&all_sessions, &directories, &picker.query, home, PICKS)
 }
 
 /// The rows of [`go_rows`] as drawn: with more than one environment shown,
 /// each session and directory names the environment it is in.
-pub fn go_lines(picker: &Picker, home: &Path, hosts: &Hosts) -> Vec<Line> {
+pub fn go_lines(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Line> {
     let several = hosts.each().nth(1).is_some();
-    labelled_lines(&go_rows(picker, home, hosts), home, |environment| {
+    labelled_lines(&go_rows(picker, home, hosts, tree), home, |environment| {
         several.then(|| hosts.name(environment))
     })
 }
@@ -281,7 +287,7 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
             choose(state, at)
         }
         Some(ListKey::Step(delta)) => {
-            let len = rows_len(&state.picker, &state.hosts);
+            let len = rows_len(&state.picker, &state.hosts, &state.tree);
             if let Some(open) = &mut state.picker.open {
                 let (_, cursor) = open.list();
                 *cursor = step(*cursor, len, delta);
@@ -292,9 +298,9 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     }
 }
 
-fn rows_len(view: &PickerView, hosts: &Hosts) -> usize {
+fn rows_len(view: &PickerView, hosts: &Hosts, tree: &TreeView) -> usize {
     match &view.open {
-        Some(Picking::Go(p)) => go_rows(p, &view.home, hosts).len(),
+        Some(Picking::Go(p)) => go_rows(p, &view.home, hosts, tree).len(),
         Some(Picking::Resume(r)) => {
             resume::rows(r, &view.home, hosts.work(&r.environment)).map_or(0, |r| r.len())
         }
@@ -333,7 +339,7 @@ fn enter(picker: &mut Picker, work: Option<&WorkSnapshot>) {
 /// The row `at` chosen, by its place among those drawn.
 pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
     let chosen = match &state.picker.open {
-        Some(Picking::Go(p)) => go_rows(p, &state.picker.home, &state.hosts)
+        Some(Picking::Go(p)) => go_rows(p, &state.picker.home, &state.hosts, &state.tree)
             .into_iter()
             .nth(at),
         Some(Picking::Resume(_)) => return resume::choose(state, at),
@@ -418,12 +424,10 @@ fn start_in_environment(
 }
 
 /// What each host offered taken into the list, and what the host of the
-/// environment the tree browses offered into the tree: the cursor stays on the row it was on, not on
-/// whatever comes to sit at its place, and the tree lists the roots offered
-/// after those it has, what is open in it staying open.
+/// environment the tree browses offered into the tree: the tree lists the
+/// roots offered after those it has, what is open in it staying open.
 pub(crate) fn take_offers(view: &mut PickerView, hosts: &Hosts) {
-    let PickerView { home, open } = view;
-    let Some(Picking::Go(picker)) = open else {
+    let Some(Picking::Go(picker)) = &mut view.open else {
         return;
     };
     let offered: std::collections::BTreeMap<EnvironmentId, adroit_protocol::Offers> = hosts
@@ -436,17 +440,34 @@ pub(crate) fn take_offers(view: &mut PickerView, hosts: &Hosts) {
     if picker.offered == offered {
         return;
     }
-    let on = go_rows(picker, home, hosts).into_iter().nth(picker.cursor);
     let roots = offered.get(&picker.environment).cloned();
     let roots_new = picker.offered.get(&picker.environment) != roots.as_ref();
     picker.offered = offered;
-    let rows = go_rows(picker, home, hosts);
-    picker.cursor = on
-        .and_then(|on| rows.iter().position(|c| *c == on))
-        .unwrap_or(0);
     if let Some(roots) = roots.filter(|_| roots_new) {
         picker.filer.add_roots(roots.roots.iter().cloned());
     }
+}
+
+/// The cursor stays on the row it was on while the rows move under it, as
+/// sessions change state or a host offers more, not on whatever comes to sit
+/// at its place; on the first row once that row is gone. Moving it, or
+/// typing, puts it where that says.
+pub(crate) fn keep_cursor(view: &mut PickerView, hosts: &Hosts, tree: &TreeView) {
+    let PickerView { home, open } = view;
+    let Some(Picking::Go(picker)) = open else {
+        return;
+    };
+    let rows = go_rows(picker, home, hosts, tree);
+    if let Some((query, cursor, on)) = &picker.held
+        && *query == picker.query
+        && *cursor == picker.cursor
+        && rows.get(picker.cursor).is_none_or(|c| !c.same_row(on))
+    {
+        picker.cursor = rows.iter().position(|c| c.same_row(on)).unwrap_or(0);
+    }
+    picker.held = rows
+        .get(picker.cursor)
+        .map(|c| (picker.query.clone(), picker.cursor, c.clone()));
 }
 
 /// A directory opened before the host listed it is moved into once it

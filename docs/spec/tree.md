@@ -132,10 +132,19 @@ the directories to start a new session in:
 - the folders in each folder the settings list for the picker
   ([settings](settings.md#settingstoml)).
 
+A session stands as its row in the tree shows it, a finished one the user has
+seen as idle. With nothing typed, the sessions are listed by how much they
+need the user, those waiting on the user first and those finished unseen
+next, and of those that stand alike the one the window last saw change comes
+first. The tree keeps its own order.
+
 Typing narrows both by a fuzzy match, fzf's syntax included: a session on its
 name and where it runs, a directory on its path. The sessions stay above the
 directories however well either answers, and the scratch row stays on top
-while what is typed matches its words. `Ctrl+n` and `Ctrl+p` (or the arrow
+while what is typed matches its words. A word `@` followed by a state, or the
+start of one, keeps only the sessions in that state, `@w` those waiting on
+the user, and offers nothing else. While the rows move as sessions change, the
+cursor stays on the row it is on. `Ctrl+n` and `Ctrl+p` (or the arrow
 keys, `Tab` and `Shift+Tab`) move, `Enter` chooses, and `Escape` closes the
 picker.
 

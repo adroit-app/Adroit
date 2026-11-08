@@ -11,7 +11,7 @@ use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
-use crate::testing::{listing, session, session_tab, shows_there, there};
+use crate::testing::{listing, session, session_tab, show_in, shows_there, there};
 use adroit_model::EnvironmentId;
 
 const HOME: &str = "/Users/me";
@@ -74,10 +74,15 @@ fn picker(run: &Scenario) -> &Picker {
 /// The rows the picker lists, as drawn.
 fn names(run: &Scenario) -> Vec<String> {
     let view = &run.state().picker;
-    go_lines(picker(run), &view.home, &run.state().hosts)
-        .into_iter()
-        .map(|l| l.name)
-        .collect()
+    go_lines(
+        picker(run),
+        &view.home,
+        &run.state().hosts,
+        &run.state().tree,
+    )
+    .into_iter()
+    .map(|l| l.name)
+    .collect()
 }
 
 fn asked(run: &Scenario) -> Option<Option<PickSight>> {
@@ -333,10 +338,15 @@ fn picking_in_two() -> Scenario {
 /// The rows the picker lists, as drawn: each name with where it is.
 fn lines_of(run: &Scenario) -> Vec<(String, Option<String>)> {
     let view = &run.state().picker;
-    go_lines(picker(run), &view.home, &run.state().hosts)
-        .into_iter()
-        .map(|l| (l.name, l.place))
-        .collect()
+    go_lines(
+        picker(run),
+        &view.home,
+        &run.state().hosts,
+        &run.state().tree,
+    )
+    .into_iter()
+    .map(|l| (l.name, l.place))
+    .collect()
 }
 
 fn asked_of(run: &Scenario, environment: &EnvironmentId) -> Option<Option<PickSight>> {
@@ -499,4 +509,142 @@ fn the_scratch_row_starts_a_draft_in_the_scratch_directory_of_the_tree_s_environ
         "{:?}",
         run.state().content.showing().tab
     );
+}
+
+/// The rows the picker lists, as drawn: each name with its badge.
+fn badges(run: &Scenario) -> Vec<(String, String)> {
+    let view = &run.state().picker;
+    go_lines(
+        picker(run),
+        &view.home,
+        &run.state().hosts,
+        &run.state().tree,
+    )
+    .into_iter()
+    .map(|l| (l.name, l.badge))
+    .collect()
+}
+
+#[test]
+fn a_finished_session_the_user_has_seen_stands_idle_in_the_picker_as_in_the_tree() {
+    let done = |id: &str| session(id).state(adroit_model::State::Done);
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .event(listing([done("a"), done("b")]))
+        .send(show_in(
+            session_tab("a"),
+            &format!("{}/a", crate::testing::REPO),
+        ))
+        .send(Msg::PickerOpen);
+    let mut sessions: Vec<_> = badges(&run)
+        .into_iter()
+        .filter(|(name, _)| name.ends_with("-name"))
+        .collect();
+    sessions.sort();
+    assert_eq!(
+        sessions,
+        [
+            ("a-name".to_string(), "idle".to_string()),
+            ("b-name".to_string(), "done".to_string()),
+        ]
+    );
+}
+
+/// The sessions the picker lists, by id, as they stand now.
+fn session_ids(run: &Scenario) -> Vec<String> {
+    let view = &run.state().picker;
+    go_rows(
+        picker(run),
+        &view.home,
+        &run.state().hosts,
+        &run.state().tree,
+    )
+    .into_iter()
+    .filter_map(|c| match c {
+        Choice::Session(s) => Some(s.id),
+        _ => None,
+    })
+    .collect()
+}
+
+/// The host listing the sessions `ids` in the states beside them, as its
+/// patch `seq`.
+fn standing(ids: &[(&str, adroit_model::State)], seq: u64) -> crate::testing::PatchBuilder {
+    crate::testing::patch(seq).listed(
+        crate::testing::listed().sessions(
+            ids.iter()
+                .map(|(id, state)| session(id).state(state.clone())),
+        ),
+    )
+}
+
+#[test]
+fn of_the_sessions_standing_alike_the_one_the_window_last_saw_change_comes_first() {
+    use adroit_model::State::{Idle, Working};
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .event(listing([
+            session("a").state(Idle),
+            session("b").state(Idle),
+            session("c").state(Idle),
+        ]))
+        .send(Msg::PickerOpen);
+    assert_eq!(
+        session_ids(&run),
+        ["a", "b", "c"],
+        "none seen to change yet"
+    );
+    let run = run
+        .event(standing(&[("a", Idle), ("b", Working), ("c", Idle)], 2))
+        .event(standing(&[("a", Idle), ("b", Idle), ("c", Working)], 3))
+        .event(standing(&[("a", Idle), ("b", Working), ("c", Working)], 4));
+    assert_eq!(session_ids(&run), ["b", "c", "a"]);
+}
+
+#[test]
+fn the_cursor_stays_on_its_session_while_a_change_of_state_moves_it() {
+    use adroit_model::State::{Done, Idle, Working};
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .event(listing([
+            session("a").state(Working),
+            session("b").state(Idle),
+        ]))
+        .send(Msg::PickerOpen)
+        .send(ctrl("n"))
+        .send(ctrl("n"));
+    let on = |run: &Scenario| {
+        let view = &run.state().picker;
+        go_rows(
+            picker(run),
+            &view.home,
+            &run.state().hosts,
+            &run.state().tree,
+        )
+        .into_iter()
+        .nth(picker(run).cursor)
+    };
+    let Some(Choice::Session(was)) = on(&run) else {
+        panic!("the cursor is not on a session: {:?}", on(&run));
+    };
+    assert_eq!(was.id, "b");
+    // `b` finishing moves it above `a`.
+    let run = run.event(standing(&[("a", Working), ("b", Done)], 2));
+    assert_eq!(session_ids(&run), ["b", "a"]);
+    let Some(Choice::Session(now)) = on(&run) else {
+        panic!("the cursor is not on a session: {:?}", on(&run));
+    };
+    assert_eq!(now.id, "b");
+    // Typing still starts again from the best row.
+    let run = run.send(Msg::PickerQuery("@".into()));
+    assert_eq!(picker(&run).cursor, 0);
 }

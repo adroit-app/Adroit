@@ -2,7 +2,7 @@
 
 use adroit_core::msg::Msg;
 use adroit_core::picker::fuzzy::Query;
-use adroit_core::picker::{Mark, Mode, Picker, go_lines, short, tree_rows};
+use adroit_core::picker::{Mark, Mode, Narrowing, Picker, go_lines, short, tree_rows};
 use dioxus::prelude::*;
 
 use super::{PickerKeys, QueryField};
@@ -31,6 +31,7 @@ pub(super) fn Go(picker: Picker) -> Element {
     let app = use_context::<AppCtx>();
     let home = app.picker.read().home.clone();
     let hosts = app.hosts.read();
+    let tree = app.tree.read();
     let work = hosts.work(&picker.environment);
     let fixed = |keys: &[(&str, &str)]| -> Vec<(String, String)> {
         keys.iter()
@@ -66,8 +67,8 @@ pub(super) fn Go(picker: Picker) -> Element {
         Dialog { kind: "picker-dialog", title: "Go to a session, or start one",
             match picker.mode {
                 Mode::List => {
-                    let query = Query::new(&picker.query);
-                    let rows = go_lines(&picker, &home, &hosts);
+                    let query = Query::new(&Narrowing::new(&picker.query).text);
+                    let rows = go_lines(&picker, &home, &hosts, &tree);
                     rsx! {
                         div { class: "filter-field",
                             QueryField { query: picker.query.clone() }

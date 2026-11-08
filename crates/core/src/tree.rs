@@ -13,6 +13,7 @@ use adroit_model::files::Entry;
 use adroit_model::{EnvironmentId, InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
+use crate::attention::Changes;
 use crate::chrome::status_line::{self, StatusLine};
 use crate::completion::{Completions, Viewed};
 use crate::content::{Showing, Tab};
@@ -41,6 +42,8 @@ pub struct TreeView {
     pub narrowed_waiting: Vec<(EnvironmentId, InboxItem)>,
     /// The sessions finished that the user has seen since.
     pub completions: Completions,
+    /// When the window saw each session's state last change.
+    pub changes: Changes,
     /// Every row, top to bottom, the sessions waiting on the user last.
     pub rows: Vec<Item>,
     /// The worktrees whose files the rows list, by their environment.
