@@ -229,3 +229,132 @@ async fn a_neovim_asked_to_quit_with_an_unsaved_edit_keeps_running_and_the_edit(
         .await
         .unwrap();
 }
+
+async fn shell_running(daemon: &Daemon, dir: &std::path::Path, script: &str) -> TerminalResourceId {
+    let mut settings = Settings::default();
+    settings.shell.command = vec!["/bin/sh".into(), "-c".into(), script.into()];
+    terminals::start(
+        daemon,
+        &settings,
+        TerminalStartRequest {
+            name: "server".into(),
+            cwd: dir.into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .resource_id
+}
+
+fn text(text: &str) -> terminals::Pattern {
+    terminals::Pattern::Text(text.into())
+}
+
+#[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
+async fn a_wait_ends_with_the_line_that_matched_once_the_program_writes_it() {
+    let (daemon, dir) = daemon().await;
+    let terminal = shell_running(&daemon, dir.path(), "sleep 0.5; echo server ready; read x").await;
+    let line = terminals::wait(
+        &daemon,
+        terminal,
+        &text("ready"),
+        Duration::from_secs(10),
+        false,
+    )
+    .await;
+    assert_eq!(line.as_deref(), Ok("server ready"));
+    let regex = terminals::Pattern::Regex(regex::Regex::new("^server r.+y$").unwrap());
+    let line = terminals::wait(&daemon, terminal, &regex, Duration::from_secs(10), false).await;
+    assert_eq!(line.as_deref(), Ok("server ready"));
+    terminals::stop(&daemon, terminal).await.unwrap();
+}
+
+#[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
+async fn a_wait_finds_a_line_scrolled_off_the_screen() {
+    let (daemon, dir) = daemon().await;
+    let terminal = shell_running(&daemon, dir.path(), "echo early ready; seq 1 100; read x").await;
+    let line = terminals::wait(
+        &daemon,
+        terminal,
+        &text("early"),
+        Duration::from_secs(10),
+        false,
+    )
+    .await;
+    assert_eq!(line.as_deref(), Ok("early ready"));
+    terminals::stop(&daemon, terminal).await.unwrap();
+}
+
+#[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
+async fn a_new_wait_passes_over_what_was_written_before_it_and_times_out_showing_the_screen() {
+    let (daemon, dir) = daemon().await;
+    let terminal = shell_running(
+        &daemon,
+        dir.path(),
+        "echo first ready; read x; echo second ready; read y",
+    )
+    .await;
+    let first = terminals::wait(
+        &daemon,
+        terminal,
+        &text("ready"),
+        Duration::from_secs(10),
+        false,
+    )
+    .await;
+    assert_eq!(first.as_deref(), Ok("first ready"));
+    let timed_out = terminals::wait(
+        &daemon,
+        terminal,
+        &text("ready"),
+        Duration::from_secs(1),
+        true,
+    )
+    .await
+    .unwrap_err();
+    assert!(timed_out.contains("first ready"), "{timed_out}");
+    let ready = text("ready");
+    let (second, _) = tokio::join!(
+        terminals::wait(&daemon, terminal, &ready, Duration::from_secs(10), true),
+        async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            terminals::input(&daemon, terminal, &[Input::Text("\n".into())])
+                .await
+                .unwrap();
+        }
+    );
+    assert_eq!(second.as_deref(), Ok("second ready"));
+    terminals::stop(&daemon, terminal).await.unwrap();
+}
+
+#[tokio::test]
+#[cfg_attr(
+    windows,
+    ignore = "holds the program back through the adroit executable, which the test binary is not"
+)]
+async fn a_wait_on_a_terminal_that_ends_ends_too() {
+    let (daemon, dir) = daemon().await;
+    let terminal = shell_running(&daemon, dir.path(), "read x").await;
+    let never = text("never");
+    let (waited, _) = tokio::join!(
+        terminals::wait(&daemon, terminal, &never, Duration::from_secs(30), false),
+        async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            terminals::stop(&daemon, terminal).await.unwrap();
+        }
+    );
+    assert!(waited.unwrap_err().contains("ended"));
+}

@@ -98,6 +98,7 @@ dependencies = [
  "core-foundation",
  "image",
  "libc",
+ "regex",
  "resvg",
  "rusqlite",
  "schemars",

@@ -325,6 +325,12 @@ impl Daemon {
         self.rows(id, RegionSource::Visible, false).await
     }
 
+    /// The text a session keeps, from its oldest line scrolled off to the
+    /// bottom of its screen, a line a row.
+    pub async fn kept(&self, id: u128) -> Result<Vec<String>> {
+        self.rows(id, RegionSource::Scrollback, false).await
+    }
+
     /// Send `bytes` to a session's program as typed keys, with no pane
     /// attached, returning once the session has taken them.
     pub async fn press(&self, id: u128, bytes: &[u8]) -> Result<()> {

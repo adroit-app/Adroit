@@ -177,7 +177,13 @@ impl Ask {
     /// user likes, so the answer is worth nothing once the one who asked has
     /// hung up; every other ask is answered whether or not it is waited for.
     pub fn waits(&self) -> bool {
-        matches!(self, Self::LoginStanding { after: Some(_), .. })
+        match self {
+            Self::LoginStanding { after, .. } => after.is_some(),
+            Self::Run { args, .. } => {
+                matches!(args.as_slice(), [terminal, wait, ..] if terminal == "terminal" && wait == "wait")
+            }
+            _ => false,
+        }
     }
 }
 
@@ -241,4 +247,25 @@ pub enum Answer {
     Failed {
         text: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(words: &[&str]) -> Ask {
+        Ask::Run {
+            args: words.iter().map(|w| w.to_string()).collect(),
+            cwd: "/src".into(),
+            input: None,
+        }
+    }
+
+    #[test]
+    fn waiting_for_a_terminal_s_output_ends_with_the_one_who_asked() {
+        assert!(run(&["terminal", "wait", "--terminal", "x", "--text", "ready"]).waits());
+        assert!(!run(&["terminal", "screen", "--terminal", "x"]).waits());
+        assert!(!run(&["wait"]).waits());
+        assert!(!run(&[]).waits());
+    }
 }

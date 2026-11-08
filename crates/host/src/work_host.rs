@@ -219,7 +219,12 @@ pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
 /// with this one: a command is not to replace the host a window works with.
 async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
     if crate::remote::active() {
-        return tokio::time::timeout(Duration::from_secs(30), asked_inner(socket, ask))
+        let waits = match &ask {
+            Ask::Run { args, .. } => crate::terminals::waits_for(args),
+            _ => None,
+        };
+        let limit = Duration::from_secs(30) + waits.unwrap_or_default();
+        return tokio::time::timeout(limit, asked_inner(socket, ask))
             .await
             .map_err(|_| {
                 "the remote command timed out; its outcome is unknown and it was not retried"

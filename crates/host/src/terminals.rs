@@ -1,6 +1,7 @@
 //! Terminal resources addressed independently of working directory and window.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use adroit_model::{SessionId, TerminalProgram, TerminalResourceId, TerminalSession};
 use adroit_term::{Daemon, Input, Key};
@@ -95,10 +96,122 @@ pub async fn start(
     Ok(resolved.terminal)
 }
 
+/// What a line of a terminal's output is waited for to hold.
+#[derive(Debug)]
+pub enum Pattern {
+    /// Found anywhere in the line, as it is written.
+    Text(String),
+    Regex(regex::Regex),
+}
+
+impl Pattern {
+    pub fn matches(&self, line: &str) -> bool {
+        match self {
+            Self::Text(text) => line.contains(text.as_str()),
+            Self::Regex(regex) => regex.is_match(line),
+        }
+    }
+}
+
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Text(a), Self::Text(b)) => a == b,
+            (Self::Regex(a), Self::Regex(b)) => a.as_str() == b.as_str(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Pattern {}
+
+const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+const WAIT_EVERY: Duration = Duration::from_millis(200);
+/// How much of the screen a timed-out wait shows.
+const WAIT_TAIL: usize = 10;
+
+#[derive(Debug, PartialEq, Eq)]
+struct Wait {
+    resource: TerminalResourceId,
+    pattern: Pattern,
+    timeout: Duration,
+    /// Only output that was not there when the wait began counts.
+    new: bool,
+}
+
+/// The lines of `now` that are not the same at their place in `baseline`,
+/// every line when there is none. A line is placed by its index from the
+/// oldest line kept, so text that scrolls off keeps its place, an empty row
+/// written into is fresh, and a line that grows is fresh as a whole.
+fn fresh<'a>(
+    baseline: Option<&'a [String]>,
+    now: &'a [String],
+) -> impl Iterator<Item = &'a str> + 'a {
+    now.iter().enumerate().filter_map(move |(at, line)| {
+        let was = baseline.map(|b| b.get(at));
+        (was != Some(Some(line))).then_some(line.as_str())
+    })
+}
+
+/// Wait up to `timeout` for a line of the terminal `resource`'s output, in
+/// its screen or the lines scrolled off it, to match `pattern`, and say
+/// which. With `new`, only lines written after the wait began count.
+pub async fn wait(
+    daemon: &Daemon,
+    resource: TerminalResourceId,
+    pattern: &Pattern,
+    timeout: Duration,
+    new: bool,
+) -> Result<String, String> {
+    let terminal = find(daemon, resource).await?;
+    let read = || async {
+        daemon.kept(terminal.id).await.map_err(|_| {
+            format!("the terminal {resource} ended before a line of its output matched")
+        })
+    };
+    let baseline = match new {
+        true => Some(read().await?),
+        false => None,
+    };
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let now = read().await?;
+        if let Some(line) = fresh(baseline.as_deref(), &now).find(|l| pattern.matches(l)) {
+            return Ok(line.to_string());
+        }
+        if tokio::time::Instant::now() + WAIT_EVERY > deadline {
+            let mut tail: Vec<_> = now.iter().map(String::as_str).collect();
+            while tail.last().is_some_and(|line| line.is_empty()) {
+                tail.pop();
+            }
+            let tail = &tail[tail.len().saturating_sub(WAIT_TAIL)..];
+            return Err(format!(
+                "no line of the terminal's output matched in {}s; its screen ends with:\n{}",
+                timeout.as_secs(),
+                tail.join("\n")
+            ));
+        }
+        tokio::time::sleep(WAIT_EVERY).await;
+    }
+}
+
+/// How long `adroit <args>` may wait for a terminal's output, when it is a
+/// wait.
+pub fn waits_for(args: &[String]) -> Option<Duration> {
+    match args.split_first() {
+        Some((terminal, rest)) if terminal == "terminal" => match parse(rest)?.0 {
+            Operation::Wait(wait) => Some(wait.timeout),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Operation {
     List,
     Screen(TerminalResourceId),
+    Wait(Wait),
     Input(TerminalResourceId, Vec<Input>),
     Stop(TerminalResourceId),
     Start {
@@ -130,13 +243,27 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let mut argv = None;
     let mut show = false;
     let mut opener = None;
+    let mut pattern = None;
+    let mut timeout = None;
+    let mut new = false;
     let mut rest = rest.iter().peekable();
     while let Some(flag) = rest.next() {
         match (command.as_str(), flag.as_str()) {
             (_, "--json") if !json => json = true,
-            ("screen" | "stop" | "input", "--terminal") if resource.is_none() => {
+            ("screen" | "stop" | "input" | "wait", "--terminal") if resource.is_none() => {
                 resource = Some(rest.next()?.parse().ok()?)
             }
+            ("wait", "--text") if pattern.is_none() => {
+                pattern = Some(Pattern::Text(rest.next()?.clone()))
+            }
+            ("wait", "--regex") if pattern.is_none() => {
+                pattern = Some(Pattern::Regex(regex::Regex::new(rest.next()?).ok()?))
+            }
+            ("wait", "--timeout") if timeout.is_none() => {
+                let secs = rest.next()?.parse::<u64>().ok().filter(|s| *s > 0)?;
+                timeout = Some(Duration::from_secs(secs));
+            }
+            ("wait", "--new") if !new => new = true,
             ("input", "--text") => input.push(Input::Text(rest.next()?.clone())),
             ("input", "--paste") => input.push(Input::Paste(rest.next()?.clone())),
             ("input", "--keys") => {
@@ -170,6 +297,12 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let operation = match command.as_str() {
         "list" => Operation::List,
         "screen" => Operation::Screen(resource?),
+        "wait" => Operation::Wait(Wait {
+            resource: resource?,
+            pattern: pattern?,
+            timeout: timeout.unwrap_or(WAIT_TIMEOUT),
+            new,
+        }),
         "input" if !input.is_empty() => Operation::Input(resource?, input),
         "stop" => Operation::Stop(resource?),
         "start" => {
@@ -223,6 +356,19 @@ async fn execute(
                 )
             } else {
                 Ok(lines.join("\n"))
+            }
+        }
+        Operation::Wait(Wait {
+            resource,
+            pattern,
+            timeout,
+            new,
+        }) => {
+            let line = wait(daemon, resource, &pattern, timeout, new).await?;
+            if json {
+                Ok(serde_json::json!({"resource_id": resource, "line": line}).to_string())
+            } else {
+                Ok(line)
             }
         }
         Operation::Input(resource, sent) => {
@@ -291,7 +437,24 @@ async fn execute(
     }
 }
 
-const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--show] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--show] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]";
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--show] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--show] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]\n       adroit terminal wait --terminal ID (--text TEXT | --regex REGEX) [--timeout SECS] [--new] [--json]";
+
+/// What a refused `adroit terminal <args>` prints: the usage, after the
+/// reason when the reason is a `--regex` that does not compile, which the
+/// usage alone cannot show.
+fn refusal(args: &[String]) -> String {
+    let wait = args.first().is_some_and(|operation| operation == "wait");
+    let reason = args
+        .windows(2)
+        .filter(|pair| wait && pair[0] == "--regex")
+        .find_map(|pair| regex::Regex::new(&pair[1]).err().map(|e| (&pair[1], e)));
+    match reason {
+        Some((regex, error)) => format!("--regex {regex}: {error}\n{USAGE}"),
+        None => USAGE.into(),
+    }
+}
 
 /// `adroit terminal <args>`, run by the work host. Returns the process exit
 /// code.
@@ -310,7 +473,7 @@ fn asked_as(
     opener: impl FnOnce() -> Result<String, String>,
 ) -> Result<Vec<String>, i32> {
     let Some((operation, _)) = parse(args) else {
-        eprintln!("{USAGE}");
+        eprintln!("{}", refusal(args));
         return Err(2);
     };
     let named = match operation {
@@ -371,7 +534,7 @@ pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> crate::comman
     use crate::command::Output;
     let Some((operation, json)) = parse(args) else {
         return Output {
-            wrote: Err(USAGE.into()),
+            wrote: Err(refusal(args)),
             code: 2,
             effects_possible: false,
         };
@@ -380,8 +543,13 @@ pub(crate) async fn run(args: &[String], cwd: &std::path::Path) -> crate::comman
         operation,
         Operation::Input(..) | Operation::Stop(..) | Operation::Start { .. }
     );
+    let limit = COMMAND_TIMEOUT
+        + match &operation {
+            Operation::Wait(wait) => wait.timeout,
+            _ => Duration::ZERO,
+        };
     let done = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        limit,
         execute(&crate::daemon::daemon(), operation, json, cwd),
     )
     .await
@@ -417,6 +585,129 @@ mod tests {
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn waiting(words: &[&str]) -> Option<Wait> {
+        match parse(&args(words))?.0 {
+            Operation::Wait(wait) => Some(wait),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn wait_takes_a_text_or_a_regex_and_waits_a_minute_over_everything_unless_told() {
+        let id = TerminalResourceId::new();
+        let id_text = id.to_string();
+        assert_eq!(
+            parse(&args(&["wait", "--terminal", &id_text, "--text", "ready"])),
+            Some((
+                Operation::Wait(Wait {
+                    resource: id,
+                    pattern: Pattern::Text("ready".into()),
+                    timeout: Duration::from_secs(60),
+                    new: false,
+                }),
+                false
+            ))
+        );
+        let told = waiting(&[
+            "wait",
+            "--terminal",
+            &id_text,
+            "--regex",
+            "listening on :[0-9]+",
+            "--timeout",
+            "5",
+            "--new",
+            "--json",
+        ])
+        .unwrap();
+        assert_eq!(told.timeout, Duration::from_secs(5));
+        assert!(told.new);
+        assert!(told.pattern.matches("server listening on :8080"));
+        assert!(!told.pattern.matches("server listening on :http"));
+    }
+
+    #[test]
+    fn a_refusal_says_why_a_regex_does_not_compile_before_the_usage() {
+        let refused = refusal(&args(&["wait", "--terminal", "x", "--regex", "("]));
+        assert!(refused.starts_with("--regex (: "), "{refused}");
+        assert!(refused.ends_with(USAGE), "{refused}");
+        assert_eq!(refusal(&args(&["wait", "--text", "("])), USAGE);
+        assert_eq!(refusal(&args(&["screen"])), USAGE);
+    }
+
+    #[test]
+    fn wait_refuses_what_says_no_single_pattern_or_no_positive_timeout() {
+        let id = TerminalResourceId::new().to_string();
+        let wait = |rest: &[&str]| {
+            let mut words = vec!["wait", "--terminal", &id];
+            words.extend(rest);
+            waiting(&words)
+        };
+        assert!(wait(&["--text", "a"]).is_some());
+        assert!(wait(&[]).is_none());
+        assert!(wait(&["--text", "a", "--regex", "b"]).is_none());
+        assert!(wait(&["--text", "a", "--text", "b"]).is_none());
+        assert!(wait(&["--regex", "("]).is_none());
+        assert!(wait(&["--text", "a", "--timeout", "0"]).is_none());
+        assert!(wait(&["--text", "a", "--timeout", "soon"]).is_none());
+        assert!(wait(&["--text", "a", "--new", "--new"]).is_none());
+        assert!(waiting(&["wait", "--text", "a"]).is_none());
+    }
+
+    #[test]
+    fn only_a_wait_is_given_longer_than_a_command_and_as_long_as_it_waits() {
+        let id = TerminalResourceId::new().to_string();
+        assert_eq!(
+            waits_for(&args(&[
+                "terminal",
+                "wait",
+                "--terminal",
+                &id,
+                "--text",
+                "a",
+                "--timeout",
+                "300"
+            ])),
+            Some(Duration::from_secs(300))
+        );
+        assert_eq!(
+            waits_for(&args(&["terminal", "screen", "--terminal", &id])),
+            None
+        );
+        assert_eq!(waits_for(&args(&["wait", "--terminal", &id])), None);
+    }
+
+    #[test]
+    fn a_text_is_found_anywhere_in_a_line_as_it_is_written() {
+        let text = Pattern::Text("a.b".into());
+        assert!(text.matches("see a.b here"));
+        assert!(!text.matches("see axb here"));
+        assert!(!text.matches("A.B"));
+    }
+
+    #[test]
+    fn only_lines_that_differ_from_the_baseline_at_their_place_are_fresh() {
+        let lines = |words: &[&str]| args(words);
+        type Case<'a> = (Option<&'a [&'a str]>, &'a [&'a str], &'a [&'a str]);
+        let cases: &[Case] = &[
+            (None, &["ready", ""], &["ready", ""]),
+            (Some(&["ready", ""]), &["ready", ""], &[]),
+            (Some(&["ready", ""]), &["ready", "ready"], &["ready"]),
+            (Some(&["$ ru", ""]), &["$ run", ""], &["$ run"]),
+            (Some(&["a", "b"]), &["a", "b", "ready"], &["ready"]),
+            (Some(&["a", "b", "c"]), &["a"], &[]),
+        ];
+        for (baseline, now, want) in cases {
+            let baseline = baseline.map(lines);
+            let now = lines(now);
+            assert_eq!(
+                fresh(baseline.as_deref(), &now).collect::<Vec<_>>(),
+                *want,
+                "{baseline:?} -> {now:?}"
+            );
+        }
     }
 
     #[test]

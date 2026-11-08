@@ -119,6 +119,7 @@ adroit terminal start --program command --dir /src/api --json -- claude --debug
 adroit terminal list --json
 adroit terminal input --terminal <resource-id> --text "hello" --keys Tab Enter --json
 adroit terminal screen --terminal <resource-id> --json
+adroit terminal wait --terminal <resource-id> --text "ready" --timeout 60 --new --json
 adroit terminal stop --terminal <resource-id> --json
 ```
 
@@ -146,14 +147,26 @@ keyboard protocol the program asked for. A key that never reaches a program,
 such as one held with Command, is refused, and nothing is sent. `screen`
 reads the screen as it is and does not wait.
 
+`wait` waits for a line of the terminal's output that holds `--text` as it
+is written, or that matches `--regex`, and prints that line. It looks at the
+screen and the lines scrolled off it, as text without colours, and counts
+the lines already there, so it returns at once when the line was written
+before it was called. With `--new` it counts only lines written or changed
+after it was called; a line written between an earlier command and the call
+is then missed. It waits 60 seconds unless `--timeout` gives the seconds;
+when none matches in that time it exits with status 1 and says how the screen
+ends, and when the terminal ends first it exits with status 1. Stopping the
+command ends the wait.
+
 A JSON resource contains `resource_id` (UUID), `name`, `cwd`, `program`
 (`shell`, `neovim` or `command`), and for a command terminal `command`, its
 program and arguments. `list --json` returns an array of these resources.
 A command terminal whose program has ended adds `exit`, the status it ended
 with: its exit code, or 128 and the number of the signal that ended it.
 `screen --json` returns `resource_id`, `lines` and `exit`, null while the
-program runs; `input --json` returns
-`resource_id` and `sent`; `stop --json` returns `resource_id` and `stopped`.
+program runs; `wait --json` returns `resource_id` and `line`; `input --json`
+returns `resource_id` and `sent`; `stop --json` returns `resource_id` and
+`stopped`.
 Without `--json`, `input` and `stop` print the resource ID.
 
 Invalid arguments exit with status 2. A missing resource, a failed launch or
