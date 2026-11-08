@@ -102,6 +102,9 @@ pub struct Session {
     pub name: String,
     pub cwd: PathBuf,
     pub state: State,
+    /// What its program said with the state it last reported, if anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
     /// When the session started, in milliseconds since the Unix epoch.
     pub started_ms: Option<u64>,
     /// The most recent input sent through Adroit, kept on the daemon session.

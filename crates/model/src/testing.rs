@@ -45,6 +45,12 @@ impl SessionBuilder {
         self
     }
 
+    /// What its program said with the state it reported.
+    pub fn says(mut self, message: impl Into<String>) -> Self {
+        self.0.status_message = Some(message.into());
+        self
+    }
+
     pub fn working(self) -> Self {
         self.state(State::Working)
     }

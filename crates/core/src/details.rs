@@ -65,6 +65,12 @@ pub fn overview_facts(
         State::Failed => ("failed".into(), "fail"),
         other @ (State::Starting | State::Idle) => (other.word().into(), "idle"),
     };
+    // What a program says while it works or once it is done tends to be its
+    // session's name, which the details already lead with.
+    let state = match (&s.state, &s.status_message) {
+        (State::Waiting(_) | State::Failed, Some(said)) => format!("{state} — {said}"),
+        _ => state,
+    };
     out.push(Fact {
         label: "State",
         value: state,
@@ -1366,6 +1372,23 @@ mod tests {
         assert_eq!(tone(State::Idle), ("idle".to_string(), Some("idle")));
         assert_eq!(tone(State::Done), ("done".to_string(), Some("done")));
         assert_eq!(tone(State::Failed), ("failed".to_string(), Some("fail")));
+    }
+
+    #[test]
+    fn what_a_waiting_or_failed_program_says_follows_its_state() {
+        let state = |state: State| {
+            let s = session("s").state(state).says("Bash(rm -rf build)").build();
+            overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0)[0]
+                .value
+                .clone()
+        };
+        assert_eq!(
+            state(State::Waiting(Wait::Permission)),
+            "waiting · permission prompt — Bash(rm -rf build)"
+        );
+        assert_eq!(state(State::Failed), "failed — Bash(rm -rf build)");
+        assert_eq!(state(State::Working), "working");
+        assert_eq!(state(State::Done), "done");
     }
 
     #[test]

@@ -122,6 +122,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
                 .as_ref()
                 .map(|s| State::reported(&s.state, s.kind.as_deref()))
                 .unwrap_or(State::Starting),
+            status_message: session.status.as_ref().and_then(|s| s.msg.clone()),
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             last_input_ms: tags::value(t, LAST_INPUT).and_then(|s| s.parse().ok()),
             permissions: match tags::value(t, PERMISSIONS) {
@@ -585,6 +586,28 @@ mod tests {
         assert_eq!(c.started_ms, Some(42));
         assert!(c.reads_only());
         assert_eq!(c.state, State::Waiting(Wait::Permission));
+    }
+
+    #[test]
+    fn what_a_program_says_with_its_report_is_kept_on_the_session() {
+        let mut s = kept(
+            7,
+            fix_tags("uuid", &adroit_model::AgentPermissions::Default, 42),
+        );
+        s.status = Some(Status {
+            state: "blocked".into(),
+            kind: Some("permission".into()),
+            msg: Some("Bash(rm -rf build)".into()),
+        });
+        let Some(Kept::Agent(c)) = read(&s) else {
+            panic!("not a session");
+        };
+        assert_eq!(c.status_message.as_deref(), Some("Bash(rm -rf build)"));
+        s.status = None;
+        let Some(Kept::Agent(c)) = read(&s) else {
+            panic!("not a session");
+        };
+        assert_eq!(c.status_message, None);
     }
 
     #[test]

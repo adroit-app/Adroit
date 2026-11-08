@@ -20,11 +20,12 @@ described before.
 
 - **Overview** tells how the session the focused window shows stands now. At
   its head are the session's name, its state, the latest model, when it
-  started and how long ago it last took input. Input sent through Adroit
-  includes answers to approvals and choices; its latest time stays with the
-  running session when the window closes. Below them is the change the
-  worktree is on: its description's first line and how many files it
-  changes; a click on it shows Changes.
+  started and how long ago it last took input. A session waiting on the user
+  or failed shows, beside its state, what its program said of why. Input
+  sent through Adroit includes answers to approvals and choices; its latest
+  time stays with the running session when the window closes. Below them is
+  the change the worktree is on: its description's first line and how many
+  files it changes; a click on it shows Changes.
   Under Running are what works for the session right now: the subagents
   still at work, its live work processes, and the sessions tied to it that
   still run. Under About, folded until it is unfolded, are the facts that
