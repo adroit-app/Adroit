@@ -159,6 +159,22 @@ impl Drop for Service {
     }
 }
 
+/// The terminal host `Service::terminal` started, once it answers.
+async fn answering_terminal(hosts: &Hosts) -> adroit_term::Daemon {
+    let daemon = adroit_term::Daemon::new(hosts.0.path().join("term.sock"));
+    // Cargo links the executable anew for every run, and macOS checks a
+    // file it has not run before at its first launch: for the debug build
+    // that has taken several seconds before `main` is reached.
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while daemon.sessions().await.is_err() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the terminal host did not answer");
+    daemon
+}
+
 fn remote_info(hosts: &Hosts) -> serde_json::Value {
     for _ in 0..1000 {
         let output = isolated(hosts.0.path())
@@ -246,14 +262,7 @@ fn a_terminal_owned_startup_lease_expires_without_a_work_host_and_a_late_release
         .build()
         .unwrap();
     runtime.block_on(async {
-        let daemon = adroit_term::Daemon::new(hosts.0.path().join("term.sock"));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while daemon.sessions().await.is_err() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        let daemon = answering_terminal(&hosts).await;
         let spawn = adroit_term::Spawn {
             program: "/bin/sh".into(),
             args: vec![
@@ -313,14 +322,7 @@ fn an_explicit_startup_release_runs_the_program_once_before_the_lease_expires() 
         .build()
         .unwrap();
     runtime.block_on(async {
-        let daemon = adroit_term::Daemon::new(hosts.0.path().join("term.sock"));
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while daemon.sessions().await.is_err() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        let daemon = answering_terminal(&hosts).await;
         let spawn = adroit_term::Spawn {
             program: "/bin/sh".into(),
             args: vec![
