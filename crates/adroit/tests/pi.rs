@@ -13,7 +13,7 @@ use adroit_term::{Input, Key};
 
 mod support;
 
-use support::{REPLY, spawn};
+use support::{REPLY, reported, spawn};
 
 /// How slowly the model answers, word by word, for a turn to be seen running.
 const PACE: Duration = Duration::from_millis(150);
@@ -113,10 +113,14 @@ async fn pi_starts_replies_reports_itself_idle_and_resumes_its_conversation() {
         state == Some(State::Working)
     })
     .await;
+    // Not checked as reported: the prompt marks Pi draws around each message
+    // end its working report in the terminal host, which leaves the screen
+    // to tell the turn running.
     support::until(&daemon, id, Agent::Pi, TRIES, |state, screen| {
         settled(&state) && screen.iter().filter(|l| l.contains(REPLY)).count() == 2
     })
     .await;
+    assert_eq!(reported(&daemon, id).await, Some(State::Done));
 
     let context = adroit_host::programs::starting(&settings, Some(Agent::Pi), None).unwrap();
     let session = adroit_model::Session {
