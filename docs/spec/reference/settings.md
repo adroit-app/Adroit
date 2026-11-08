@@ -39,7 +39,7 @@ How sessions opened by sessions run.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `delegation.max_started` | integer | `4` | How many sessions opened by sessions may run at once, from 0 to 64. Zero refuses new ones without ending those already running. Sessions you start and terminals do not count. |
+| `delegation.enabled` | boolean | `true` | Whether sessions may open sessions beside them. Off, a start is refused without ending those already running; it is off while the file cannot be read. |
 
 ## `[details]`
 

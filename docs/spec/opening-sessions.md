@@ -57,9 +57,12 @@ cannot act as another.
   changes. A profile whose provider has not answered has no list, and its
   models are not checked.
 
-At most `max_started` sessions opened by sessions run at once
-([settings](settings.md#settingstoml)); a start beyond it is refused with the
-limit named, and sessions the user started never count against it.
+However many sessions run, a session can open one more. You can switch
+sessions opening sessions off ([settings](settings.md#settingstoml)), and it
+is off while the settings cannot be read: a start is then refused, telling the
+agent to carry on itself or ask you, and the sessions already running go on.
+An earlier settings file that capped how many sessions opened by sessions run
+at once still loads, and the cap is dropped.
 
 ## Messages
 

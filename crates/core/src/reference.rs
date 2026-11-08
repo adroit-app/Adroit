@@ -393,7 +393,7 @@ mod tests {
             "{s}"
         );
         assert!(
-            s.contains("| `delegation.max_started` | integer | `4` |"),
+            s.contains("| `delegation.enabled` | boolean | `true` |"),
             "{s}"
         );
         // A setting that may be left out is of the type it has when it is not.

@@ -105,7 +105,7 @@ mod tests {
         let context = Environment::at("work", root.path()).unwrap();
         run(Some(context), async {
             assert!(crate::settings::load_error().is_some());
-            assert_eq!(crate::settings::current().delegation.max_started, 0);
+            assert!(!crate::settings::current().delegation.enabled);
         })
         .await;
     }

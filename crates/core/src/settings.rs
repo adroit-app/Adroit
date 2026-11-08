@@ -203,7 +203,7 @@ struct SettingsFile {
     sessions: Option<SessionOptions>,
     codex: Option<Launch>,
     codex_sessions: Option<CodexOptions>,
-    delegation: DelegationSettings,
+    delegation: DelegationFile,
     #[schemars(skip)]
     orchestration: Retired,
     zoom: f64,
@@ -239,7 +239,7 @@ impl Default for SettingsFile {
             sessions: None,
             codex: None,
             codex_sessions: None,
-            delegation: s.delegation,
+            delegation: s.delegation.into(),
             orchestration: Retired,
             zoom: s.zoom,
             prompt_min_rows: s.prompt_min_rows,
@@ -336,7 +336,7 @@ impl TryFrom<SettingsFile> for Settings {
             profile,
             profiles,
             unshared,
-            delegation: file.delegation,
+            delegation: file.delegation.into(),
             zoom: file.zoom,
             prompt_min_rows: file.prompt_min_rows,
             prompt_max_rows: file.prompt_max_rows,
@@ -363,15 +363,48 @@ impl TryFrom<SettingsFile> for Settings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct DelegationSettings {
-    /// How many sessions opened by sessions may run at once, from 0 to 64. Zero
-    /// refuses new ones without ending those already running. Sessions you
-    /// start and terminals do not count.
-    pub max_started: usize,
+    /// Whether sessions may open sessions beside them. Off, a start is refused
+    /// without ending those already running; it is off while the file cannot be
+    /// read.
+    pub enabled: bool,
 }
 
 impl Default for DelegationSettings {
     fn default() -> Self {
-        Self { max_started: 4 }
+        Self { enabled: true }
+    }
+}
+
+/// `[delegation]` as read, where earlier files capped how many sessions opened
+/// by sessions could run.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+struct DelegationFile {
+    enabled: bool,
+    #[schemars(skip)]
+    max_started: Retired,
+}
+
+impl Default for DelegationFile {
+    fn default() -> Self {
+        DelegationSettings::default().into()
+    }
+}
+
+impl From<DelegationSettings> for DelegationFile {
+    fn from(settings: DelegationSettings) -> Self {
+        Self {
+            enabled: settings.enabled,
+            max_started: Retired,
+        }
+    }
+}
+
+impl From<DelegationFile> for DelegationSettings {
+    fn from(file: DelegationFile) -> Self {
+        Self {
+            enabled: file.enabled,
+        }
     }
 }
 
@@ -570,7 +603,6 @@ impl Settings {
     /// The settings made sensible: rows of at least one and the most no fewer
     /// than the fewest, a zoom among the levels' range.
     pub fn sane(mut self) -> Self {
-        self.delegation.max_started = self.delegation.max_started.min(64);
         self.prompt_min_rows = self.prompt_min_rows.clamp(1, 40);
         self.prompt_max_rows = self.prompt_max_rows.clamp(self.prompt_min_rows, 60);
         let (least, most) = (
@@ -754,6 +786,24 @@ mod tests {
         assert_eq!(settings.delegation, DelegationSettings::default());
         let written = toml::to_string_pretty(&settings).unwrap();
         assert!(!written.contains("orchestration"), "{written}");
+    }
+
+    #[test]
+    fn sessions_open_sessions_unless_the_file_switches_it_off() {
+        assert!(Settings::default().delegation.enabled);
+        let off = Settings::parse("[delegation]\nenabled = false\n").unwrap();
+        assert!(!off.delegation.enabled);
+    }
+
+    #[test]
+    fn a_file_that_capped_sessions_opened_by_sessions_still_loads_and_loses_the_cap() {
+        for cap in [0, 20] {
+            let settings =
+                Settings::parse(&format!("[delegation]\nmax_started = {cap}\n")).unwrap();
+            assert_eq!(settings.delegation, DelegationSettings::default());
+            let written = toml::to_string_pretty(&settings).unwrap();
+            assert!(!written.contains("max_started"), "{written}");
+        }
     }
 
     #[test]
@@ -993,7 +1043,7 @@ model = "chosen-model"
                 },
             ],
             unshared: Vec::new(),
-            delegation: DelegationSettings { max_started: 8 },
+            delegation: DelegationSettings { enabled: false },
             zoom: 1.1,
             prompt_min_rows: 2,
             prompt_max_rows: 20,

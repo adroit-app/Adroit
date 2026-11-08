@@ -273,14 +273,10 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         return Err(Error::new(Code::Invalid, "the prompt is empty"));
     }
     let settings = context.settings()?;
-    let running = context.call(|store| store.running_opened()).await?;
-    if running >= settings.delegation.max_started {
+    if !settings.delegation.enabled {
         return Err(Error::new(
             Code::Refused,
-            format!(
-                "{running} sessions opened by sessions already run, and at most {} may; carry on yourself, or ask the user to end one",
-                settings.delegation.max_started
-            ),
+            "the user has switched off sessions opening sessions; carry on yourself, or ask the user to open the session",
         ));
     }
     // The caller's own profile is not passed on: a session starts from the
@@ -841,6 +837,39 @@ mod tests {
             .unwrap();
         assert!(known.is_some());
         assert_eq!(record.conversation, known);
+    }
+
+    #[tokio::test]
+    async fn a_start_while_sessions_opening_sessions_is_switched_off_is_refused_and_leaves_nothing()
+    {
+        let (dir, mut context, caller, _) = conversation_watch("review");
+        let worktrees = dir.path().join("repo");
+        std::fs::create_dir(&worktrees).unwrap();
+        context.settings =
+            Arc::new(|| Ok(Settings::parse("[delegation]\nenabled = false\n").unwrap()));
+        let request = serde_json::from_value(serde_json::json!({
+            "prompt": "review the change",
+            "dir": worktrees,
+            "worktree": true,
+        }))
+        .unwrap();
+
+        let refused = start(&context, &caller, request).await.unwrap_err();
+
+        assert_eq!(refused.code, Code::Refused);
+        assert!(
+            refused.message.contains("carry on yourself"),
+            "{}",
+            refused.message
+        );
+        assert!(
+            refused.message.contains("ask the user"),
+            "{}",
+            refused.message
+        );
+        let sessions = context.call(|store| store.sessions()).await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(std::fs::read_dir(&worktrees).unwrap().count(), 0);
     }
 
     #[tokio::test]

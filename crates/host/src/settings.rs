@@ -50,7 +50,7 @@ fn load_path(path: &Path) -> Settings {
 pub(crate) fn recover(error: String) -> Settings {
     eprintln!("adroit: {error}");
     Settings {
-        delegation: DelegationSettings { max_started: 0 },
+        delegation: DelegationSettings { enabled: false },
         ..Settings::default()
     }
 }
@@ -164,14 +164,13 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_configuration_never_turns_paused_starts_into_default_capacity() {
+    fn an_invalid_configuration_switches_sessions_opening_sessions_off() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.toml");
-        std::fs::write(&path, "[delegation]\nmax_started = 0\n").unwrap();
-        assert_eq!(load_path(&path).delegation.max_started, 0);
-        std::fs::write(&path, "[delegation]\nmax_started = 0\nzoom = ").unwrap();
-        let recovery = load_path(&path).sane();
-        assert_eq!(recovery.delegation.max_started, 0);
+        std::fs::write(&path, "zoom = 1.0\n").unwrap();
+        assert!(load_path(&path).delegation.enabled);
+        std::fs::write(&path, "zoom = ").unwrap();
+        assert!(!load_path(&path).sane().delegation.enabled);
     }
 
     #[test]
