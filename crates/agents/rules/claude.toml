@@ -1,0 +1,92 @@
+# How Claude Code's screen tells how it stands while it reports no status:
+# the input box between two rules across the screen, its spinner right above
+# the input box while it works, the dialogs of its own that take the keys,
+# and the questions it asks before its input box is drawn.
+
+agent = "claude"
+
+[lines]
+# A rule across the screen, as drawn above and below the input box. A
+# session started with a name carries it near the rule's right end, as in
+# `──── fix ─`; a dialog's own boxes are indented and cornered, so never pass.
+rule = '^(?:─{20,}|─{19,} (?:[^─]* )?─+)\s*$'
+# The first line of the input box: `❯`, or `!` in bash mode.
+prompt = '^[❯>!]'
+input_top = { regex = '^(?:─{20,}|─{19,} (?:[^─]* )?─+)\s*$', next = "prompt" }
+# Every dialog lets Escape leave it: "Esc to cancel", "esc to clear" and the like.
+key_hint = '(?i)esc to '
+# A glyph, then a word with an ellipsis and how long it has been at it, as
+# in `✻ Running… (3s · esc to interrupt)`.
+spinner = '^[^\p{Alphabetic}\p{N}\s] .*… \(\d'
+trust_asked = '(?i)trust this project|trust this folder|trust this directory|trust the files in this folder'
+permission_asked = '(?i)do you want to allow|allow this tool|permission to'
+decision = '(?i)trust this project|trust this folder|trust this directory|trust the files in this folder|do you want to allow|allow this tool|permission to'
+yes = '(?i)yes'
+no = '(?i)no'
+
+[regions]
+lowest_rule = { last = "rule" }
+above_lowest_rule = { before = "lowest_rule" }
+input = { within = "above_lowest_rule", last = "input_top" }
+above_input = { before = "input" }
+rule_above_input = { within = "above_input", last = "rule" }
+# Where a dialog sits right above the input box while Claude works.
+dialog_above_input = { within = "above_input", after = "rule_above_input" }
+# Where a dialog sits in place of the input box.
+below_lowest_rule = { after = "lowest_rule" }
+# A tip can sit under the spinner; anything further up is the reply.
+near_input = { within = "above_input", tail_non_empty = 3 }
+input_on = { after = "input" }
+prompt_row = { within = "input_on", head = 1 }
+recent = { tail = 24 }
+
+[conditions]
+dialog = { any = [
+  { in = "dialog_above_input", has = "key_hint" },
+  { absent = "input", in = "below_lowest_rule", has = "key_hint" },
+] }
+
+[[rules]]
+id = "dialog_open"
+dialog = true
+when = { holds = "dialog" }
+
+[[rules]]
+id = "no_input_box"
+default = true
+when = { absent = "input" }
+
+[[rules]]
+id = "spinner_above_input"
+state = "working"
+when = { in = "near_input", has = "spinner" }
+
+[[rules]]
+id = "input_box_idle"
+state = "idle"
+default = true
+shows = "prompt_row"
+
+[[startup]]
+id = "input_box_ready"
+startup = "ready"
+when = { present = "input", not = { any = [{ holds = "dialog" }, { in = "input_on", has = "decision" }] } }
+
+[[startup]]
+id = "trust_asked"
+startup = "awaiting-trust"
+when = { in = "recent", has = "trust_asked", all = [{ in = "recent", has = "yes" }, { in = "recent", has = "no" }] }
+
+[[startup]]
+id = "permission_asked"
+startup = "awaiting-permission"
+when = { in = "recent", has = "permission_asked", all = [{ in = "recent", has = "yes" }, { in = "recent", has = "no" }] }
+
+[[startup]]
+id = "dialog_open"
+startup = "awaiting-input"
+when = { holds = "dialog" }
+
+[[startup]]
+id = "nothing_yet"
+default = true

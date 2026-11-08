@@ -41,6 +41,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe, and
 | `crates/agents/` | each agent's adapter: how Claude Code, Codex, Pi and OpenCode are started, asked and read back |
 | `crates/agents/plugin/` | the Claude Code plugin every session Adroit starts loads |
 | `crates/agents/opencode/` | the plugin the OpenCode sessions Adroit starts load |
+| `crates/agents/rules/` | the rules, as data, that read each agent's screen: how it stands, whether a dialog holds the keys, whether it is ready |
 | `crates/core/` | the window's state and the rules it changes by, with no UI and no programs run |
 | `crates/core/icons/` | the Tabler icons the window draws, with their licence |
 | `crates/core/examples/` | `references`, which writes `docs/spec/reference/` from the code |

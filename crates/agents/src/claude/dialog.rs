@@ -1,29 +1,17 @@
 //! Telling from Claude Code's screen whether one of its own dialogs, such as
-//! the picker `/model` opens, has the keys in place of its input box.
+//! the picker `/model` opens, has the keys in place of its input box, as the
+//! rules in force for Claude Code read it, and what the dialog asks.
 
-use adroit_model::State;
+use adroit_model::{Agent, State};
 
-use crate::{Judgement, Verdict};
+use crate::Judgement;
 
 /// Whether the screen whose rows are `lines` shows a dialog of Claude Code's
 /// that takes keys: one drawn below a rule across the screen, with a hint of
 /// its keys such as "Esc to cancel". It takes the place of the input box, a
 /// prompt between two such rules, or sits right above it while Claude works.
 pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
-    dialog_hint(lines).is_some()
-}
-
-/// The row of the hint of the open dialog's keys, as [`dialog_open`] finds it.
-pub(crate) fn dialog_hint<S: AsRef<str>>(lines: &[S]) -> Option<usize> {
-    let line = |i: usize| lines[i].as_ref();
-    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
-    let input = rules.windows(2).rposition(|w| prompt(line(w[0] + 1)));
-    let (from, to) = match input {
-        Some(0) => return None,
-        Some(at) => (rules[at - 1], rules[at]),
-        None => (*rules.last()?, lines.len()),
-    };
-    (from + 1..to).find(|&i| key_hint(line(i)))
+    crate::rules::dialog_open(Agent::Claude, lines)
 }
 
 /// How a session stands by its screen, for one whose status its program has
@@ -32,49 +20,7 @@ pub(crate) fn dialog_hint<S: AsRef<str>>(lines: &[S]) -> Option<usize> {
 /// drawn, as while Claude Code asks whether to trust the folder, nor while a
 /// dialog of its own has the keys.
 pub fn judge_state<S: AsRef<str>>(lines: &[S]) -> Judgement<State> {
-    let line = |i: usize| lines[i].as_ref();
-    if let Some(hint) = dialog_hint(lines) {
-        return Judgement::new(None, Verdict::matched("claude.dialog_open", lines, [hint]));
-    }
-    let rules: Vec<usize> = (0..lines.len()).filter(|&i| rule(line(i))).collect();
-    let Some(top) = rules
-        .windows(2)
-        .rfind(|w| prompt(line(w[0] + 1)))
-        .map(|w| w[0])
-    else {
-        return Judgement::new(None, Verdict::defaulted("claude.no_input_box", lines, []));
-    };
-    // A tip can sit under the spinner; anything further up is the reply.
-    let spinning = (0..top)
-        .rev()
-        .filter(|&i| !line(i).trim().is_empty())
-        .take(3)
-        .find(|&i| spinner(line(i)));
-    match spinning {
-        Some(at) => Judgement::new(
-            Some(State::Working),
-            Verdict::matched("claude.spinner_above_input", lines, [at]),
-        ),
-        None => Judgement::new(
-            Some(State::Idle),
-            Verdict::defaulted("claude.input_box_idle", lines, [top + 1]),
-        ),
-    }
-}
-
-/// Claude Code's spinner while it works: a glyph, then a word with an
-/// ellipsis and how long it has been at it, as in `✻ Running… (3s · …)`.
-fn spinner(line: &str) -> bool {
-    let mut chars = line.chars();
-    let glyph = chars
-        .next()
-        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace());
-    let rest = chars.as_str();
-    glyph
-        && rest.starts_with(' ')
-        && rest
-            .split_once("… (")
-            .is_some_and(|(_, after)| after.starts_with(|c: char| c.is_ascii_digit()))
+    crate::rules::judge_state(Agent::Claude, lines)
 }
 
 /// The channels named by Claude Code's warning before it loads development
@@ -131,17 +77,6 @@ pub fn rule(line: &str) -> bool {
                 && label.starts_with(' ')
                 && label.ends_with(' ')
                 && !label.contains('─')))
-}
-
-/// The first line of the input box, after its prompt: `❯`, or `!` in bash mode.
-fn prompt(line: &str) -> bool {
-    line.starts_with(['❯', '>', '!'])
-}
-
-/// A footer naming the dialog's keys. Every dialog lets Escape leave it,
-/// written "Esc to cancel", "Esc to close", "esc to clear" and the like.
-fn key_hint(line: &str) -> bool {
-    line.to_lowercase().contains("esc to ")
 }
 
 #[cfg(test)]

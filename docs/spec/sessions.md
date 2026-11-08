@@ -289,9 +289,11 @@ failed, is what its program reports with the
 as the daemon keeps it. For every agent, when its program has reported no
 status, or what it reported was lost as its terminal was reset, its screen
 supplies the state instead: its visible
-activity and requests for approval or input. A request for approval or input
-on its screen wins over a report that it is working. A session Adroit started
-shows as starting until its program reports a state or its screen supplies one.
+activity and requests for approval or input, read by the agent's
+[screen rules](screen-rules.md), which a set of your own may replace. A request
+for approval or input on its screen wins over a report that it is working. A
+session Adroit started shows as starting until its program reports a state or
+its screen supplies one.
 
 A working session whose screen turns idle with no sign of its own that the
 turn ended, only the sign of work gone, goes on showing as working until the
@@ -301,9 +303,10 @@ turn as done.
 `adroit session explain <session>` tells where the state a session shows
 came from: what its program reported, or the rule its screen was read by and
 the rows that rule went by, or that no rule's sign was shown and a default was
-taken; how its start stands and how long until it counts as stalled; and the
-last rows of its screen. The session is named by its id or its name, and
-`--json` prints the same as JSON. `adroit session explain --file <path>
+taken; how its start stands and how long until it counts as stalled; the
+screen rules in force, and why a set of yours was set aside; and the last rows
+of its screen. The session is named by its id or its name, and `--json` prints
+the same as JSON. `adroit session explain --file <path>
 --agent <agent>` reads a screen kept in a file as that agent's.
 
 A session whose turn has finished is marked done, with a check, in the tree

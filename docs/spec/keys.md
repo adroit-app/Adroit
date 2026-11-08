@@ -139,8 +139,9 @@ from the prompt as well as the console; the prompt is Neovim's again once it
 is answered. So does a session showing a dialog of its agent's own in place
 of its input box, or above it while the agent works, such as the picker `/model`
 opens, until the dialog closes.
-The dialog is told from what the console shows; one Adroit does not
-recognise still takes `console.pass_every_key`.
+The dialog is told from what the console shows, by the agent's
+[screen rules](screen-rules.md); one they do not recognise still takes
+`console.pass_every_key`.
 A session still starting, whose program has reported nothing and not yet
 drawn its input box, also takes every key, such as Claude Code asking whether
 to trust the folder. One that has drawn its input box is no longer starting,

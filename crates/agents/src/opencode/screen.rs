@@ -1,67 +1,18 @@
 //! What OpenCode's screen says of it while it reports no status: the prompt
 //! box it waits at, the hint to interrupt a turn running, and the permission
-//! it asks for in the prompt's place.
+//! it asks for in the prompt's place, as the rules in force for OpenCode
+//! read them.
 
-use adroit_model::{State, Wait};
+use adroit_model::{Agent, State};
 
-use crate::{Judgement, Verdict};
-
-/// Whether `line` is the foot of OpenCode's prompt box, drawn while it takes
-/// a prompt.
-fn prompt_foot(line: &str) -> bool {
-    let line = line.trim();
-    line.starts_with('╹') && line.contains('▀')
-}
-
-/// The row where OpenCode asks to allow a tool call, its choices drawn in
-/// the prompt's place.
-fn permission_row(screen: &[String]) -> Option<usize> {
-    let at = screen.iter().rposition(|line| {
-        line.trim_start_matches(['┃', ' '])
-            .starts_with("△ Permission required")
-    })?;
-    screen[at..]
-        .iter()
-        .any(|line| line.contains("Allow once") && line.contains("Reject"))
-        .then_some(at)
-}
-
-/// The row of the hint to interrupt a turn running, under the prompt.
-fn working_row(screen: &[String]) -> Option<usize> {
-    (0..screen.len())
-        .rev()
-        .filter(|&i| !screen[i].trim().is_empty())
-        .take(2)
-        .find(|&i| {
-            let line = &screen[i];
-            line.contains(" esc interrupt") || line.contains(" esc again to interrupt")
-        })
-}
+use crate::Judgement;
 
 pub(super) fn dialog_open(screen: &[String]) -> bool {
-    permission_row(screen).is_some()
+    crate::rules::dialog_open(Agent::OpenCode, screen)
 }
 
 pub(super) fn judge_state(screen: &[String]) -> Judgement<State> {
-    if let Some(at) = permission_row(screen) {
-        return Judgement::new(
-            Some(State::Waiting(Wait::Permission)),
-            Verdict::matched("opencode.permission_asked", screen, [at]),
-        );
-    }
-    if let Some(at) = working_row(screen) {
-        return Judgement::new(
-            Some(State::Working),
-            Verdict::matched("opencode.interrupt_hint", screen, [at]),
-        );
-    }
-    match screen.iter().rposition(|line| prompt_foot(line)) {
-        Some(at) => Judgement::new(
-            Some(State::Idle),
-            Verdict::defaulted("opencode.prompt_idle", screen, [at]),
-        ),
-        None => Judgement::new(None, Verdict::defaulted("opencode.no_prompt", screen, [])),
-    }
+    crate::rules::judge_state(Agent::OpenCode, screen)
 }
 
 #[cfg(test)]
@@ -69,6 +20,7 @@ mod tests {
     use super::*;
     use crate::AgentAdapter;
     use crate::testing::{recorded, screen};
+    use adroit_model::Wait;
 
     fn state_of(screen: &[String]) -> Option<State> {
         judge_state(screen).value

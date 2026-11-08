@@ -3,77 +3,9 @@ use adroit_model::config::SessionOptions;
 
 pub struct Claude;
 
-/// What Claude Code's question whether to trust a folder says, in lower case.
-const TRUST_ASKED: &[&str] = &[
-    "trust this project",
-    "trust this folder",
-    "trust this directory",
-    "trust the files in this folder",
-];
-
-/// What Claude Code's question whether to allow a tool says, in lower case.
-const PERMISSION_ASKED: &[&str] = &["do you want to allow", "allow this tool", "permission to"];
-
 impl AgentAdapter for Claude {
     fn judge_startup(&self, screen: &[String]) -> Judgement<adroit_model::StartupReadiness> {
-        use adroit_model::StartupReadiness;
-        let rules = screen
-            .iter()
-            .enumerate()
-            .filter(|(_, line)| super::dialog::rule(line))
-            .map(|(i, _)| i)
-            .collect::<Vec<_>>();
-        let prompt = rules
-            .windows(2)
-            .filter(|pair| screen[pair[0] + 1].starts_with(['❯', '>', '!']))
-            .map(|pair| pair[0] + 1)
-            .next_back();
-        let decision_question = screen.iter().rposition(|line| {
-            let line = line.to_lowercase();
-            TRUST_ASKED
-                .iter()
-                .chain(PERMISSION_ASKED)
-                .any(|phrase| line.contains(phrase))
-        });
-        let hint = super::dialog::dialog_hint(screen);
-        if let Some(prompt) = prompt
-            && hint.is_none()
-            && decision_question.is_none_or(|question| prompt > question)
-        {
-            return Judgement::new(
-                Some(StartupReadiness::Ready),
-                Verdict::matched("claude.input_box_ready", screen, [prompt]),
-            );
-        }
-        let tail: Vec<(usize, String)> = (screen.len().saturating_sub(24)..screen.len())
-            .map(|i| (i, screen[i].to_lowercase()))
-            .collect();
-        let shown = |word: &str| tail.iter().any(|(_, line)| line.contains(word));
-        let asked = |phrases: &[&str]| {
-            tail.iter()
-                .rfind(|(_, line)| phrases.iter().any(|phrase| line.contains(phrase)))
-                .map(|(i, _)| *i)
-                .filter(|_| shown("yes") && shown("no"))
-        };
-        if let Some(at) = asked(TRUST_ASKED) {
-            return Judgement::new(
-                Some(StartupReadiness::AwaitingTrust),
-                Verdict::matched("claude.trust_asked", screen, [at]),
-            );
-        }
-        if let Some(at) = asked(PERMISSION_ASKED) {
-            return Judgement::new(
-                Some(StartupReadiness::AwaitingPermission),
-                Verdict::matched("claude.permission_asked", screen, [at]),
-            );
-        }
-        match hint {
-            Some(at) => Judgement::new(
-                Some(StartupReadiness::AwaitingInput),
-                Verdict::matched("claude.dialog_open", screen, [at]),
-            ),
-            None => Judgement::new(None, Verdict::defaulted("claude.nothing_yet", screen, [])),
-        }
+        crate::rules::judge_startup(Agent::Claude, screen)
     }
 
     fn instruction_args(&self, instructions: &str) -> Vec<String> {

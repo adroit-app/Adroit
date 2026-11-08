@@ -1,0 +1,50 @@
+# How Pi's screen tells how it stands while its program reports no status:
+# the project trust picker it shows before its interface, and the editor,
+# pickers and working rule of the interface.
+
+agent = "pi"
+
+[lines]
+# A rule Pi draws above and below its editor, the upper one carrying
+# `Working` while a turn runs.
+rule = '^\s*──(?:.*─)?\s*$'
+working = 'Working'
+trust = '(?i)^\s*trust project folder\?\s*$'
+cancel_hint = '(?i)cancel.*esc|esc.*cancel'
+
+[regions]
+lower = { last = "rule" }
+above_lower = { before = "lower" }
+upper = { within = "above_lower", last = "rule" }
+# Pi's editor, or the picker or dialog drawn in its place.
+editor = { within = "above_lower", after = "upper" }
+
+[[rules]]
+id = "no_editor"
+default = true
+when = { absent = "editor" }
+
+[[rules]]
+id = "trust_asked"
+state = "waiting-input"
+startup = "awaiting-trust"
+# The picker holds the keys while it shows its hint to cancel.
+dialog = { in = "editor", has = "cancel_hint" }
+when = { in = "editor", has = "trust" }
+
+[[rules]]
+id = "dialog_in_editor"
+state = "waiting-input"
+dialog = true
+when = { in = "editor", has = "cancel_hint" }
+
+[[rules]]
+id = "working_rule"
+state = "working"
+when = { in = "upper", has = "working" }
+
+[[rules]]
+id = "editor_idle"
+state = "idle"
+default = true
+shows = "upper"

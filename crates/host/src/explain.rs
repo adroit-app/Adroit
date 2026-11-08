@@ -98,7 +98,26 @@ pub(crate) struct Explained {
     pub shown: Option<Shown>,
     pub startup: Judgement<StartupReadiness>,
     pub start: Option<Start>,
+    pub rules: RulesUsed,
     pub tail: Vec<String>,
+}
+
+/// The rules that read the agent's screen: the user's file they came from,
+/// none for the bundled ones, and why a file of the user's was set aside.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RulesUsed {
+    pub from: Option<std::path::PathBuf>,
+    pub warning: Option<String>,
+}
+
+impl RulesUsed {
+    fn of(agent: Agent) -> Self {
+        let in_force = adroit_agents::rules::in_force(agent);
+        Self {
+            from: in_force.from.clone(),
+            warning: in_force.warning.clone(),
+        }
+    }
 }
 
 impl Explained {
@@ -167,6 +186,13 @@ impl Explained {
             };
             out.push(format!("recorded: {}{stalls}", start.recorded.key()));
         }
+        out.push(match &self.rules.from {
+            Some(path) => format!("rules: {}", path.display()),
+            None => "rules: bundled".into(),
+        });
+        if let Some(warning) = &self.rules.warning {
+            out.push(format!("rules warning: {warning}"));
+        }
         out.push(format!("screen tail ({} rows):", self.tail.len()));
         out.extend(self.tail.iter().map(|row| format!("  | {row}")));
         out.join("\n")
@@ -195,6 +221,10 @@ impl Explained {
                 "readiness": start.recorded.key(),
                 "stalls_in_secs": start.stalls_in.map(|left| left.as_secs()),
             })),
+            "rules": {
+                "from": self.rules.from,
+                "warning": self.rules.warning,
+            },
             "tail": self.tail,
         })
     }
@@ -257,6 +287,7 @@ pub(crate) fn of_screen(agent: Agent, screen: &[String]) -> Explained {
         shown: None,
         startup: adapter.judge_startup(screen),
         start: None,
+        rules: RulesUsed::of(agent),
         tail: tail(screen),
     }
 }
@@ -347,6 +378,7 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
         shown: crate::watch::hold::shown(native.id).filter(|_| read),
         startup: adapter.judge_startup(&screen),
         start,
+        rules: RulesUsed::of(c.agent),
         tail: tail(&screen),
     })
 }
@@ -509,6 +541,41 @@ mod tests {
         assert!(text.contains("\nstartup: ready by rule claude.input_box_ready\n"));
         assert!(text.contains("\nrecorded: ready\n"));
         assert!(text.contains("\n  | ❯"));
+    }
+
+    #[test]
+    fn an_explanation_names_the_rules_in_force_and_why_the_user_s_were_set_aside() {
+        let mut e = of_screen(Agent::Codex, &[]);
+        e.rules = RulesUsed {
+            from: None,
+            warning: Some(
+                "/c/codex.toml cannot be used, so the bundled rules judge instead".into(),
+            ),
+        };
+        let text = e.text();
+        assert!(
+            text.contains("\nrules: bundled\nrules warning: /c/codex.toml cannot be used"),
+            "{text}"
+        );
+        assert_eq!(e.json()["rules"]["from"], Value::Null);
+        assert!(
+            e.json()["rules"]["warning"]
+                .as_str()
+                .unwrap()
+                .starts_with("/c/codex.toml")
+        );
+
+        e.rules = RulesUsed {
+            from: Some("/c/codex.toml".into()),
+            warning: None,
+        };
+        let text = e.text();
+        assert!(
+            text.contains("\nrules: /c/codex.toml\nscreen tail"),
+            "{text}"
+        );
+        assert!(!text.contains("rules warning"));
+        assert_eq!(e.json()["rules"]["from"], "/c/codex.toml");
     }
 
     #[test]

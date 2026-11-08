@@ -1,0 +1,73 @@
+# How Codex's screen tells how it stands while it reports no status: the
+# composer it waits at, the dialogs and pickers drawn under it, and the hint
+# to interrupt a turn running.
+
+agent = "codex"
+
+[lines]
+# The composer, and a selected row of a picker, which uses the same chevron.
+chevron = '^\s*›'
+numbered_chevron = '^\s*›\s*\d+\. '
+numbered = '^\s*\d+\. '
+question = '(?i)to submit (answer|all)'
+permission = 'Press enter to confirm or esc to cancel'
+hint = '(?i)to submit (answer|all)|^\s*enter/esc continue|esc to (cancel|dismiss|close|go back)|esc back'
+interrupt = '^\s*• .*esc to interrupt'
+worked = '^\s*• Worked for '
+
+[regions]
+# Looked for from the bottom, so a reply quoting a menu takes no keys.
+composer = { last = "chevron" }
+below = { after = "composer" }
+above = { before = "composer" }
+# A previous composer belongs to the transcript, not the live footer.
+footer = { within = "above", since = "chevron" }
+foot = { tail_non_empty = 4 }
+
+[[rules]]
+id = "dialog_without_composer"
+state = "waiting-input"
+dialog = true
+when = { absent = "composer", in = "foot", has = "hint" }
+
+[[rules]]
+id = "no_composer"
+default = true
+when = { absent = "composer" }
+
+[[rules]]
+id = "question_below_composer"
+state = "waiting-input"
+dialog = true
+when = { in = "below", has = "question" }
+
+[[rules]]
+id = "permission_below_composer"
+state = "waiting-permission"
+dialog = true
+when = { in = "composer", has = "numbered_chevron", all = [{ in = "below", has = "permission" }] }
+
+[[rules]]
+id = "dialog_below_composer"
+state = "waiting-input"
+dialog = true
+when = { in = "composer", has = "numbered_chevron", any = [
+  { in = "below", has = "numbered" },
+  { in = "below", has = "hint" },
+] }
+
+[[rules]]
+id = "interrupt_hint"
+state = "working"
+when = { in = "footer", has = "interrupt" }
+
+[[rules]]
+id = "worked_for"
+state = "idle"
+when = { in = "footer", has = "worked" }
+
+[[rules]]
+id = "composer_idle"
+state = "idle"
+default = true
+shows = "composer"

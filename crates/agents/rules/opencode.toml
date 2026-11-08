@@ -1,0 +1,38 @@
+# How OpenCode's screen tells how it stands while it reports no status: the
+# prompt box it waits at, the hint to interrupt a turn running, and the
+# permission it asks for in the prompt's place.
+
+agent = "opencode"
+
+[lines]
+permission = '^[┃ ]*△ Permission required'
+choices = 'Allow once.*Reject'
+interrupt = ' esc interrupt| esc again to interrupt'
+# The foot of the prompt box, drawn while OpenCode takes a prompt.
+prompt_foot = '^\s*╹.*▀'
+
+[regions]
+permission = { last = "permission" }
+asked = { from = "permission" }
+foot = { tail_non_empty = 2 }
+
+[[rules]]
+id = "permission_asked"
+state = "waiting-permission"
+dialog = true
+when = { in = "asked", has = "choices" }
+
+[[rules]]
+id = "interrupt_hint"
+state = "working"
+when = { in = "foot", has = "interrupt" }
+
+[[rules]]
+id = "prompt_idle"
+state = "idle"
+default = true
+when = { has = "prompt_foot" }
+
+[[rules]]
+id = "no_prompt"
+default = true
