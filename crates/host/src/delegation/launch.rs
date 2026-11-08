@@ -155,8 +155,10 @@ Find the project's directory among the user's repositories (`ghq list --full-pat
 /// What every session is told of Adroit's tools, whoever started it.
 const INSTRUCTIONS: &str = "\
 You run in Adroit, where the user watches every session and can step into any of them, and every session answers to the user. \
-Do your work yourself, in this conversation: give what can run alongside to your own subagents and tools, whose results come back to you, and carry on yourself what follows from work you already know. \
-Open a session with `start_session` only for a separate line of work that needs little of what you know, or when the user asks you to; one session doing a part of your work is not that. \
+Do your work yourself, in this conversation: give your own subagents and tools what runs alongside and comes back to you to fold into your answer — a search, a check, a piece of research — and carry on yourself what follows from work you already know. \
+Open a session with `start_session` for a line of work the user will want to steer themselves: one that needs their decisions or review along the way, lands as a change of its own, or lives in another repository — even when it came out of your own work, as long as what it needs fits in a first prompt — or when the user asks you to. \
+When asked to work in parallel, give each such line a session and the rest to subagents. \
+Never open one for a step of your own answer, for something you would wait on, or only to have it run alongside. \
 It answers to the user, not to you: give it a first prompt that carries all it needs, and tell the user you opened it and why. \
 \n\n\
 Other sessions may work in the same repository. Before touching something you share with them — the checkout itself, a branch, a port, a database — call `sessions` to find those in the same repository and `send` each of them what you are about to do; afterwards send what you did. Do not wait for their answers and do not take locks. \
@@ -243,12 +245,24 @@ mod tests {
     }
 
     #[test]
-    fn a_session_is_told_to_keep_its_own_work_and_open_sessions_only_for_a_separate_line_of_it() {
+    fn a_session_is_told_to_keep_its_own_work_and_open_sessions_for_lines_the_user_will_steer() {
         let told = instructions(Path::new("/bin/adroit"), false);
         assert!(told.contains("Do your work yourself"), "{told}");
-        assert!(told.contains("separate line of work"), "{told}");
+        assert!(told.contains("comes back to you"), "{told}");
+        assert!(told.contains("the user will want to steer"), "{told}");
+        assert!(told.contains("decisions or review"), "{told}");
+        assert!(told.contains("another repository"), "{told}");
+        assert!(told.contains("fits in a first prompt"), "{told}");
         assert!(told.contains("answers to the user"), "{told}");
+        assert!(!told.contains("needs little of what you know"), "{told}");
         assert!(!told.contains("report"), "{told}");
+    }
+
+    #[test]
+    fn a_session_asked_to_work_in_parallel_is_told_to_split_it_between_sessions_and_subagents() {
+        let told = instructions(Path::new("/bin/adroit"), false);
+        assert!(told.contains("in parallel"), "{told}");
+        assert!(told.contains("only to have it run alongside"), "{told}");
     }
 
     #[test]

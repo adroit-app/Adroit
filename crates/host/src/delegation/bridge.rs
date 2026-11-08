@@ -65,7 +65,7 @@ fn tools() -> Vec<Value> {
     vec![
         tool(
             "start_session",
-            "Open a session beside you for a separate line of work that needs little of what you know, or when the user asks you to. It answers to the user, not to you, in a console of its own; give it a first prompt that carries what it needs.",
+            "Open a session beside you for a line of work the user will want to steer themselves — one that needs their decisions or review, lands as a change of its own, or lives in another repository — even when it came out of your own work, or when the user asks you to. What comes back to you to fold into your answer belongs to your own subagents instead. It answers to the user, not to you, in a console of its own; give it a first prompt that carries what it needs.",
             schemars::schema_for!(Start),
         ),
         tool(

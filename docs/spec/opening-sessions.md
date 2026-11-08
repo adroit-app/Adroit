@@ -1,11 +1,11 @@
 # Sessions that open sessions
 
 Every session Adroit starts can open sessions beside it and talk with any
-other session Adroit started. A session does its own work, giving what can
-run alongside to its agent's own subagents and tools. It opens a session only
-for a separate line of work, and the session it opens is an ordinary one: it
-answers to you, reports to no session, and is read and steered in its console
-like any other. Any session can open sessions, whoever started it.
+other session Adroit started. A session does its own work, giving what comes
+back to it to its agent's own subagents and tools. It opens a session for a
+line of work you will want to steer yourself, and the session it opens is an
+ordinary one: it answers to you, reports to no session, and is read and
+steered in its console like any other. Any session can open sessions, whoever started it.
 
 ```mermaid
 flowchart TB
@@ -89,13 +89,17 @@ terminals, can neither send nor receive.
 ## What sessions are told
 
 Adroit gives every session it starts the same instructions about these tools.
-A session does its work itself, with its agent's own subagents for what runs
-alongside, and carries on what it already knows itself rather than handing it
-on. It opens a session only for a separate line of work that needs little of
-what it knows, or when you ask it to, and writes that session a first prompt
-that carries what it needs. Before touching something it shares with other
-sessions in the same repository, such as the checkout itself, a branch, or a
-port, a session tells those sessions what it is about to do, and afterwards
+A session does its work itself, with its agent's own subagents for what comes
+back to it to fold into its answer, and carries on what it already knows
+itself rather than handing it on. It opens a session for a line of work you
+will want to steer yourself — one that needs your decisions or review along
+the way, lands as a change of its own, or lives in another repository — even
+when that line came out of its own work, or when you ask it to; and writes
+that session a first prompt that carries what it needs. Asked to work in
+parallel, it gives each such line a session and the rest to subagents. It
+does not open one for a step of its own work or only to have something run
+alongside. Before touching something it shares with other sessions in the
+same repository, such as the checkout itself, a branch, or a port, a session tells those sessions what it is about to do, and afterwards
 what it did; it neither waits for their answer nor takes a lock. A session
 asks another that knows something rather than working it out again, and
 plans nothing on an answer coming. Sessions send only what the recipient has

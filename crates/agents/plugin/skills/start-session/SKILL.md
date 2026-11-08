@@ -1,19 +1,31 @@
 ---
 name: start-session
-description: Open a session beside you in Adroit for a separate line of work, one that answers to the user, or talk with another session working in the same repository. Use when a separate line of work turns up that needs little of what you know, when the user asks for a session of its own, or before touching what other sessions share.
+description: Open a session beside you in Adroit for a line of work the user will steer, one that answers to the user, or talk with another session working in the same repository. Use before splitting work between subagents and sessions — above all when asked to work in parallel — when a line of work turns up that needs the user's decisions or review, lands as a change of its own, or lives in another repository, when the user asks for a session of its own, or before touching what other sessions share.
 ---
 
 # Work beside other sessions in Adroit
 
 Every session in Adroit answers to the user. Do your work yourself, in this
-conversation: what can run alongside goes to your own subagents and tools,
-whose results come back to you, and what follows from work you already know
-stays with you.
+conversation: what runs alongside and comes back to you to fold into your
+answer — a search, a check, a piece of research — goes to your own subagents
+and tools, and what follows from work you already know stays with you.
 
 ## Open a session
 
-Open one only for a separate line of work that needs little of what you know,
-or when the user asks you to. A session doing a part of your work is not that.
+Ask who will steer the work. Open a session for a line of work the user will
+want to steer themselves:
+
+- it needs their decisions or review along the way: a design to choose, an
+  ADR or a spec to draft, an interface to approve;
+- it lands as a change of its own;
+- it lives in another repository.
+
+That holds even when the line came out of your own work, as long as what it
+needs fits in a first prompt. Open one too when the user asks you to.
+
+When asked to work in parallel, give each such line a session and the rest to
+subagents. Never open one for a step of your own answer, for something you
+would wait on, or only to have it run alongside.
 
 Call the `adroit` MCP server's `start_session` tool with a first prompt that
 carries all the new session needs: the line of work, and what you know that it

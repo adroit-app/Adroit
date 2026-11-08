@@ -21,11 +21,12 @@ named or declared before the first word.
 
 A workspace holds every session Adroit runs in it. When the workspace is a git
 repository, its worktrees divide it: each session sits under the worktree it
-runs in. A session keeps its work in its own conversation: what can run
-alongside, it gives to its agent's own subagents and tools, whose results come
-back to it. When a separate line of work turns up, one that needs little of
-what the session knows and that you will want to talk through yourself, the
-session can open it as a session beside it, usually in a worktree of its own,
+runs in. A session keeps its work in its own conversation: what comes back to
+it to fold into its answer, it gives to its agent's own subagents and tools.
+When a line of work turns up that you will want to steer yourself — one that
+needs your decisions or review, lands as a change of its own, or lives in
+another repository — the session can open it as a session beside it, even when
+it grew out of the session's own work, usually in a worktree of its own,
 with a first prompt that carries what it needs. That session answers to you,
 not to the one that opened it.
 
