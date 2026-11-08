@@ -109,6 +109,7 @@ icons! {
     PlayerStop => "player-stop",
     Plus => "plus",
     Refresh => "refresh",
+    Restore => "restore",
     RotateClockwise => "rotate-clockwise",
     RowInsertBottom => "row-insert-bottom",
     RowRemove => "row-remove",

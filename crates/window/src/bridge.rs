@@ -878,6 +878,8 @@ impl AppCtx {
             | Effect::PromptShow(_)
             | Effect::Resume { .. }
             | Effect::RestartDaemon(_)
+            | Effect::BringBack { .. }
+            | Effect::LetGo { .. }
             | Effect::TypeInto { .. }) => self.hand(effect),
             Effect::Perform(action) => self.perform(action, None),
             Effect::PerformKey(action, key) => self.perform(action, Some(key)),

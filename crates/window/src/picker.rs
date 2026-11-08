@@ -10,6 +10,7 @@ use crate::components::KeyHint;
 use crate::keys;
 
 mod go;
+mod interrupted;
 mod resume;
 
 #[component]
@@ -33,6 +34,7 @@ pub(crate) fn Picker() -> Element {
                 match open {
                     Picking::Go(picker) => rsx! { go::Go { picker: *picker } },
                     Picking::Resume(list) => rsx! { resume::Resume { list } },
+                    Picking::Interrupted(list) => rsx! { interrupted::Interrupted { list } },
                 }
             }
         }

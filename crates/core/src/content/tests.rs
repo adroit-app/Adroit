@@ -1115,3 +1115,90 @@ fn a_login_terminal_asked_from_another_environment_s_draft_opens_in_that_environ
         }]
     );
 }
+
+/// What the terminal host took with it, as the work host lists it: the
+/// session or the shell the daemon knew as `id`.
+fn interrupted(id: &str) -> adroit_model::Interrupted {
+    adroit_model::Interrupted {
+        id: id.into(),
+        name: format!("{id}-name"),
+        cwd: "/r".into(),
+        started_ms: 1,
+        what: adroit_model::InterruptedKind::Session {
+            agent: adroit_model::Agent::Claude,
+            profile: adroit_model::profile::ProfileId::builtin(adroit_model::Agent::Claude),
+            conversation: Some("c1".into()),
+        },
+    }
+}
+
+#[test]
+fn a_tab_of_a_session_the_terminal_host_took_stays_until_what_stands_for_it_takes_its_place() {
+    let run = listed_with([session("a").cwd("/r"), session("b").cwd("/r")])
+        .send(show(session_tab("a")))
+        .event(
+            patch(2).listed(
+                listed()
+                    .session(session("b").cwd("/r"))
+                    .interrupted(interrupted("a")),
+            ),
+        );
+    assert_eq!(shown(&run), [Tab::Session(here(), "a".into())]);
+    assert_eq!(run.state().chrome.status.line.as_deref(), None);
+
+    let back = run.event(
+        patch(3).listed(
+            listed()
+                .session(session("b").cwd("/r"))
+                .session(session("c").cwd("/r").restored_from("a")),
+        ),
+    );
+
+    assert_eq!(shown(&back), [Tab::Session(here(), "c".into())]);
+}
+
+#[test]
+fn a_tab_of_a_session_let_go_is_given_up() {
+    let run = listed_with([session("a").cwd("/r")])
+        .send(show(session_tab("a")))
+        .event(patch(2).listed(listed().interrupted(interrupted("a"))))
+        .event(patch(3).listed(listed()));
+    assert_eq!(shown(&run), Vec::<Tab>::new());
+}
+
+#[test]
+fn a_shell_s_tab_takes_the_shell_opened_again_for_it() {
+    let old = adroit_model::daemon::hex(7);
+    let mut again = shell(9, "/r");
+    again.restored_from = Some(old.clone());
+    let run = listed_with([session("a").cwd("/r")])
+        .send(show(Tab::Terminal(here(), 7)))
+        .event(
+            patch(2).listed(
+                listed()
+                    .session(session("a").cwd("/r"))
+                    .interrupted(interrupted(&old)),
+            ),
+        )
+        .event(patch(3).listed(listed().session(session("a").cwd("/r")).terminal(again)));
+    assert_eq!(shown(&run), [Tab::Terminal(here(), 9)]);
+}
+
+#[test]
+fn a_kept_tab_of_what_the_terminal_host_took_comes_back_and_takes_what_stands_for_it() {
+    let a = Tab::Session(here(), "a".into());
+    let waiting = Scenario::new()
+        .send(opened(Some(a.clone())))
+        .event(snapshot().listed(listed().interrupted(interrupted("a"))));
+    assert_eq!(active(&waiting), Some(a.clone()));
+    let back = waiting.event(patch(2).listed(listed().session(session("c").restored_from("a"))));
+    assert_eq!(active(&back), Some(Tab::Session(here(), "c".into())));
+
+    let brought_before = Scenario::new()
+        .send(opened(Some(a)))
+        .event(snapshot().listed(listed().session(session("c").restored_from("a"))));
+    assert_eq!(
+        active(&brought_before),
+        Some(Tab::Session(here(), "c".into()))
+    );
+}

@@ -71,6 +71,7 @@ changes them ([keys](../keys.md)).
 | `session.new` | New Session | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere | `global`: `Mod+t`<br>`tree`: `n` |
 | `session.scratch` | New Scratch Session | start a scratch session, with the prompt ready: one that runs in the scratch folder, for talking about something no project holds ([details](../tree.md#scratch-sessions)) |  |
 | `session.resume` | Resume Conversation… | list the conversations Claude Code and Codex kept, to resume one in a new session ([details](../sessions.md#resuming-a-past-conversation)) | `global`: `Mod+o`<br>`tree`: `O` |
+| `session.bring_back` | Bring Back Sessions… | list what the terminal host took with it when it went, to bring a session or a shell back ([details](../sessions.md#when-the-terminal-host-goes)) |  |
 | `session.stop` | End… | end a session Adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later; on a terminal's row, end that terminal | `global`: `Mod+Backspace`<br>`tree`: `X`<br>`console`: `X` |
 | `session.rename` | Rename… | edit the name of a session Adroit runs in place; the tree shows it, and the session is sent Claude Code's `/rename` so its own interface says it too | `tree`: `R` |
 | `session.profile_next` | Next Profile of New Session | while a session not started yet is shown, switch the profile it is to start from to the next one ([details](../sessions.md#agents)) | `draft`: `Ctrl+g p` |

@@ -213,6 +213,65 @@ pub(crate) fn DaemonBanner() -> Element {
     }
 }
 
+/// The banner offering to bring back what a sessions' daemon took with it
+/// when it went, naming its environment when that is not the window's own.
+#[component]
+pub(crate) fn InterruptedBanner() -> Element {
+    let app = use_context::<AppCtx>();
+    let shown = {
+        let config = app.config.read();
+        let hosts = app.hosts.read();
+        let overlays = app.overlays.read();
+        adroit_core::overlay::interrupted_banner(&config.settings, &hosts, &overlays.banner)
+            .map(|(environment, waiting)| (environment, interrupted_title(&waiting)))
+    };
+    let Some((environment, what)) = shown else {
+        return rsx! {};
+    };
+    let title = if environment == app.environment() {
+        format!("The sessions' daemon went, taking {what}")
+    } else {
+        format!(
+            "The sessions' daemon of {} went, taking {what}",
+            app.environment_name(&environment)
+        )
+    };
+    rsx! {
+        div { class: "daemon-banner",
+            IconView { icon: Icon::Restore }
+            span { class: "daemon-banner-title", "{title}" }
+            span { class: "daemon-banner-note", "Agents resume their conversations; shells open again where they ran." }
+            Spacer {}
+            Button { onclick: move |_| app.dispatch(Msg::InterruptedLater), "Later" }
+            Button { onclick: move |_| app.dispatch(Msg::LetGoAll), "Let Go" }
+            Button {
+                onclick: move |_| app.dispatch(Msg::InterruptedOpen(environment.clone())),
+                "Choose…"
+            }
+            Button { kind: "primary", onclick: move |_| app.dispatch(Msg::BringBackAll), "Bring Back" }
+        }
+    }
+}
+
+/// What the banner says a daemon took: its sessions and its shells, counted.
+fn interrupted_title(waiting: &[&adroit_model::Interrupted]) -> String {
+    let sessions = waiting.iter().filter(|i| i.is_session()).count();
+    let terminals = waiting.len() - sessions;
+    let counted = |n: usize, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    };
+    [
+        counted(sessions, "session", "sessions"),
+        counted(terminals, "terminal", "terminals"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" and ")
+}
+
 /// What the banner says of a daemon this window cannot work with, as
 /// `standing` has it; `None` while it can, or none answers.
 pub(crate) fn old_daemon_note(standing: &TerminalHostStanding) -> Option<String> {

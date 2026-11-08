@@ -57,6 +57,11 @@ pub(crate) fn ensure_pane(
     {
         return Some(p.clone());
     }
+    // Nothing holds it any more: what stands for it takes the tab once
+    // brought back.
+    if adroit_core::content::waits_to_come_back(&app.hosts.peek(), tab) {
+        return None;
+    }
     let id = kept_id(tab)?;
     if !hub.attaching.borrow_mut().insert(tab.clone()) {
         return None;

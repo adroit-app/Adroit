@@ -11,7 +11,7 @@ use super::effects::use_effects;
 use super::footer::Footer;
 use super::header::Header;
 use super::local::use_local;
-use super::overlays::{ConfirmDialog, ContextMenu, DaemonBanner, KeysHelp};
+use super::overlays::{ConfirmDialog, ContextMenu, DaemonBanner, InterruptedBanner, KeysHelp};
 use super::socket::use_window_socket;
 use super::ui::{Ui, use_ui};
 use crate::bridge::{AppCtx, use_app};
@@ -66,6 +66,7 @@ fn App() -> Element {
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
             Body {}
             DaemonBanner {}
+            InterruptedBanner {}
             Footer {}
             Picker {}
             ContextMenu {}

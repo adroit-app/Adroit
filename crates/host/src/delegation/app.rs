@@ -20,7 +20,7 @@ pub fn database(root: &Path) -> PathBuf {
     root.join("state.sqlite3")
 }
 
-async fn with_store<T: Send + 'static>(
+pub(crate) async fn with_store<T: Send + 'static>(
     root: &Path,
     operation: impl FnOnce(&mut Store) -> Result<T> + Send + 'static,
 ) -> Result<T> {
@@ -42,9 +42,12 @@ pub struct Recorded {
 impl Recorded {
     pub async fn attach(&self, terminal: u128) -> adroit_term::Result<()> {
         let id = self.id;
-        with_store(&self.root, move |store| store.attach(id, terminal))
-            .await
-            .map_err(|error| adroit_term::Error::Protocol(error.to_string()))
+        let generation = crate::daemon::daemon().generation();
+        with_store(&self.root, move |store| {
+            store.attach(id, terminal, generation)
+        })
+        .await
+        .map_err(|error| adroit_term::Error::Protocol(error.to_string()))
     }
 
     /// Records that the program never started, so the session is not served.
@@ -78,6 +81,8 @@ async fn record(
         name: request.name.clone(),
         cwd: request.cwd.clone(),
         launch: settings.clone(),
+        model: request.model.clone(),
+        permissions: request.permissions.clone(),
         started_ms: request.started_ms,
     };
     let (id, token) = with_store(root, move |store| store.register(new))
@@ -142,7 +147,20 @@ pub async fn prepare(
     }
     let recorded = record(root, settings, &mut request, parent).await?;
     match crate::execution::resolve(settings, request, program) {
-        Ok(resolved) => Ok((resolved, recorded)),
+        Ok(resolved) => {
+            // Known from the start for an agent whose conversation Adroit
+            // names, so a session the terminal host takes at once can still
+            // be brought back.
+            if !resolved.conversation.is_empty() {
+                let (id, conversation) = (recorded.id, resolved.conversation.clone());
+                with_store(root, move |store| {
+                    store.learn_conversation(id, &conversation)
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            }
+            Ok((resolved, recorded))
+        }
         Err(error) => {
             recorded.failed().await;
             Err(error)

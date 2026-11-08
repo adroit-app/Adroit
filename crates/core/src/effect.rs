@@ -90,6 +90,18 @@ pub enum Effect {
         sessions: BTreeSet<String>,
         terminals: BTreeSet<u128>,
     },
+    /// Bring back what the terminal host of `environment` took with it, by
+    /// the daemon ids it ran as.
+    BringBack {
+        environment: EnvironmentId,
+        ids: Vec<String>,
+    },
+    /// Let go of what the terminal host of `environment` took with it, by
+    /// the daemon ids it ran as.
+    LetGo {
+        environment: EnvironmentId,
+        ids: Vec<String>,
+    },
     /// Continue this conversation, which an agent of `environment` kept, in
     /// a new session there.
     Resume {

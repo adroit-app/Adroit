@@ -43,6 +43,9 @@ pub(crate) const HOME: &str = "adroit.home";
 /// The connection a session started while profiles named connections ran in,
 /// which only its record tells the folder of.
 const CONNECTION: &str = "adroit.connection";
+/// The daemon id of the interrupted session or terminal this one was
+/// brought back for.
+const RESTORED: &str = "adroit.restored";
 
 /// A session the daemon holds, as what it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +136,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
                 None => adroit_model::AgentPermissions::Default,
             },
             adroit_editor: tags::value(t, EDITOR).is_some(),
+            restored_from: tags::value(t, RESTORED),
         })),
         None if kind == "terminal" => Some(Kept::Terminal(TerminalSession {
             id: session.id,
@@ -152,6 +156,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
             opener: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
             show: tags::value(t, SHOW_TAG).is_some(),
             exit: tags::value(t, EXIT).and_then(|code| code.parse().ok()),
+            restored_from: tags::value(t, RESTORED),
         })),
         None => None,
     }
@@ -233,6 +238,12 @@ pub fn editor_tags(env: &[(String, String)]) -> Vec<String> {
     }
 }
 
+/// The tag saying a session was brought back for the interrupted session
+/// the daemon knew as `old`.
+pub fn restored_tags(old: &str) -> Vec<String> {
+    tags::tagged(RESTORED, old)
+}
+
 /// The tags a terminal adroit starts carries, saying what it runs.
 pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
     let mut out = tags::tagged(KIND, "terminal");
@@ -242,6 +253,9 @@ pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
     out.extend(tags::tagged(PROGRAM, program_key(terminal.program)));
     if let Some(file) = &terminal.file {
         out.extend(tags::tagged(FILE, &file.to_string_lossy()));
+    }
+    if let Some(old) = &terminal.restored_from {
+        out.extend(tags::tagged(RESTORED, old));
     }
     if !terminal.command.is_empty() {
         out.extend(tags::tagged(

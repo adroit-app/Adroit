@@ -2,7 +2,7 @@
 //! A work machine runs Unix: its hosts run as the user's services there.
 #![cfg(unix)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -70,7 +70,11 @@ fn a_headless_build_refuses_window_and_editor_requests_without_starting_hosts() 
 fn isolated(dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_adroit"));
     for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("ADROIT_") || name == "CODEX_THREAD_ID" {
+        if ["ADROIT_", "FELIS_"]
+            .iter()
+            .any(|p| name.to_string_lossy().starts_with(p))
+            || name == "CODEX_THREAD_ID"
+        {
             command.env_remove(name);
         }
     }
@@ -1229,4 +1233,103 @@ fn a_work_host_started_before_its_terminal_host_waits_for_it() {
     let _terminal = Service::start(&hosts, "daemon");
     let info = remote_info(&hosts);
     assert_eq!(info["work"]["instance"], info["terminal"]["instance"]);
+}
+
+/// A program standing in for Claude Code that adds the arguments of each
+/// run, as one line, to `runs`, and then waits as an agent does.
+fn recording_agent(dir: &Path, runs: &Path) -> PathBuf {
+    let path = dir.join("agent.sh");
+    std::fs::write(
+        &path,
+        format!(
+            "printf '%s ' \"$@\" | tr '\\n' ' ' >> '{}'\necho >> '{}'\nexec sleep 600\n",
+            runs.display(),
+            runs.display()
+        ),
+    )
+    .unwrap();
+    path
+}
+
+fn runs_of(runs: &Path, at_least: usize) -> Vec<String> {
+    for _ in 0..300 {
+        let lines: Vec<String> = std::fs::read_to_string(runs)
+            .unwrap_or_default()
+            .lines()
+            // Adroit also runs the agent to ask what it offers; a session
+            // is started with Adroit's plugin.
+            .filter(|line| line.contains("--plugin-dir"))
+            .map(String::from)
+            .collect();
+        if lines.len() >= at_least {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("the agent ran fewer than {at_least} times");
+}
+
+#[test]
+#[cfg_attr(windows, ignore = "fakes the agent with a shell script")]
+fn a_session_the_terminal_host_took_with_it_comes_back_resuming_its_conversation() {
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    let runs = root.join("runs");
+    let agent = recording_agent(root, &runs);
+    let config = root.join("config/adroit");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("settings.toml"),
+        format!(
+            "restore_sessions = \"always\"\nprofile = \"fake\"\n\n[[profiles]]\nid = \"fake\"\nagent = \"claude\"\n\n[profiles.launch]\ncommand = [\"/bin/sh\", \"{}\"]\nvia_shell = false\n",
+            agent.display()
+        ),
+    )
+    .unwrap();
+    let started = isolated(root)
+        .args([
+            "session",
+            "start",
+            "--dir",
+            root.to_str().unwrap(),
+            "--name",
+            "fix",
+            "--model",
+            "opus",
+            "--",
+            "go",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let first = runs_of(&runs, 1);
+    let conversation = first[0]
+        .split_whitespace()
+        .skip_while(|word| *word != "--session-id")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no conversation in {first:?}"))
+        .to_string();
+
+    let restarted = isolated(root).args(["daemon", "restart"]).output().unwrap();
+    assert!(
+        restarted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restarted.stderr)
+    );
+
+    let again = runs_of(&runs, 2);
+    assert!(
+        again[1].contains(&format!("--resume {conversation}")),
+        "{again:?}"
+    );
+    assert!(again[1].contains("--model opus"), "{again:?}");
+    // Brought back once: the session standing for it now is not taken for
+    // another one interrupted.
+    std::thread::sleep(Duration::from_secs(2));
+    let after = runs_of(&runs, 2);
+    assert_eq!(after.len(), 2, "{after:?}");
 }

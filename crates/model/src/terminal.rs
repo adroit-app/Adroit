@@ -33,6 +33,9 @@ pub struct TerminalSession {
     /// terminal keeps its screen until it is stopped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<i32>,
+    /// The daemon id of the interrupted terminal it was opened again for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -80,6 +80,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::SessionProfilePrev),
                 Run(Action::SessionPick),
                 Run(Action::SessionResume),
+                Run(Action::SessionBringBack),
                 Separator,
                 Run(Action::PromptSend),
                 Run(Action::PromptImages),

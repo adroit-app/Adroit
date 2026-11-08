@@ -23,8 +23,8 @@ use crate::tree::nav::Place;
 
 pub use focus::*;
 pub use layout::*;
-pub use listing::newly_waiting;
 pub(crate) use listing::{listed, tell_live};
+pub use listing::{newly_waiting, waits_to_come_back};
 pub use naming::*;
 pub use tab::*;
 pub(crate) use windows::*;

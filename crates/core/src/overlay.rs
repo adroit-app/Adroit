@@ -4,16 +4,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use adroit_model::{EnvironmentId, Key, Session};
+use adroit_model::{BroughtBack, EnvironmentId, Interrupted, Key, Session};
 use adroit_protocol::Request;
 
 use crate::actions::Action;
 use crate::chrome::{self, Chrome, status_line};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
+use crate::host::Hosts;
 use crate::keys_help::{self, Press};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
+use crate::settings::{RestoreSessions, Settings};
 use crate::state::ViewState;
 use crate::tree::nav::Item;
 use crate::update::step;
@@ -52,6 +54,9 @@ pub struct Menu {
 pub struct Banner {
     notes: BTreeMap<EnvironmentId, String>,
     closed: BTreeSet<EnvironmentId>,
+    /// By the environment, what the terminal host took with it that the
+    /// banner was put away on.
+    later: BTreeMap<EnvironmentId, BTreeSet<String>>,
 }
 
 impl Banner {
@@ -393,6 +398,80 @@ pub(crate) fn forget_daemon(state: &mut ViewState, environment: &EnvironmentId) 
     let banner = &mut state.overlays.banner;
     banner.notes.remove(environment);
     banner.closed.remove(environment);
+}
+
+/// The environment whose terminal host took what the banner offers to
+/// bring back, and what it offers: while `settings` ask, what `hosts` list
+/// as waiting that `banner` was not put away on.
+pub fn interrupted_banner<'a>(
+    settings: &Settings,
+    hosts: &'a Hosts,
+    banner: &Banner,
+) -> Option<(EnvironmentId, Vec<&'a Interrupted>)> {
+    if settings.restore_sessions != RestoreSessions::Ask {
+        return None;
+    }
+    hosts.each().find_map(|(environment, _)| {
+        let waiting = picker::interrupted::waiting(hosts, environment);
+        let later = banner.later.get(environment);
+        let new = waiting
+            .iter()
+            .any(|i| later.is_none_or(|later| !later.contains(&i.id)));
+        new.then(|| (environment.clone(), waiting.iter().collect()))
+    })
+}
+
+fn banner_of(state: &ViewState) -> Option<(EnvironmentId, Vec<String>)> {
+    interrupted_banner(&state.config.settings, &state.hosts, &state.overlays.banner).map(
+        |(environment, waiting)| {
+            (
+                environment,
+                waiting.into_iter().map(|i| i.id.clone()).collect(),
+            )
+        },
+    )
+}
+
+/// Bring back, or let go of, everything the banner offers.
+pub(crate) fn bring_back_all(state: &mut ViewState, let_go: bool) -> Vec<Effect> {
+    let Some((environment, ids)) = banner_of(state) else {
+        return Vec::new();
+    };
+    vec![if let_go {
+        Effect::LetGo { environment, ids }
+    } else {
+        Effect::BringBack { environment, ids }
+    }]
+}
+
+/// Put the banner offering what the terminal host took away, until it takes
+/// more.
+pub(crate) fn interrupted_later(state: &mut ViewState) -> Vec<Effect> {
+    if let Some((environment, ids)) = banner_of(state) {
+        state
+            .overlays
+            .banner
+            .later
+            .insert(environment, ids.into_iter().collect());
+    }
+    Vec::new()
+}
+
+/// What came of bringing back what the terminal host took: each refused,
+/// with why.
+pub(crate) fn brought_back(state: &mut ViewState, outcomes: &[BroughtBack]) -> Vec<Effect> {
+    let refused: Vec<String> = outcomes
+        .iter()
+        .filter_map(|o| {
+            o.refused
+                .as_ref()
+                .map(|why| format!("{} did not come back: {why}", o.name))
+        })
+        .collect();
+    if refused.is_empty() {
+        return Vec::new();
+    }
+    status_line::notice(&mut state.chrome.status, refused.join("; "))
 }
 
 /// Put away the banner shown, leaving another environment's to show.

@@ -94,6 +94,8 @@ pub struct TerminalStartRequest {
     pub opener: Option<adroit_model::SessionId>,
     /// Whether that session asks that it be shown to the user.
     pub show: bool,
+    /// The daemon id of the interrupted terminal it is opened again for.
+    pub restored_from: Option<String>,
 }
 
 pub struct ResolvedTerminalLaunch {
@@ -166,6 +168,7 @@ pub fn resolve_terminal(
         opener: request.opener,
         show: request.show,
         exit: None,
+        restored_from: request.restored_from,
     };
     let mut tags = sessions::terminal_tags(&terminal);
     tags.extend(crate::environment::tags());

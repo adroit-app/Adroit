@@ -58,6 +58,17 @@ pub struct Session {
     pub readiness: Readiness,
     pub started_ms: u64,
     pub ended: bool,
+    /// The model it was asked to run, none for its profile's own.
+    pub model: Option<String>,
+    pub permissions: adroit_model::AgentPermissions,
+    /// The terminal host its terminal ran in, none when it never had one or
+    /// ran before Adroit told terminal hosts apart.
+    pub generation: Option<String>,
+    /// Whether it ended with the terminal host it ran in and waits to be
+    /// brought back.
+    pub interrupted: bool,
+    /// The session it was brought back as.
+    pub brought_back_by: Option<SessionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

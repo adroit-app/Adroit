@@ -537,3 +537,102 @@ fn killing_a_process_of_another_environment_s_session_asks_that_environment_s_ho
         }]
     );
 }
+
+fn taken(id: &str) -> adroit_model::Interrupted {
+    adroit_model::Interrupted {
+        id: id.into(),
+        name: id.into(),
+        cwd: "/r".into(),
+        started_ms: 1,
+        what: adroit_model::InterruptedKind::Terminal {
+            program: adroit_model::TerminalProgram::Shell,
+            file: None,
+        },
+    }
+}
+
+fn taking(ids: &[&str], seq: u64) -> adroit_protocol::testing::PatchBuilder {
+    let mut listed = adroit_protocol::testing::listed();
+    for id in ids {
+        listed = listed.interrupted(taken(id));
+    }
+    crate::testing::patch(seq).listed(listed)
+}
+
+fn offered(run: &Scenario) -> Option<Vec<String>> {
+    let state = run.state();
+    interrupted_banner(&state.config.settings, &state.hosts, &state.overlays.banner)
+        .map(|(_, waiting)| waiting.into_iter().map(|i| i.id.clone()).collect())
+}
+
+#[test]
+fn the_banner_offers_what_the_terminal_host_took_only_while_the_settings_ask() {
+    let asked = window().event(taking(&["a", "7"], 2));
+    assert_eq!(offered(&asked), Some(vec!["a".into(), "7".into()]));
+    for setting in ["always", "never"] {
+        let run = window()
+            .event(crate::config::testing::configured(&format!(
+                "restore_sessions = \"{setting}\"\n"
+            )))
+            .event(taking(&["a"], 2));
+        assert_eq!(offered(&run), None, "{setting}");
+    }
+}
+
+#[test]
+fn the_banner_brings_back_or_lets_go_of_everything_it_offers() {
+    let run = || window().event(taking(&["a", "7"], 2));
+    let ids = vec!["a".to_string(), "7".to_string()];
+    assert_eq!(
+        run().send(Msg::BringBackAll).last_effects(),
+        [Effect::BringBack {
+            environment: here(),
+            ids: ids.clone()
+        }]
+    );
+    assert_eq!(
+        run().send(Msg::LetGoAll).last_effects(),
+        [Effect::LetGo {
+            environment: here(),
+            ids
+        }]
+    );
+}
+
+#[test]
+fn the_banner_put_away_shows_again_only_once_more_is_taken() {
+    let run = window()
+        .event(taking(&["a"], 2))
+        .send(Msg::InterruptedLater);
+    assert_eq!(offered(&run), None);
+    let run = run.event(taking(&["a"], 3));
+    assert_eq!(offered(&run), None);
+    let run = run.event(taking(&["a", "b"], 4));
+    assert_eq!(offered(&run), Some(vec!["a".into(), "b".into()]));
+}
+
+#[test]
+fn what_did_not_come_back_is_said_with_why() {
+    let outcomes = vec![
+        adroit_model::BroughtBack {
+            id: "a".into(),
+            name: "fix".into(),
+            by: Some("b".into()),
+            refused: None,
+        },
+        adroit_model::BroughtBack {
+            id: "c".into(),
+            name: "probe".into(),
+            by: None,
+            refused: Some("/gone is not there any more".into()),
+        },
+    ];
+    let run = window().send(Msg::BroughtBack {
+        environment: here(),
+        outcomes,
+    });
+    assert_eq!(
+        run.state().chrome.status.line.as_deref(),
+        Some("probe did not come back: /gone is not there any more")
+    );
+}

@@ -27,6 +27,8 @@ impl Ui {
         match effect {
             Effect::Resume { environment, past } => self.resume(environment, past),
             Effect::RestartDaemon(environment) => self.restart_daemon(environment),
+            Effect::BringBack { environment, ids } => self.bring_back(environment, ids),
+            Effect::LetGo { environment, ids } => self.let_go(environment, ids),
             Effect::StartTerminal(ask) => self.start_terminal(ask),
             Effect::OpenLogin {
                 environment,

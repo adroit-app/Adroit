@@ -156,6 +156,12 @@ pub fn terminals(work: Option<&WorkSnapshot>) -> &[TerminalSession] {
     facts(work).terminals()
 }
 
+/// What the terminal host took with it, waiting to be brought back, as
+/// last listed.
+pub fn interrupted(work: Option<&WorkSnapshot>) -> &[adroit_model::Interrupted] {
+    facts(work).interrupted()
+}
+
 pub(crate) fn select(view: &mut TreeView, row: Option<Item>) -> Vec<Effect> {
     view.selected = row;
     Vec::new()

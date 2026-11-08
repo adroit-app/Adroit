@@ -204,6 +204,49 @@ pub fn server_pid(path: impl AsRef<Path>) -> Option<u32> {
     }
 }
 
+/// What tells the listener at the socket at `path` from any listener there
+/// before or after it, if one listens: its process, and the socket it bound,
+/// as a process id alone is given again after the machine restarts.
+#[cfg(unix)]
+pub fn server_generation(path: impl AsRef<Path>) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let path = path.as_ref();
+    let pid = server_pid(path)?;
+    let socket = std::fs::symlink_metadata(path).ok()?;
+    Some(format!(
+        "{pid}-{}-{}.{}",
+        socket.ino(),
+        socket.mtime(),
+        socket.mtime_nsec()
+    ))
+}
+
+/// What tells the listener at the pipe the socket at `path` names from any
+/// listener there before or after it, if one listens: its process, and when
+/// that process was created, as a process id alone is given again.
+#[cfg(windows)]
+pub fn server_generation(path: impl AsRef<Path>) -> Option<String> {
+    use windows_sys::Win32::{Foundation, System::Threading};
+    let pid = server_pid(path)?;
+    // SAFETY: the handle is checked before use and closed after; the times
+    // are plain structures GetProcessTimes fills.
+    unsafe {
+        let process = Threading::OpenProcess(Threading::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return None;
+        }
+        let mut times: [Foundation::FILETIME; 4] = std::mem::zeroed();
+        let [created, exited, kernel, user] = &mut times;
+        let read = Threading::GetProcessTimes(process, created, exited, kernel, user);
+        Foundation::CloseHandle(process);
+        (read != 0).then(|| {
+            let created =
+                (u64::from(times[0].dwHighDateTime) << 32) | u64::from(times[0].dwLowDateTime);
+            format!("{pid}-{created}")
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +309,42 @@ mod tests {
         for _ in 0..20 {
             assert_eq!(server_pid(&socket), Some(std::process::id()));
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_listener_keeps_its_generation_while_it_serves() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        let listener = Listener::bind(&socket).unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok(stream) = listener.accept().await {
+                held.push(stream);
+            }
+        });
+        let first = server_generation(&socket).expect("a listener has a generation");
+        let mut stream = connect(&socket).await.unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        assert_eq!(server_generation(&socket), Some(first));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_listener_bound_again_is_of_another_generation() {
+        let dir = socket_dir();
+        let socket = dir.path().join("s.sock");
+        let listener = Listener::bind(&socket).unwrap();
+        let first = server_generation(&socket).expect("a listener has a generation");
+        drop(listener);
+        let _ = std::fs::remove_file(&socket);
+        let _listener = Listener::bind(&socket).unwrap();
+        assert_ne!(server_generation(&socket), Some(first));
+    }
+
+    #[tokio::test]
+    async fn where_nothing_listens_there_is_no_generation() {
+        let dir = socket_dir();
+        assert_eq!(server_generation(dir.path().join("s.sock")), None);
     }
 
     #[test]

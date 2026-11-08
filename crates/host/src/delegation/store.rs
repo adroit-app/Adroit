@@ -5,14 +5,14 @@ use std::fs::{DirBuilder, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use adroit_model::Agent;
 use adroit_model::profile::ProfileId;
+use adroit_model::{Agent, AgentPermissions, TerminalSession};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -69,6 +69,27 @@ const MIGRATIONS: &[&str] = &[
     "UPDATE messages SET kind = 'message' WHERE kind = 'report';
      DELETE FROM messages WHERE kind = 'notice';
      ALTER TABLE sessions DROP COLUMN reported;",
+    // A session or a terminal the terminal host took with it is told from
+    // one that ended by the terminal host it ran in, and keeps what it is
+    // brought back with. Those from before ran in none Adroit knows.
+    "ALTER TABLE sessions ADD COLUMN generation TEXT;
+     ALTER TABLE sessions ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE sessions ADD COLUMN brought_back_by TEXT;
+     ALTER TABLE sessions ADD COLUMN model TEXT;
+     ALTER TABLE sessions ADD COLUMN permissions TEXT;
+     CREATE TABLE terminals (
+         id TEXT PRIMARY KEY,
+         resource_id TEXT NOT NULL,
+         generation TEXT,
+         name TEXT NOT NULL,
+         cwd TEXT NOT NULL,
+         program TEXT NOT NULL,
+         file TEXT,
+         command TEXT NOT NULL,
+         started_ms INTEGER NOT NULL,
+         ended INTEGER NOT NULL DEFAULT 0,
+         interrupted INTEGER NOT NULL DEFAULT 0
+     );",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -81,6 +102,17 @@ pub struct NewSession {
     pub name: String,
     pub cwd: PathBuf,
     pub launch: Settings,
+    /// The model asked for, none for the profile's own.
+    pub model: Option<String>,
+    pub permissions: AgentPermissions,
+    pub started_ms: u64,
+}
+
+/// A terminal as Adroit keeps it, with the terminal host that holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeptTerminal {
+    pub terminal: TerminalSession,
+    pub generation: Option<String>,
     pub started_ms: u64,
 }
 
@@ -137,8 +169,8 @@ impl Store {
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
-            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms, model, permissions)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 id.to_string(),
                 token,
@@ -151,6 +183,8 @@ impl Store {
                 serde_json::to_string(&new.launch).map_err(Error::storage)?,
                 Readiness::Starting.key(),
                 new.started_ms as i64,
+                new.model,
+                serde_json::to_string(&new.permissions).map_err(Error::storage)?,
             ],
         )?;
         transaction.commit()?;
@@ -201,12 +235,21 @@ impl Store {
             .transpose()
     }
 
-    pub fn attach(&mut self, id: SessionId, terminal: u128) -> Result<()> {
-        self.update(
-            id,
-            "UPDATE sessions SET terminal = ?2 WHERE id = ?1",
-            crate::sessions::hex(terminal),
-        )
+    /// Records the terminal `id` runs in, and the terminal host that holds it.
+    pub fn attach(
+        &mut self,
+        id: SessionId,
+        terminal: u128,
+        generation: Option<String>,
+    ) -> Result<()> {
+        let changed = self.connection.execute(
+            "UPDATE sessions SET terminal = ?2, generation = ?3 WHERE id = ?1",
+            params![id.to_string(), crate::sessions::hex(terminal), generation],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(Code::NotFound, "the session is unknown"));
+        }
+        Ok(())
     }
 
     pub fn learn_conversation(&mut self, id: SessionId, conversation: &str) -> Result<()> {
@@ -248,6 +291,119 @@ impl Store {
         )?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Records that `id` ended with the terminal host it ran in, to be
+    /// brought back; one that had ended already stays as it ended.
+    pub fn interrupt(&mut self, id: SessionId) -> Result<()> {
+        known(&self.connection, id)?;
+        self.connection.execute(
+            "UPDATE sessions SET ended = 1, interrupted = 1 WHERE id = ?1 AND ended = 0",
+            [id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// The sessions interrupted and neither brought back nor let go, in the
+    /// order they were registered.
+    pub fn interrupted(&self) -> Result<Vec<Session>> {
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM sessions WHERE interrupted = 1 ORDER BY rowid"
+        ))?;
+        let rows = statement.query_map([], read_session)?;
+        rows.map(|row| row.map_err(Error::from).and_then(|row| row))
+            .collect()
+    }
+
+    /// Records that the interrupted `id` was brought back as `by`.
+    pub fn brought_back(&mut self, id: SessionId, by: SessionId) -> Result<()> {
+        self.update(
+            id,
+            "UPDATE sessions SET interrupted = 0, brought_back_by = ?2 WHERE id = ?1",
+            by.to_string(),
+        )
+    }
+
+    /// Records that the interrupted `id` is not to be brought back.
+    pub fn let_go(&mut self, id: SessionId) -> Result<()> {
+        known(&self.connection, id)?;
+        self.connection.execute(
+            "UPDATE sessions SET interrupted = 0 WHERE id = ?1",
+            [id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Records the terminal `terminal` opened in the terminal host
+    /// `generation` names.
+    pub fn open_terminal(
+        &mut self,
+        terminal: &TerminalSession,
+        generation: Option<String>,
+        started_ms: u64,
+    ) -> Result<()> {
+        self.connection.execute(
+            "INSERT OR REPLACE INTO terminals (id, generation, name, cwd, program, file, command, started_ms, resource_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                crate::sessions::hex(terminal.id),
+                generation,
+                terminal.name,
+                terminal.cwd.to_string_lossy(),
+                serde_json::to_string(&terminal.program).map_err(Error::storage)?,
+                terminal
+                    .file
+                    .as_ref()
+                    .map(|file| file.to_string_lossy().into_owned()),
+                serde_json::to_string(&terminal.command).map_err(Error::storage)?,
+                started_ms as i64,
+                terminal.resource_id.to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The terminals that have not ended, in the order they were opened.
+    pub fn terminals(&self) -> Result<Vec<KeptTerminal>> {
+        self.kept_terminals("ended = 0")
+    }
+
+    /// The terminals interrupted and neither opened again nor let go.
+    pub fn interrupted_terminals(&self) -> Result<Vec<KeptTerminal>> {
+        self.kept_terminals("interrupted = 1")
+    }
+
+    pub fn end_terminal(&mut self, terminal: u128) -> Result<()> {
+        self.terminal_update(terminal, "ended = 1")
+    }
+
+    /// Records that `terminal` ended with the terminal host it ran in; one
+    /// that had ended already stays as it ended.
+    pub fn interrupt_terminal(&mut self, terminal: u128) -> Result<()> {
+        self.terminal_update(terminal, "interrupted = 1 - ended, ended = 1")
+    }
+
+    /// Records that the interrupted `terminal` was opened again, or is not
+    /// to be.
+    pub fn reopened_terminal(&mut self, terminal: u128) -> Result<()> {
+        self.terminal_update(terminal, "interrupted = 0")
+    }
+
+    fn terminal_update(&mut self, terminal: u128, set: &str) -> Result<()> {
+        self.connection.execute(
+            &format!("UPDATE terminals SET {set} WHERE id = ?1"),
+            [crate::sessions::hex(terminal)],
+        )?;
+        Ok(())
+    }
+
+    fn kept_terminals(&self, filter: &str) -> Result<Vec<KeptTerminal>> {
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT id, generation, name, cwd, program, file, command, started_ms, resource_id FROM terminals WHERE {filter} ORDER BY rowid"
+        ))?;
+        let rows = statement.query_map([], read_terminal)?;
+        rows.map(|row| row.map_err(Error::from).and_then(|row| row))
+            .collect()
     }
 
     pub fn send(&mut self, from: SessionId, to: SessionId, body: &str) -> Result<MessageId> {
@@ -316,7 +472,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -331,6 +487,11 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let ended = row.get(9)?;
     let profile: String = row.get(10)?;
     let home: Option<String> = row.get(11)?;
+    let model = row.get(12)?;
+    let permissions: Option<String> = row.get(13)?;
+    let generation = row.get(14)?;
+    let interrupted = row.get(15)?;
+    let brought_back_by: Option<String> = row.get(16)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(Error::storage)?,
@@ -352,6 +513,47 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
                 .ok_or_else(|| Error::storage(format!("unknown readiness {readiness}")))?,
             started_ms: started_ms as u64,
             ended,
+            model,
+            permissions: permissions
+                .map(|permissions| serde_json::from_str(&permissions))
+                .transpose()
+                .map_err(Error::storage)?
+                .unwrap_or_default(),
+            generation,
+            interrupted,
+            brought_back_by: brought_back_by
+                .map(|by| by.parse())
+                .transpose()
+                .map_err(Error::storage)?,
+        })
+    })())
+}
+
+fn read_terminal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<KeptTerminal>> {
+    let id: String = row.get(0)?;
+    let generation = row.get(1)?;
+    let name = row.get(2)?;
+    let cwd: String = row.get(3)?;
+    let program: String = row.get(4)?;
+    let file: Option<String> = row.get(5)?;
+    let command: String = row.get(6)?;
+    let started_ms: i64 = row.get(7)?;
+    let resource_id: String = row.get(8)?;
+    Ok((|| {
+        Ok(KeptTerminal {
+            terminal: TerminalSession {
+                id: crate::sessions::id_of(&id)
+                    .ok_or_else(|| Error::storage(format!("unknown terminal {id}")))?,
+                name,
+                cwd: PathBuf::from(cwd),
+                program: serde_json::from_str(&program).map_err(Error::storage)?,
+                file: file.map(PathBuf::from),
+                command: serde_json::from_str(&command).map_err(Error::storage)?,
+                resource_id: resource_id.parse().map_err(Error::storage)?,
+                ..Default::default()
+            },
+            generation,
+            started_ms: started_ms as u64,
         })
     })())
 }
@@ -490,6 +692,7 @@ impl From<rusqlite::Error> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_model::TerminalProgram;
 
     fn store() -> (tempfile::TempDir, Store) {
         let dir = tempfile::tempdir().unwrap();
@@ -506,6 +709,8 @@ mod tests {
             name: name.into(),
             cwd: "/repo".into(),
             launch: Settings::default(),
+            model: None,
+            permissions: AgentPermissions::Default,
             started_ms: 1,
         }
     }
@@ -915,5 +1120,158 @@ PRAGMA user_version = 1;
         assert_eq!(kept.len(), 1);
         assert_eq!((kept[0].sender, kept[0].body.as_str()), (opened, "done"));
         assert_eq!(store.session(opened).unwrap().unwrap().parent, Some(opener));
+    }
+    #[test]
+    fn a_session_keeps_the_model_and_the_permissions_it_started_with() {
+        let (_dir, mut store) = store();
+        let (id, _) = store
+            .register(NewSession {
+                model: Some("opus".into()),
+                permissions: AgentPermissions::ReadOnly,
+                ..new(None, "reader")
+            })
+            .unwrap();
+
+        let kept = store.known(id).unwrap();
+        assert_eq!(kept.model.as_deref(), Some("opus"));
+        assert_eq!(kept.permissions, AgentPermissions::ReadOnly);
+    }
+
+    #[test]
+    fn a_session_keeps_the_terminal_host_its_terminal_ran_in() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "a");
+        store.attach(id, 7, Some("gen-1".into())).unwrap();
+
+        let kept = store.known(id).unwrap();
+        assert_eq!(kept.terminal, Some(7));
+        assert_eq!(kept.generation.as_deref(), Some("gen-1"));
+    }
+
+    #[test]
+    fn an_interrupted_session_has_ended_and_waits_to_be_brought_back() {
+        let (_dir, mut store) = store();
+        let (id, token) = store.register(new(None, "a")).unwrap();
+        let other = register(&mut store, None, "b");
+        store.interrupt(id).unwrap();
+        store.end(other).unwrap();
+
+        let kept = store.known(id).unwrap();
+        assert!(kept.ended && kept.interrupted);
+        assert_eq!(store.authenticate(&token).unwrap_err().code, Code::Refused);
+        let waiting: Vec<_> = store
+            .interrupted()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(waiting, [id]);
+    }
+
+    #[test]
+    fn a_session_that_already_ended_is_not_interrupted_after() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "a");
+        store.end(id).unwrap();
+        store.interrupt(id).unwrap();
+
+        assert!(!store.known(id).unwrap().interrupted);
+    }
+
+    #[test]
+    fn an_interrupted_session_brought_back_or_let_go_waits_no_more() {
+        let (_dir, mut store) = store();
+        let back = register(&mut store, None, "back");
+        let gone = register(&mut store, None, "gone");
+        store.interrupt(back).unwrap();
+        store.interrupt(gone).unwrap();
+        let by = register(&mut store, None, "back");
+
+        store.brought_back(back, by).unwrap();
+        store.let_go(gone).unwrap();
+
+        assert!(store.interrupted().unwrap().is_empty());
+        assert_eq!(store.known(back).unwrap().brought_back_by, Some(by));
+        assert!(store.known(gone).unwrap().ended);
+    }
+
+    #[test]
+    fn a_terminal_is_kept_until_it_ends_and_one_interrupted_waits() {
+        let (_dir, mut store) = store();
+        let shell = TerminalSession {
+            id: 1,
+            name: "shell".into(),
+            cwd: "/repo".into(),
+            ..Default::default()
+        };
+        let nvim = TerminalSession {
+            id: 2,
+            name: "nvim".into(),
+            cwd: "/repo".into(),
+            program: TerminalProgram::Neovim,
+            file: Some("/repo/a.rs".into()),
+            ..Default::default()
+        };
+        let gone = TerminalSession {
+            id: 3,
+            ..shell.clone()
+        };
+        for terminal in [&shell, &nvim, &gone] {
+            store
+                .open_terminal(terminal, Some("gen-1".into()), 1)
+                .unwrap();
+        }
+
+        store.interrupt_terminal(2).unwrap();
+        store.end_terminal(3).unwrap();
+
+        let running: Vec<_> = store
+            .terminals()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.terminal.id)
+            .collect();
+        assert_eq!(running, [1]);
+        let waiting = store.interrupted_terminals().unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].terminal, nvim);
+        assert_eq!(waiting[0].generation.as_deref(), Some("gen-1"));
+        store.reopened_terminal(2).unwrap();
+        assert!(store.interrupted_terminals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_database_from_before_sessions_were_interrupted_reads_each_session_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite3");
+        let id = SessionId::new();
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(SCHEMA_1).unwrap();
+            for step in &MIGRATIONS[..3] {
+                old.execute_batch(step).unwrap();
+            }
+            old.pragma_update(None, "user_version", 4).unwrap();
+            old.execute(
+                "INSERT INTO sessions (id, token, agent, name, cwd, launch, terminal, readiness, started_ms, profile)
+                 VALUES (?1, 'token', 'claude', 'old', '/repo', '{}', ?2, 'ready', 1, 'claude')",
+                [id.to_string(), crate::sessions::hex(7)],
+            )
+            .unwrap();
+        }
+
+        let store = Store::open(&path).unwrap();
+
+        store.ensure_current_schema().unwrap();
+        let kept = store.known(id).unwrap();
+        assert_eq!(
+            (kept.terminal, kept.generation, kept.interrupted),
+            (Some(7), None, false)
+        );
+        assert_eq!(
+            (kept.model, kept.permissions),
+            (None, AgentPermissions::Default)
+        );
+        assert!(store.terminals().unwrap().is_empty());
     }
 }

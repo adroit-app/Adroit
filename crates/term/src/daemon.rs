@@ -202,6 +202,16 @@ impl Daemon {
         }
     }
 
+    /// What tells the local daemon running now from any before or after it,
+    /// if one runs; none for a forwarded endpoint, as for [`Daemon::pid`].
+    pub fn generation(&self) -> Option<String> {
+        if self.forwarded {
+            None
+        } else {
+            adroit_sys::local::server_generation(&self.socket)
+        }
+    }
+
     /// Stop the daemon, ending every session it holds, and wait until its
     /// process is gone; whether one was listening to stop.
     pub async fn stop(&self) -> Result<bool> {

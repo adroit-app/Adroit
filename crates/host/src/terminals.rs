@@ -278,6 +278,7 @@ async fn execute(
                     command,
                     opener,
                     show,
+                    restored_from: None,
                 },
             )
             .await?;

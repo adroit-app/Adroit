@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use adroit_model::files::Entry;
 use adroit_model::repository::Marks;
-use adroit_model::{Session, TerminalSession, Tree};
+use adroit_model::{Interrupted, Session, TerminalSession, Tree};
 use serde::{Deserialize, Serialize};
 
 /// What the tree shows that the host keeps read while it is shown. The
@@ -47,6 +47,8 @@ pub struct Listed {
     pub sessions: Vec<Session>,
     pub terminals: Vec<TerminalSession>,
     pub tree: Tree,
+    /// What the terminal host took with it, waiting to be brought back.
+    pub interrupted: Vec<Interrupted>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,6 +57,8 @@ struct WireListed {
     #[serde(with = "crate::wire::terminals")]
     terminals: Vec<TerminalSession>,
     tree: Tree,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    interrupted: Vec<Interrupted>,
 }
 
 impl From<Listed> for WireListed {
@@ -63,6 +67,7 @@ impl From<Listed> for WireListed {
             sessions: listed.sessions,
             terminals: listed.terminals,
             tree: listed.tree,
+            interrupted: listed.interrupted,
         }
     }
 }
@@ -73,6 +78,7 @@ impl From<WireListed> for Listed {
             tree: wire.tree.with_terminals(&wire.terminals),
             sessions: wire.sessions,
             terminals: wire.terminals,
+            interrupted: wire.interrupted,
         }
     }
 }
@@ -139,6 +145,11 @@ impl TreeWork {
     /// Every terminal as last listed.
     pub fn terminals(&self) -> &[TerminalSession] {
         self.listed.as_ref().map_or(&[], |l| &l.terminals)
+    }
+
+    /// What the terminal host took with it, as last listed.
+    pub fn interrupted(&self) -> &[Interrupted] {
+        self.listed.as_ref().map_or(&[], |l| &l.interrupted)
     }
 }
 

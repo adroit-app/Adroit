@@ -70,4 +70,35 @@ impl Ui {
             app.dispatch(Msg::Relist);
         });
     }
+
+    /// Bring back what `environment`'s terminal host took with it, by the
+    /// daemon ids it ran as; what stands for each takes its tabs once listed.
+    pub(crate) fn bring_back(&self, environment: EnvironmentId, ids: Vec<String>) {
+        let app = self.app;
+        spawn(async move {
+            match app.ask_in(&environment, Ask::BringBack { ids }).await {
+                Answer::BroughtBack { outcomes } => {
+                    app.dispatch(Msg::BroughtBack {
+                        environment,
+                        outcomes,
+                    });
+                }
+                Answer::Failed { text } => app.status(Some(text)),
+                _ => {}
+            }
+            app.dispatch(Msg::Relist);
+        });
+    }
+
+    /// Let go of what `environment`'s terminal host took with it, by the
+    /// daemon ids it ran as.
+    pub(crate) fn let_go(&self, environment: EnvironmentId, ids: Vec<String>) {
+        let app = self.app;
+        spawn(async move {
+            if let Answer::Failed { text } = app.ask_in(&environment, Ask::LetGo { ids }).await {
+                app.status(Some(text));
+            }
+            app.dispatch(Msg::Relist);
+        });
+    }
 }

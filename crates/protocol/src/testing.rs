@@ -34,6 +34,7 @@ pub fn listed() -> ListedBuilder {
 pub struct ListedBuilder {
     sessions: Vec<Session>,
     terminals: Vec<TerminalSession>,
+    interrupted: Vec<adroit_model::Interrupted>,
     repo: Option<PathBuf>,
     found: HashMap<PathBuf, Option<Worktree>>,
     worktrees: Vec<Worktree>,
@@ -47,6 +48,12 @@ impl ListedBuilder {
 
     pub fn sessions<S: Into<Session>>(mut self, sessions: impl IntoIterator<Item = S>) -> Self {
         self.sessions.extend(sessions.into_iter().map(Into::into));
+        self
+    }
+
+    /// What waits to be brought back, as the terminal host took it.
+    pub fn interrupted(mut self, interrupted: adroit_model::Interrupted) -> Self {
+        self.interrupted.push(interrupted);
         self
     }
 
@@ -107,6 +114,7 @@ impl ListedBuilder {
             sessions: self.sessions,
             terminals: self.terminals,
             tree,
+            interrupted: self.interrupted,
         }
     }
 }

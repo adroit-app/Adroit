@@ -220,13 +220,15 @@ environment when it is not the window's own.
 `adroit daemon stop` stops the terminal host of the instance and waits until
 its process is gone; `adroit daemon restart` stops it, if one runs, and starts
 another. Either ends every session and terminal the terminal host holds, with
-what they scrolled back. A terminal host too old to be asked to stop is
+what they scrolled back, until they are brought back
+([when the terminal host goes](#when-the-terminal-host-goes)). A terminal host too old to be asked to stop is
 stopped by signal. `adroit host stop` and `adroit host restart` do the same
 for the work host, and end no session. Stopping where no host runs is not an
 error.
 
 The window restarts the terminal host with Restart Session Daemon
-(`daemon.restart`), only after the user confirms that every session ends:
+(`daemon.restart`), only after the user confirms that every session ends
+until brought back:
 that of the environment the banner names, or else of the selected row's or
 the shown tab's environment.
 
@@ -238,6 +240,38 @@ build. On a work machine the hosts run as services
 
 A session ends when its program exits or when it is ended from Adroit. Its
 console then says so, and it is listed no more.
+
+## When the terminal host goes
+
+When the terminal host goes, restarted, crashed or with the machine, the
+agent sessions it held, and the shells and Neovims the windows opened, are
+interrupted rather than ended. Adroit tells them apart by the terminal host
+they ran in: what ended on its own or was ended from Adroit is never brought
+back, and nor is a terminal that ran a command. An interrupted session or
+terminal keeps its tabs, which say what became of it.
+
+`restore_sessions` in the [settings](settings.md) says what follows:
+
+- `ask`, the default: the window shows a banner saying what was taken, and
+  offers to bring it all back, to choose in a list what comes back
+  (Bring Back Sessions… in the Session menu, `session.bring_back`, opens the
+  same list), to put the banner away until more is taken, or to let it go.
+- `always`: the work host brings everything back as soon as it finds it,
+  with or without a window open.
+- `never`: it is let go at once.
+
+A session comes back as a new session that resumes its conversation through
+its agent's own resume, in its directory and the login it ran in, from the
+same profile, with the model and permissions it was started with, opened by
+the session that opened it when that one came back too. A shell or a Neovim
+opens again in its directory, a Neovim on its file. What they scrolled back,
+and anything a terminal ran, is gone. They start one after another, and each
+takes the tabs of the one it stands for, in place.
+
+One is refused, saying why, when its directory is gone, when its agent never
+told which conversation it held, or when a session running already holds
+that conversation. What is refused or let go is offered no more; its tabs
+close, and Resume Conversation still finds each conversation.
 
 ## Resuming a past conversation
 

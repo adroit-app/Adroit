@@ -184,6 +184,10 @@ pub(crate) fn perform(
             effects
         }
         Action::SessionResume => step(state, Msg::ResumeOpen),
+        Action::SessionBringBack => {
+            let environment = content::focused_environment(state);
+            step(state, Msg::InterruptedOpen(environment))
+        }
         Action::SessionProfileNext => switch_profile(state, true),
         Action::SessionProfilePrev => switch_profile(state, false),
         // On a shell's row, that shell closes, whichever tab is shown; ending

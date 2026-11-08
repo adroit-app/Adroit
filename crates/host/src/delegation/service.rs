@@ -21,7 +21,8 @@ use super::{
     protocol::{self, Command, Request, Response, VERSION},
     store::Store,
 };
-use crate::settings::Settings;
+use crate::restore::Fate;
+use crate::settings::{RestoreSessions, Settings};
 
 type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Send + Sync>;
 
@@ -563,6 +564,8 @@ impl Watcher {
             .await
             .map_err(|_| Error::storage("the terminal daemon did not answer"))?
             .map_err(Error::storage)?;
+        let now = context.daemon.generation();
+        let mut interrupted = self.terminals(context, &native, now.as_deref()).await?;
         let records = context.call(|store| store.sessions()).await?;
         for mut record in records.into_iter().filter(|record| !record.ended) {
             let Some(terminal) = record.terminal else {
@@ -570,7 +573,14 @@ impl Watcher {
             };
             let Some(native) = native.iter().find(|native| native.id == terminal) else {
                 let id = record.id;
-                context.call(move |store| store.end(id)).await?;
+                match crate::restore::fate(None, record.generation.as_deref(), now.as_deref()) {
+                    Fate::Interrupted => {
+                        context.call(move |store| store.interrupt(id)).await?;
+                        interrupted = true;
+                    }
+                    Fate::Ended => context.call(move |store| store.end(id)).await?,
+                    Fate::Runs | Fate::Unknown => {}
+                }
                 continue;
             };
             if native.exited {
@@ -597,6 +607,29 @@ impl Watcher {
                 Self::learn_tagged_conversation(context, &mut record, native).await?;
             }
         }
+        let restore = context
+            .settings()
+            .map_or(RestoreSessions::Ask, |settings| settings.restore_sessions);
+        if interrupted && restore != RestoreSessions::Ask {
+            let waiting = context
+                .call(|store| {
+                    Ok(crate::restore::listed(
+                        &store.interrupted()?,
+                        &store.interrupted_terminals()?,
+                    ))
+                })
+                .await?;
+            let chosen: Vec<String> = waiting.into_iter().map(|w| w.id).collect();
+            tokio::spawn(async move {
+                let done = match restore {
+                    RestoreSessions::Always => crate::restore::bring_back(chosen).await.map(drop),
+                    _ => crate::restore::let_go(chosen).await,
+                };
+                if let Err(error) = done {
+                    eprintln!("adroit: what the terminal host took with it: {error}");
+                }
+            });
+        }
         Ok(())
     }
 
@@ -621,6 +654,33 @@ impl Watcher {
             .await?;
         record.conversation = Some(conversation);
         Ok(())
+    }
+
+    /// Records each terminal the terminal host no longer holds as ended, or
+    /// as interrupted when the terminal host it ran in went; whether any was.
+    async fn terminals(
+        &self,
+        context: &Context,
+        native: &[adroit_term::Session],
+        now: Option<&str>,
+    ) -> Result<bool> {
+        let kept = context.call(|store| store.terminals()).await?;
+        let mut interrupted = false;
+        for kept in kept {
+            let id = kept.terminal.id;
+            let listed = native.iter().find(|n| n.id == id).map(|n| n.exited);
+            match crate::restore::fate(listed, kept.generation.as_deref(), now) {
+                Fate::Interrupted => {
+                    context
+                        .call(move |store| store.interrupt_terminal(id))
+                        .await?;
+                    interrupted = true;
+                }
+                Fate::Ended => context.call(move |store| store.end_terminal(id)).await?,
+                Fate::Runs | Fate::Unknown => {}
+            }
+        }
+        Ok(interrupted)
     }
 
     /// Confirms the warning about Adroit's channel when the session's launch
@@ -832,6 +892,8 @@ mod tests {
                 name: "review".into(),
                 cwd: dir.path().into(),
                 launch: Settings::default(),
+                model: None,
+                permissions: Default::default(),
                 started_ms: 1,
             })
             .unwrap();
@@ -1180,6 +1242,8 @@ mod tests {
             name: profile.into(),
             cwd: "/repo".into(),
             launch: launch.clone(),
+            model: None,
+            permissions: Default::default(),
             started_ms: 1,
         };
         let to = {
@@ -1217,6 +1281,8 @@ mod tests {
                 name: agent.key().into(),
                 cwd: "/repo".into(),
                 launch: launch.clone(),
+                model: None,
+                permissions: Default::default(),
                 started_ms: 1,
             }
         };

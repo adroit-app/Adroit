@@ -189,6 +189,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 
         Msg::PickerOpen => picker::open(state),
         Msg::ResumeOpen => picker::open_resume(state),
+        Msg::InterruptedOpen(environment) => picker::open_interrupted(state, environment),
         Msg::PickerClose => picker::close(&mut state.picker),
         Msg::PickerQuery(text) => picker::query(&mut state.picker, text),
         Msg::PickerKey(key) => picker::press(state, &key),
@@ -263,5 +264,9 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             overlay::daemon_restarted(state, environment, note)
         }
         Msg::BannerClose => overlay::close_banner(state),
+        Msg::BringBackAll => overlay::bring_back_all(state, false),
+        Msg::LetGoAll => overlay::bring_back_all(state, true),
+        Msg::InterruptedLater => overlay::interrupted_later(state),
+        Msg::BroughtBack { outcomes, .. } => overlay::brought_back(state, &outcomes),
     }
 }

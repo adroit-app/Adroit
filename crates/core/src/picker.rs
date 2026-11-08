@@ -18,12 +18,14 @@ use crate::tree::{self, TreeView};
 mod choices;
 pub mod filer;
 pub mod fuzzy;
+pub mod interrupted;
 pub mod resume;
 #[cfg(test)]
 mod tests;
 
 pub use choices::*;
 use filer::{Filer, Row};
+use interrupted::Waiting;
 use resume::Resume;
 
 /// The most sessions, and the most directories, the picker going to a
@@ -44,6 +46,8 @@ pub enum Picking {
     Go(Box<Picker>),
     /// Resume a conversation an agent kept.
     Resume(Resume),
+    /// Bring back what the terminal host took with it.
+    Interrupted(Waiting),
 }
 
 impl Picking {
@@ -52,6 +56,7 @@ impl Picking {
         match self {
             Picking::Go(p) => (&mut p.query, &mut p.cursor),
             Picking::Resume(r) => (&mut r.query, &mut r.cursor),
+            Picking::Interrupted(w) => (&mut w.query, &mut w.cursor),
         }
     }
 
@@ -59,6 +64,7 @@ impl Picking {
         match self {
             Picking::Go(p) => p.cursor,
             Picking::Resume(r) => r.cursor,
+            Picking::Interrupted(w) => w.cursor,
         }
     }
 }
@@ -221,6 +227,15 @@ pub(crate) fn open_resume(state: &mut ViewState) -> Vec<Effect> {
     Vec::new()
 }
 
+/// Open the list of what the terminal host of `environment` took with it.
+pub(crate) fn open_interrupted(state: &mut ViewState, environment: EnvironmentId) -> Vec<Effect> {
+    state.picker.open = Some(Picking::Interrupted(Waiting {
+        environment,
+        ..Waiting::default()
+    }));
+    Vec::new()
+}
+
 pub(crate) fn close(view: &mut PickerView) -> Vec<Effect> {
     view.open = None;
     Vec::new()
@@ -304,6 +319,7 @@ fn rows_len(view: &PickerView, hosts: &Hosts, tree: &TreeView) -> usize {
         Some(Picking::Resume(r)) => {
             resume::rows(r, &view.home, hosts.work(&r.environment)).map_or(0, |r| r.len())
         }
+        Some(Picking::Interrupted(w)) => interrupted::rows(w, &view.home, hosts).len(),
         None => 0,
     }
 }
@@ -343,6 +359,7 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
             .into_iter()
             .nth(at),
         Some(Picking::Resume(_)) => return resume::choose(state, at),
+        Some(Picking::Interrupted(_)) => return interrupted::choose(state, at),
         None => None,
     };
     match chosen {

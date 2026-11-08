@@ -62,7 +62,7 @@ impl Ask {
             Self::RestartDaemon(_) => (
                 Icon::ServerBolt,
                 "Restart the sessions' daemon?".into(),
-                "Every session it holds ends: agents and shells, with what they scrolled back. Conversations remain in the provider's history.".into(),
+                "Every session it holds ends: agents and shells, with what they scrolled back. Afterwards you can bring them back: agents resume their conversations, and shells open again where they ran.".into(),
                 "Restart daemon",
             ),
             Self::RemoveEnvironment(_, name) => (

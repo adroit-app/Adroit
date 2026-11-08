@@ -26,12 +26,16 @@ pub(super) async fn watch(mut watched: Watched) {
         match read_sessions(&daemon, &watched.inputs()).await {
             Ok((sessions, terminals)) => {
                 let found = inspect(&sessions, &terminals, &mut cache).await;
+                // Listed all the same when the store cannot be read: what waits
+                // is only offered.
+                let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
                 let scratch = crate::paths::scratch_dir();
                 let listing = |listed: &[Worktree]| TreeChange::Listed {
                     listed: Box::new(Listed {
                         tree: build(&sessions, &terminals, &found, listed, Some(&scratch)),
                         sessions: sessions.clone(),
                         terminals: terminals.clone(),
+                        interrupted: interrupted.clone(),
                     }),
                 };
                 watched.record([TreeChange::Failing { error: None }]);

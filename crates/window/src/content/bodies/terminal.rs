@@ -44,7 +44,7 @@ pub(crate) fn UnfocusedBody(
                     ConsoleScreen { tab: shows.clone(), frame, cell_width, focused: false }
                 },
                 _ => rsx! {
-                    Starting {}
+                    Starting { tab: shows.clone() }
                 },
             }
         }

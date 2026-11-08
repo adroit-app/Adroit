@@ -74,6 +74,7 @@ pub enum Action {
     SessionNew,
     SessionScratch,
     SessionResume,
+    SessionBringBack,
     SessionStop,
     SessionRename,
     SessionProfileNext,
@@ -327,6 +328,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .row("New session here", Start),
     S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in the scratch folder, for talking about something no project holds ([details](tree.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
     S::new(A::SessionResume, "session.resume", "list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation))").bar("Resume Conversation…", Icon::TransferIn),
+    S::new(A::SessionBringBack, "session.bring_back", "list what the terminal host took with it when it went, to bring a session or a shell back ([details](sessions.md#when-the-terminal-host-goes))").bar("Bring Back Sessions…", Icon::Restore),
     S::new(A::SessionStop, "session.stop", "end a session Adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later; on a terminal's row, end that terminal")
         .bar("End…", Icon::PlayerStop)
         .row("End…", End),
@@ -581,6 +583,7 @@ mod tests {
             SessionNew,
             SessionScratch,
             SessionResume,
+            SessionBringBack,
             SessionStop,
             SessionRename,
             SessionProfileNext,

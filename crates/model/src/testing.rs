@@ -40,6 +40,12 @@ impl SessionBuilder {
         self
     }
 
+    /// Brought back for the interrupted session the daemon knew as `old`.
+    pub fn restored_from(mut self, old: impl Into<String>) -> Self {
+        self.0.restored_from = Some(old.into());
+        self
+    }
+
     pub fn state(mut self, state: State) -> Self {
         self.0.state = state;
         self

@@ -99,6 +99,16 @@ pub enum Ask {
     DeleteLogin {
         profile: adroit_model::profile::ProfileId,
     },
+    /// Bring back what the terminal host took with it, chosen by the
+    /// daemon ids it ran as.
+    BringBack {
+        ids: Vec<String>,
+    },
+    /// Let go of what the terminal host took with it, chosen by the daemon
+    /// ids it ran as, so it is offered no more.
+    LetGo {
+        ids: Vec<String>,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -219,6 +229,10 @@ pub enum Answer {
     /// Whether a profile is logged in, as the CLI it starts said.
     LoginStanding {
         standing: adroit_model::profile::LoginStanding,
+    },
+    /// What came of bringing back each one chosen.
+    BroughtBack {
+        outcomes: Vec<adroit_model::BroughtBack>,
     },
     /// What is written in the prompts, as kept.
     Drafts(Box<Drafts>),

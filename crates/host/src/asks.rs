@@ -34,7 +34,11 @@ pub(crate) fn asks(watched: Watched, judged: Arc<watch::Sender<Judged>>) -> Asks
 async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> Answer {
     if matches!(
         &ask,
-        Ask::StartSession(_) | Ask::StartTerminal(_) | Ask::OpenLogin { .. } | Ask::Run { .. }
+        Ask::StartSession(_)
+            | Ask::StartTerminal(_)
+            | Ask::OpenLogin { .. }
+            | Ask::BringBack { .. }
+            | Ask::Run { .. }
     ) {
         let prepared = terminal_host::judged(judged.subscribe()).await;
         let starts = match &ask {
@@ -119,6 +123,16 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             rows,
         } => open_login(watched, &profile, cols, rows).await,
         Ask::DeleteLogin { profile } => delete_login(&profile).await,
+        Ask::BringBack { ids } => {
+            let outcomes = crate::restore::bring_back(ids).await;
+            watched.relist();
+            outcomes.map(|outcomes| Answer::BroughtBack { outcomes })
+        }
+        Ask::LetGo { ids } => {
+            let gone = crate::restore::let_go(ids).await;
+            watched.relist();
+            gone.map(|()| Answer::Done)
+        }
     };
     answered.unwrap_or_else(|text| Answer::Failed { text })
 }
@@ -298,6 +312,7 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
             command: Vec::new(),
             opener: None,
             show: false,
+            restored_from: None,
         },
         &programs::login_shell(),
     );
@@ -308,6 +323,22 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
     };
     held::hold(id).await;
     resolved.terminal.id = id;
+    // A command is not run again unasked, so only a shell or a Neovim is
+    // kept to be opened again after the terminal host goes.
+    if resolved.terminal.program != TerminalProgram::Command {
+        let terminal = resolved.terminal.clone();
+        let generation = daemon::daemon().generation();
+        let kept = delegation::with_store(&delegation::root(), move |store| {
+            store.open_terminal(&terminal, generation, now_ms())
+        })
+        .await;
+        if let Err(e) = kept {
+            eprintln!(
+                "adroit: keeping {} to open again: {e}",
+                resolved.terminal.name
+            );
+        }
+    }
     watched.terminal_opened(resolved.terminal.clone());
     Ok(Answer::Terminal {
         terminal: resolved.terminal,

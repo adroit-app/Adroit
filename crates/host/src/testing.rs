@@ -26,6 +26,11 @@ pub fn record(name: &str) -> RecordBuilder {
         readiness: Readiness::Ready,
         started_ms: 0,
         ended: false,
+        model: None,
+        permissions: Default::default(),
+        generation: None,
+        interrupted: false,
+        brought_back_by: None,
     })
 }
 

@@ -125,7 +125,12 @@ pub(crate) fn use_console_sizes(ui: &Ui) {
             };
             app.content.peek().windows.current().is_some_and(|tab| {
                 tab.windows().iter().any(|window| {
-                    connected(&window.shows) && needs_attach(&window.shows, &hub.panes)
+                    connected(&window.shows)
+                        && needs_attach(&window.shows, &hub.panes)
+                        && !adroit_core::content::waits_to_come_back(
+                            &app.hosts.peek(),
+                            &window.shows,
+                        )
                 })
             })
         }

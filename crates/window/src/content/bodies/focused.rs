@@ -183,8 +183,8 @@ pub(crate) fn FocusedBody() -> Element {
                 (Some(tab), true) => rsx! {
                     ConsoleScreen { tab: tab.clone(), frame, cell_width: cw, focused: area == Area::Console }
                 },
-                (Some(_), false) => rsx! {
-                    Starting {}
+                (Some(tab), false) => rsx! {
+                    Starting { tab: tab.clone() }
                 },
                 (None, _) => rsx! {
                     NothingOpen {

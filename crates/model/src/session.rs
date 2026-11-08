@@ -114,6 +114,9 @@ pub struct Session {
     /// so that asking it for its input hands the input to the window; false
     /// when that is not known, as for one started by an earlier version.
     pub adroit_editor: bool,
+    /// The daemon id of the interrupted session it was brought back for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored_from: Option<String>,
 }
 
 impl Session {

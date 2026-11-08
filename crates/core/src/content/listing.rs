@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 
 use adroit_model::{EnvironmentId, State, Tree};
+use adroit_protocol::Listed;
 
 use super::{Content, ContentView, Kept, Tab, close_showing, from_kept};
 use crate::chrome::status_line;
@@ -87,6 +88,47 @@ pub(crate) fn listed(state: &mut ViewState) -> Vec<Effect> {
     effects
 }
 
+/// The tab that stands for `tab` now, in what `listed` lists: the session
+/// or terminal brought back for the one the terminal host took with it.
+fn successor(listed: &Listed, tab: &Tab) -> Option<Tab> {
+    match tab {
+        Tab::Session(environment, id) => listed
+            .sessions
+            .iter()
+            .find(|s| s.restored_from.as_deref() == Some(id.as_str()))
+            .map(|s| Tab::Session(environment.clone(), s.id.clone())),
+        Tab::Terminal(environment, id) => {
+            let old = adroit_model::daemon::hex(*id);
+            listed
+                .terminals
+                .iter()
+                .find(|t| t.restored_from.as_deref() == Some(old.as_str()))
+                .map(|t| Tab::Terminal(environment.clone(), t.id))
+        }
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
+    }
+}
+
+/// Whether `tab` shows what the terminal host took with it, waiting in its
+/// environment's listing to be brought back.
+pub fn waits_to_come_back(hosts: &Hosts, tab: &Tab) -> bool {
+    hosts
+        .work(tab.environment())
+        .and_then(|w| w.tree.listed.as_deref())
+        .is_some_and(|listed| waits(listed, tab))
+}
+
+/// Whether `tab` shows what the terminal host took with it, waiting in
+/// `listed` to be brought back.
+fn waits(listed: &Listed, tab: &Tab) -> bool {
+    let id = match tab {
+        Tab::Session(_, id) => id.clone(),
+        Tab::Terminal(_, id) => adroit_model::daemon::hex(*id),
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => return false,
+    };
+    listed.interrupted.iter().any(|i| i.id == id)
+}
+
 /// Where `tab` is in what `hosts` list, none for a tab nothing listed
 /// shows.
 fn listed_at(hosts: &Hosts, tab: &Tab) -> Option<Place> {
@@ -116,6 +158,26 @@ fn listed_in(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> 
         return Vec::new();
     };
     let view = &mut state.content;
+    // What was brought back takes the tabs of what it stands for, in place.
+    for tab in view
+        .windows
+        .shown()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>()
+    {
+        if tab.environment() == environment
+            && let Some(next) = successor(now, &tab)
+        {
+            if let (Tab::Session(..), Some(Item::Session(e, id))) = (&tab, &state.tree.selected)
+                && Tab::Session(e.clone(), id.clone()) == tab
+                && let Tab::Session(e, id) = &next
+            {
+                state.tree.selected = Some(Item::Session(e.clone(), id.clone()));
+            }
+            super::replace(view, &tab, next);
+        }
+    }
     let live: BTreeSet<String> = view
         .live
         .iter()
@@ -174,7 +236,10 @@ fn listed_in(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> 
         .into_iter()
         .filter_map(|t| match t {
             Tab::Session(e, id)
-                if e == environment && nav::is_gone(sessions, id) && !live.contains(id) =>
+                if e == environment
+                    && nav::is_gone(sessions, id)
+                    && !live.contains(id)
+                    && !waits(now, t) =>
             {
                 Some(id.clone())
             }
@@ -251,8 +316,15 @@ fn restore_listed(state: &mut ViewState, environment: &EnvironmentId) {
     let listed = &restore.listed;
     let was = view.active().cloned();
     view.windows = Content::from_kept(restore.kept.clone(), |name| {
-        from_kept(&name, own)
-            .filter(|tab| listed.contains(tab.environment()) && listed_at(hosts, tab).is_some())
+        let tab = from_kept(&name, own).filter(|tab| listed.contains(tab.environment()))?;
+        let listing = hosts
+            .work(tab.environment())
+            .and_then(|w| w.tree.listed.as_deref());
+        match listing.and_then(|l| successor(l, &tab)) {
+            Some(next) => Some(next),
+            None => (listed_at(hosts, &tab).is_some() || listing.is_some_and(|l| waits(l, &tab)))
+                .then_some(tab),
+        }
     });
     restore.made = Some(view.windows.clone());
     let done = restore.environments(own).is_subset(&restore.listed);

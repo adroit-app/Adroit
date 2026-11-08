@@ -14,6 +14,32 @@ pub use adroit_model::config::{Launch, SessionOptions, ShellLaunch, UsageSetting
 use adroit_model::profile::earlier;
 pub use adroit_model::profile::{AgentOptions, AgentProfile, ProfileId};
 
+/// What becomes of the sessions and terminals a terminal host took with it
+/// when it went: restarted, crashed or with the machine.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum RestoreSessions {
+    /// The window offers to bring them back.
+    #[default]
+    Ask,
+    /// They come back at once.
+    Always,
+    /// They are let go; Resume Conversation still finds each conversation.
+    Never,
+}
+
+impl RestoreSessions {
+    pub fn name(self) -> &'static str {
+        match self {
+            RestoreSessions::Ask => "ask",
+            RestoreSessions::Always => "always",
+            RestoreSessions::Never => "never",
+        }
+    }
+}
+
 /// Which Option keys count as Alt, sending Meta, in a console; the others type
 /// what macOS makes of the key with Option, as `Option-2` typing `™`.
 #[derive(
@@ -168,6 +194,10 @@ pub struct Settings {
     /// is not in front; with several windows open, the one holding the lowest
     /// number tells.
     pub notify_waiting: bool,
+    /// Whether the sessions and terminals a terminal host took with it, as it
+    /// restarted, crashed or went with the machine, come back: offered by the
+    /// window to bring back, at once, or never.
+    pub restore_sessions: RestoreSessions,
     /// How a shell tab's shell starts.
     pub shell: ShellLaunch,
     /// How a Neovim tab's Neovim starts, as an agent does; an empty command
@@ -218,6 +248,7 @@ struct SettingsFile {
     theme: Option<String>,
     keep_awake: bool,
     notify_waiting: bool,
+    restore_sessions: RestoreSessions,
     shell: ShellLaunch,
     neovim: Launch,
     scratch_dir: String,
@@ -253,6 +284,7 @@ impl Default for SettingsFile {
             theme: s.theme,
             keep_awake: s.keep_awake,
             notify_waiting: s.notify_waiting,
+            restore_sessions: s.restore_sessions,
             shell: s.shell,
             neovim: s.neovim,
             scratch_dir: s.scratch_dir,
@@ -349,6 +381,7 @@ impl TryFrom<SettingsFile> for Settings {
             theme: file.theme,
             keep_awake: file.keep_awake,
             notify_waiting: file.notify_waiting,
+            restore_sessions: file.restore_sessions,
             shell: file.shell,
             neovim: file.neovim,
             scratch_dir: file.scratch_dir,
@@ -442,6 +475,7 @@ impl Default for Settings {
             theme: None,
             keep_awake: true,
             notify_waiting: false,
+            restore_sessions: RestoreSessions::Ask,
             shell: ShellLaunch::default(),
             neovim: Launch::default(),
             scratch_dir: String::new(),
@@ -1056,6 +1090,7 @@ model = "chosen-model"
             theme: None,
             keep_awake: false,
             notify_waiting: true,
+            restore_sessions: RestoreSessions::Always,
             shell: ShellLaunch {
                 command: vec!["/bin/bash".into(), "-l".into()],
                 env: BTreeMap::from([("LANG".into(), "C".into())]),
@@ -1161,6 +1196,23 @@ model = "chosen-model"
         assert_eq!(s.console.option_as_alt, OptionAsAlt::Left);
         assert!(s.console.cursor_blink);
         assert!(Settings::parse("[console]\noption_as_alt = \"up\"\n").is_err());
+    }
+
+    #[test]
+    fn what_a_terminal_host_took_with_it_is_offered_back_unless_the_settings_say_otherwise() {
+        assert_eq!(
+            Settings::parse("").unwrap().restore_sessions,
+            RestoreSessions::Ask
+        );
+        for (written, read) in [
+            ("always", RestoreSessions::Always),
+            ("never", RestoreSessions::Never),
+        ] {
+            let settings = Settings::parse(&format!("restore_sessions = \"{written}\"\n")).unwrap();
+            assert_eq!(settings.restore_sessions, read);
+            assert_eq!(read.name(), written);
+        }
+        assert!(Settings::parse("restore_sessions = \"sometimes\"\n").is_err());
     }
 
     #[test]

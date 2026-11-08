@@ -248,6 +248,9 @@ pub enum Msg {
     /// Open the list of past conversations on where the focused window
     /// works.
     ResumeOpen,
+    /// Open the list of what the terminal host of the environment took
+    /// with it, to choose what comes back.
+    InterruptedOpen(EnvironmentId),
     PickerClose,
     /// Its query field now holds this.
     PickerQuery(String),
@@ -417,4 +420,17 @@ pub enum Msg {
     },
     /// The banner was put away.
     BannerClose,
+    /// Bring back everything the banner offers.
+    BringBackAll,
+    /// Let go of everything the banner offers.
+    LetGoAll,
+    /// Put the banner offering what the terminal host took away until more
+    /// is taken.
+    InterruptedLater,
+    /// What came of bringing back what the terminal host of the environment
+    /// took with it.
+    BroughtBack {
+        environment: EnvironmentId,
+        outcomes: Vec<adroit_model::BroughtBack>,
+    },
 }
