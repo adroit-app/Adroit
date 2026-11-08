@@ -296,6 +296,8 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
             env: daemon::terminal_env(),
             file: start.file,
             command: Vec::new(),
+            opener: None,
+            show: false,
         },
         &programs::login_shell(),
     );
@@ -464,7 +466,7 @@ async fn open_login(
         command: std::iter::once(program.clone())
             .chain(args.clone())
             .collect(),
-        state: None,
+        ..TerminalSession::default()
     };
     let (cols, rows) = size(cols, rows);
     let spawn = Spawn {

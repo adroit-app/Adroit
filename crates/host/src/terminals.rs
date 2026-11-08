@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{TerminalProgram, TerminalResourceId, TerminalSession};
+use adroit_model::{SessionId, TerminalProgram, TerminalResourceId, TerminalSession};
 use adroit_term::{Daemon, Input, Key};
 
 use crate::execution::{TerminalStartRequest, resolve_terminal, spawn_headless};
@@ -106,6 +106,9 @@ enum Operation {
         dir: Option<PathBuf>,
         name: Option<String>,
         command: Vec<String>,
+        /// Shown to the user while they look at the session `opener`.
+        show: bool,
+        opener: Option<SessionId>,
     },
 }
 
@@ -125,6 +128,8 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let mut name = None;
     let mut input = Vec::new();
     let mut argv = None;
+    let mut show = false;
+    let mut opener = None;
     let mut rest = rest.iter().peekable();
     while let Some(flag) = rest.next() {
         match (command.as_str(), flag.as_str()) {
@@ -154,6 +159,8 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
             }
             ("start", "--dir") if dir.is_none() => dir = Some(rest.next()?.into()),
             ("start", "--name") if name.is_none() => name = Some(rest.next()?.clone()),
+            ("start", "--show") if !show => show = true,
+            ("start", "--opener") if opener.is_none() => opener = Some(rest.next()?.parse().ok()?),
             ("start", "--") => {
                 argv = Some(rest.by_ref().cloned().collect::<Vec<_>>());
             }
@@ -176,6 +183,8 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
                 dir,
                 name,
                 command,
+                show,
+                opener,
             }
         }
         _ => return None,
@@ -207,7 +216,11 @@ async fn execute(
         Operation::Screen(resource) => {
             let lines = screen(daemon, resource).await?;
             if json {
-                Ok(serde_json::json!({"resource_id": resource, "lines": lines}).to_string())
+                let exit = find(daemon, resource).await?.exit;
+                Ok(
+                    serde_json::json!({"resource_id": resource, "lines": lines, "exit": exit})
+                        .to_string(),
+                )
             } else {
                 Ok(lines.join("\n"))
             }
@@ -233,6 +246,8 @@ async fn execute(
             dir,
             name,
             command,
+            show,
+            opener,
         } => {
             let cwd = adroit_sys::fs::canonicalize(
                 dir.map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d)),
@@ -261,6 +276,8 @@ async fn execute(
                     env: crate::daemon::terminal_env(),
                     file: None,
                     command,
+                    opener,
+                    show,
                 },
             )
             .await?;
@@ -273,18 +290,78 @@ async fn execute(
     }
 }
 
-const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]";
+const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--show] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--show] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]";
 
 /// `adroit terminal <args>`, run by the work host. Returns the process exit
 /// code.
 pub fn cli(args: &[String]) -> i32 {
-    if parse(args).is_none() {
-        eprintln!("{USAGE}");
-        return 2;
+    match asked_as(args, opener) {
+        Ok(ask) => crate::work_host::run_command(ask, None),
+        Err(code) => code,
     }
-    let mut ask = vec!["terminal".to_string()];
-    ask.extend(args.iter().cloned());
-    crate::work_host::run_command(ask, None)
+}
+
+/// What `adroit terminal <args>` asks the work host, naming the session it
+/// runs in, by `opener`, for a terminal to be shown beside it; or the exit
+/// code it ends with, having said why. Only the command names that session.
+fn asked_as(
+    args: &[String],
+    opener: impl FnOnce() -> Result<String, String>,
+) -> Result<Vec<String>, i32> {
+    let Some((operation, _)) = parse(args) else {
+        eprintln!("{USAGE}");
+        return Err(2);
+    };
+    let named = match operation {
+        Operation::Start {
+            opener: Some(_), ..
+        } => {
+            eprintln!("{USAGE}");
+            return Err(2);
+        }
+        Operation::Start { show: true, .. } => match opener() {
+            Ok(id) => vec!["--opener".to_string(), id],
+            Err(error) => {
+                eprintln!("adroit: {error}");
+                return Err(2);
+            }
+        },
+        _ => Vec::new(),
+    };
+    let (command, rest) = args.split_first().expect("parsed");
+    Ok(["terminal".to_string(), command.clone()]
+        .into_iter()
+        .chain(named)
+        .chain(rest.iter().cloned())
+        .collect())
+}
+
+/// The session this runs in, by Adroit's record of it, as the session's own
+/// credential tells the work host.
+fn opener() -> Result<String, String> {
+    use crate::delegation::launch::{ROOT_ENV, TOKEN_ENV};
+    use crate::delegation::protocol::{Command, ask};
+    let (Ok(credential), Ok(root)) = (std::env::var(TOKEN_ENV), std::env::var(ROOT_ENV)) else {
+        return Err(
+            "--show shows a terminal beside the session Adroit runs that starts it; run it in one"
+                .into(),
+        );
+    };
+    let context = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?
+        .block_on(ask(
+            std::path::Path::new(&root),
+            &credential,
+            Command::Context,
+            None,
+        ))
+        .map_err(|e| e.to_string())?;
+    context["id"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "the work host did not say which session this is".into())
 }
 
 /// `adroit terminal <args>` as the work host runs it for a command run in
@@ -417,6 +494,8 @@ mod tests {
                     dir: Some("/src".into()),
                     name: None,
                     command: args(&["claude", "--debug"]),
+                    show: false,
+                    opener: None,
                 },
                 false
             ))
@@ -424,6 +503,64 @@ mod tests {
         assert_eq!(parse(&args(&["start", "--program", "command"])), None);
         assert_eq!(parse(&args(&["start", "--program", "command", "--"])), None);
         assert_eq!(parse(&args(&["start", "--", "claude"])), None);
+    }
+
+    #[test]
+    fn a_terminal_can_be_asked_to_be_shown_to_the_user_beside_the_session_that_started_it() {
+        let opener = adroit_model::SessionId::new();
+        let opener_text = opener.to_string();
+        let shown = |words: &[&str]| match parse(&args(words)) {
+            Some((Operation::Start { show, opener, .. }, _)) => Some((show, opener)),
+            _ => None,
+        };
+        assert_eq!(
+            shown(&[
+                "start",
+                "--program",
+                "command",
+                "--show",
+                "--",
+                "sudo",
+                "true"
+            ]),
+            Some((true, None))
+        );
+        assert_eq!(
+            shown(&["start", "--show", "--opener", &opener_text]),
+            Some((true, Some(opener)))
+        );
+        assert_eq!(shown(&["start"]), Some((false, None)));
+        assert_eq!(shown(&["start", "--show", "--show"]), None);
+        assert_eq!(parse(&args(&["screen", "--show"])), None);
+    }
+
+    #[test]
+    fn only_the_command_names_the_session_a_terminal_is_shown_beside() {
+        let opener = adroit_model::SessionId::new().to_string();
+        let given = args(&["start", "--show", "--opener", &opener]);
+        assert!(matches!(asked_as(&given, || unreachable!()), Err(2)));
+        let asked = asked_as(
+            &args(&["start", "--program", "command", "--show", "--", "x"]),
+            || Ok(opener.clone()),
+        );
+        assert_eq!(
+            asked.ok(),
+            Some(args(&[
+                "terminal",
+                "start",
+                "--opener",
+                &opener,
+                "--program",
+                "command",
+                "--show",
+                "--",
+                "x"
+            ]))
+        );
+        let refused = asked_as(&args(&["start", "--show"]), || Err("outside".into()));
+        assert!(matches!(refused, Err(2)));
+        let plain = asked_as(&args(&["list"]), || unreachable!());
+        assert_eq!(plain.ok(), Some(args(&["terminal", "list"])));
     }
 
     #[test]

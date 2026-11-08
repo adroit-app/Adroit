@@ -77,3 +77,20 @@ and stop it when you are done:
 @ADROIT@ terminal screen --terminal <resource-id>
 @ADROIT@ terminal stop --terminal <resource-id>
 ```
+
+A command terminal stays once its program ends, its screen kept, until you stop
+it; `screen --json` sets `exit` to the status it ended with.
+
+## Commands that ask the user
+
+When a command needs the user to type into it — a `sudo` password, a login, an
+interactive installer — do not hand it back to the user, and do not run it where
+no one can answer it. Run it yourself in a terminal shown to the user:
+
+```sh
+@ADROIT@ terminal start --program command --show --json -- sudo <command> [args...]
+```
+
+`--show` opens the terminal with the keys while the user is looking at you;
+otherwise it waits in the tree under its name. Tell the user to type there, read
+`screen --json` until `exit` is set, then stop the terminal.

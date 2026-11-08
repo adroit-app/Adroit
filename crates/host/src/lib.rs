@@ -23,6 +23,7 @@ mod explain;
 pub mod gateway;
 mod held;
 mod jobs;
+pub mod kept;
 mod mutation;
 mod neovim;
 pub mod pasted;
@@ -55,6 +56,7 @@ pub use adroit_term::gate::run as startup_lease;
 #[cfg(windows)]
 pub use adroit_term::{HOLD, hold};
 pub use daemon::cli as daemon_cli;
+pub use kept::{KEEP, keep};
 pub use start::cli as session_cli;
 pub use terminals::cli as terminal_cli;
 pub use work_host::cli as host_cli;

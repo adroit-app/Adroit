@@ -22,6 +22,9 @@ const RESOURCE: &str = "adroit.resource";
 /// What a terminal runs.
 const PROGRAM: &str = "adroit.program";
 const COMMAND: &str = "adroit.command";
+/// How a command terminal's program ended, its exit status, set by the
+/// adroit that keeps the terminal once it has.
+pub(crate) const EXIT: &str = "adroit.exit";
 const LAST_INPUT: &str = "adroit.last-input";
 const PERMISSIONS: &str = "adroit.permissions";
 /// The conversation a session holds. The tag keeps its original spelling
@@ -146,6 +149,9 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
                 .status
                 .as_ref()
                 .map(|s| State::reported(&s.state, s.kind.as_deref())),
+            opener: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
+            show: tags::value(t, SHOW_TAG).is_some(),
+            exit: tags::value(t, EXIT).and_then(|code| code.parse().ok()),
         })),
         None => None,
     }
@@ -242,6 +248,12 @@ pub fn terminal_tags(terminal: &TerminalSession) -> Vec<String> {
             COMMAND,
             &serde_json::to_string(&terminal.command).expect("serializable command"),
         ));
+    }
+    if let Some(opener) = terminal.opener {
+        out.extend(tags::tagged(PARENT_TAG, &opener.to_string()));
+    }
+    if terminal.show {
+        out.extend(tags::tagged(SHOW_TAG, "1"));
     }
     out
 }
@@ -740,7 +752,7 @@ mod tests {
                 program,
                 file: None,
                 command,
-                state: None,
+                ..TerminalSession::default()
             };
             let s = kept(9, terminal_tags(&terminal));
             assert_eq!(read(&s), Some(Kept::Terminal(terminal)));
@@ -765,6 +777,42 @@ mod tests {
     }
 
     #[test]
+    fn a_terminal_keeps_the_session_that_started_it_and_whether_to_show_it() {
+        let terminal = TerminalSession {
+            id: 9,
+            resource_id: adroit_model::TerminalResourceId::new(),
+            name: "sudo".into(),
+            cwd: "/api".into(),
+            program: TerminalProgram::Command,
+            command: vec!["sudo".into(), "true".into()],
+            opener: Some(adroit_model::SessionId::new()),
+            show: true,
+            ..TerminalSession::default()
+        };
+        let s = kept(9, terminal_tags(&terminal));
+        assert_eq!(read(&s), Some(Kept::Terminal(terminal)));
+    }
+
+    #[test]
+    fn a_command_terminal_whose_program_ended_says_how() {
+        let terminal = TerminalSession {
+            id: 9,
+            resource_id: adroit_model::TerminalResourceId::new(),
+            name: "make".into(),
+            cwd: "/api".into(),
+            program: TerminalProgram::Command,
+            command: vec!["make".into()],
+            ..TerminalSession::default()
+        };
+        let mut tags = terminal_tags(&terminal);
+        tags.extend(tags::tagged(EXIT, "3"));
+        let Some(Kept::Terminal(read)) = read(&kept(9, tags)) else {
+            panic!("a terminal")
+        };
+        assert_eq!(read.exit, Some(3));
+    }
+
+    #[test]
     #[cfg_attr(windows, ignore = "starts a Unix shell as a login shell")]
     fn a_command_runs_through_the_shell_with_what_a_shell_terminal_gets() {
         use crate::execution::{TerminalStartRequest, resolve_terminal};
@@ -781,7 +829,12 @@ mod tests {
             },
             "/bin/zsh",
         );
-        assert_eq!(launch.spawn.program, "/bin/zsh");
+        // Started by adroit, which keeps the terminal once the program ends.
+        assert_eq!(
+            launch.spawn.program,
+            crate::work_host::adroit_program().to_string_lossy()
+        );
+        assert_eq!(launch.spawn.args[..2], [crate::kept::KEEP, "/bin/zsh"]);
         assert_eq!(
             launch.spawn.args[launch.spawn.args.len() - 2..],
             ["claude".to_string(), "--debug".to_string()]

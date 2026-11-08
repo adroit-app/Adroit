@@ -255,20 +255,27 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
     }
 }
 
-fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Vec<String> {
-    hosts
-        .work(environment)
-        .map(|work| work.tree.sessions().iter().map(|s| s.id.clone()).collect())
-        .unwrap_or_default()
+/// The sessions and terminals of an environment, by their ids, as listed
+/// before a patch.
+struct Listed {
+    sessions: Vec<String>,
+    terminals: Vec<u128>,
 }
 
-/// Show, with the keys, a session of `environment` not among `before` whose
-/// opener asked that it be shown, when the focused window shows that opener.
-fn show_asked(
-    state: &mut ViewState,
-    environment: &EnvironmentId,
-    before: &[String],
-) -> Vec<Effect> {
+fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Listed {
+    let work = hosts.work(environment);
+    Listed {
+        sessions: work
+            .map(|work| work.tree.sessions().iter().map(|s| s.id.clone()).collect())
+            .unwrap_or_default(),
+        terminals: tree::terminals(work).iter().map(|t| t.id).collect(),
+    }
+}
+
+/// Show, with the keys, a session or terminal of `environment` not among
+/// `before` whose opener asked that it be shown, when the focused window
+/// shows that opener.
+fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Listed) -> Vec<Effect> {
     let Some(Tab::Session(looked_at, looked_id)) = state.content.windows.focused() else {
         return Vec::new();
     };
@@ -286,14 +293,24 @@ fn show_asked(
     else {
         return Vec::new();
     };
-    let Some(shown) = sessions
+    let session = sessions
         .iter()
-        .find(|s| s.show && s.parent == Some(opener) && !before.contains(&s.id))
-        .map(|s| s.id.clone())
-    else {
-        return Vec::new();
+        .find(|s| s.show && s.parent == Some(opener) && !before.sessions.contains(&s.id))
+        .map(|s| s.id.clone());
+    let terminal = tree::terminals(Some(work))
+        .iter()
+        .find(|t| t.show && t.opener == Some(opener) && !before.terminals.contains(&t.id))
+        .map(|t| (t.id, t.cwd.clone()));
+    let effects = match (session, terminal) {
+        (Some(shown), _) => crate::content::show_session(state, environment.clone(), shown),
+        (None, Some((id, cwd))) => {
+            let content = &mut state.content;
+            content.place = Some(nav::Place::at(environment, cwd));
+            content.windows.open(Tab::Terminal(environment.clone(), id));
+            Vec::new()
+        }
+        (None, None) => return Vec::new(),
     };
-    let effects = crate::content::show_session(state, environment.clone(), shown);
     state.content.focus = crate::content::Area::Console;
     effects
 }
@@ -597,6 +614,85 @@ mod tests {
                 vec![opener(SessionId::new())],
                 session("new").parent(SessionId::new()).show(),
             );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        }
+
+        /// A terminal of id `id` the session of delegation `opener` started,
+        /// asking that it be shown.
+        fn shown_terminal(id: u128, opener: SessionId) -> adroit_model::TerminalSession {
+            adroit_model::TerminalSession {
+                opener: Some(opener),
+                show: true,
+                ..adroit_model::testing::shell(id, "/r/opener")
+            }
+        }
+
+        /// The window looking at `looking`, listing `listed`, then the host
+        /// listing `appearing` besides them.
+        fn terminal_appears(
+            looking: &str,
+            listed: Vec<SessionBuilder>,
+            appearing: adroit_model::TerminalSession,
+        ) -> Scenario {
+            let all = adroit_protocol::testing::listed()
+                .sessions(listed.clone())
+                .terminal(appearing)
+                .build();
+            Scenario::new()
+                .event_from(here(), listing(listed).seq(1))
+                .send(testing::show(Tab::Session(here(), looking.into())))
+                .event_from(here(), testing::patch(2).listed(all))
+        }
+
+        #[test]
+        fn a_terminal_asked_to_be_shown_opens_with_the_keys_while_its_opener_is_looked_at() {
+            let id = SessionId::new();
+            let run = terminal_appears("opener", vec![opener(id)], shown_terminal(7, id));
+            assert_eq!(focused(&run), Some(Tab::Terminal(here(), 7)));
+            assert_eq!(run.state().content.focus, Area::Console);
+        }
+
+        #[test]
+        fn a_terminal_appearing_while_the_user_looks_elsewhere_is_only_listed() {
+            let id = SessionId::new();
+            let run = terminal_appears(
+                "other",
+                vec![opener(id), session("other")],
+                shown_terminal(7, id),
+            );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "other".into())));
+        }
+
+        #[test]
+        fn a_terminal_not_asked_to_be_shown_or_started_by_another_is_only_listed() {
+            let id = SessionId::new();
+            let unasked = adroit_model::TerminalSession {
+                show: false,
+                ..shown_terminal(7, id)
+            };
+            let run = terminal_appears("opener", vec![opener(id)], unasked);
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+            let run = terminal_appears(
+                "opener",
+                vec![opener(id)],
+                shown_terminal(7, SessionId::new()),
+            );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        }
+
+        #[test]
+        fn a_terminal_listed_again_is_not_shown_again() {
+            let id = SessionId::new();
+            let both = || {
+                adroit_protocol::testing::listed()
+                    .sessions([opener(id)])
+                    .terminal(shown_terminal(7, id))
+                    .build()
+            };
+            let run = Scenario::new()
+                .event_from(here(), testing::snapshot().listed(both()).seq(1))
+                .send(testing::show(Tab::Session(here(), "opener".into())))
+                .event_from(here(), testing::patch(2).listed(both()));
             assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
         }
 

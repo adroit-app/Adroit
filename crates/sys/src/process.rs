@@ -22,8 +22,27 @@ pub fn kill(pid: u32) {
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
 }
 
+/// Leave this process running when the user interrupts, from the terminal it
+/// shares, the program it waits on, as a shell does for the program it runs.
+/// Programs it starts afterwards inherit this; start them first.
+#[cfg(unix)]
+pub fn ignore_interrupts() {
+    for signal in [libc::SIGINT, libc::SIGQUIT] {
+        // SAFETY: SIG_IGN installs no handler of this process's own.
+        unsafe { libc::signal(signal, libc::SIG_IGN) };
+    }
+}
+
 #[cfg(windows)]
 use windows_sys::Win32::{Foundation, System::Threading};
+
+/// Leave this process running when the user interrupts, from the console it
+/// shares, the program it waits on.
+#[cfg(windows)]
+pub fn ignore_interrupts() {
+    // SAFETY: no handler is passed; the call only sets this process to ignore Ctrl+C.
+    unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 1) };
+}
 
 /// Whether process `pid` still runs.
 #[cfg(windows)]

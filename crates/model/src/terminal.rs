@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::TerminalResourceId;
+use crate::{SessionId, TerminalResourceId};
 
 /// A terminal program, independent of any agent conversation or task result.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +23,16 @@ pub struct TerminalSession {
     /// How its program last reported it stands; none while it reported nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<crate::State>,
+    /// The session that started it, by Adroit's record of that session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opener: Option<SessionId>,
+    /// Whether the session that started it asked that it be shown to the user.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show: bool,
+    /// The exit status of a command terminal's program once it has ended; the
+    /// terminal keeps its screen until it is stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -3,6 +3,11 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "__startup_lease") {
         std::process::exit(adroit_host::startup_lease(&args[1..]));
     }
+    // Ahead of settling the instance: the program it keeps is handed the
+    // environment exactly as its terminal was.
+    if args.first().is_some_and(|arg| arg == adroit_host::KEEP) {
+        std::process::exit(adroit_host::keep(&args[1..]));
+    }
     #[cfg(windows)]
     if args.first().is_some_and(|arg| arg == adroit_host::HOLD) {
         std::process::exit(adroit_host::hold(&args[1..]));

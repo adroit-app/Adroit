@@ -90,6 +90,10 @@ pub struct TerminalStartRequest {
     pub file: Option<PathBuf>,
     /// The program and its arguments a command terminal runs.
     pub command: Vec<String>,
+    /// The session that starts it, by Adroit's record of that session.
+    pub opener: Option<adroit_model::SessionId>,
+    /// Whether that session asks that it be shown to the user.
+    pub show: bool,
 }
 
 pub struct ResolvedTerminalLaunch {
@@ -121,6 +125,7 @@ pub fn resolve_terminal(
                 env: settings.shell.env.clone(),
             };
             let (program, args) = launch.command_line("", &[], &shell);
+            let (program, args) = crate::kept::kept(program, args);
             let env = [("SHELL".into(), shell.clone())]
                 .into_iter()
                 .chain(launch.env)
@@ -158,6 +163,9 @@ pub fn resolve_terminal(
         file,
         command,
         state: None,
+        opener: request.opener,
+        show: request.show,
+        exit: None,
     };
     let mut tags = sessions::terminal_tags(&terminal);
     tags.extend(crate::environment::tags());

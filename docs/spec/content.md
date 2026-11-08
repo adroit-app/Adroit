@@ -67,8 +67,8 @@ itself leaves it running. One holding an unsaved change refuses and runs on,
 and opening the file's row shows it again. A session not started yet that no window shows any longer is
 given up.
 
-A terminal whose program exits or a session that ends closes every window
-that shows it. When that leaves nothing open, the next session or terminal of
+A terminal that ends or a session that ends closes every window that shows
+it. When that leaves nothing open, the next session or terminal of
 its worktree is shown.
 
 ## Across runs
@@ -90,8 +90,11 @@ conversations, and is listed beside the sessions of the worktree it runs in
 otherwise; Neovim reads the user's own configuration. A command terminal runs
 its program through the shell, as an interactive login shell would run it,
 with the environment a shell gets, and is listed among the shells under the
-name of its program unless given another. The Neovims of the prompt and the
-console's reader are part of the window, not terminals.
+name of its program unless given another. A command terminal outlives its
+program: its screen stays, saying the status the program ended with, until the
+terminal is stopped; a shell or Neovim terminal ends with its program. The
+Neovims of the prompt and the console's reader are part of the window, not
+terminals.
 
 Closing a terminal's windows hides it and leaves its program running, save a
 Neovim started on a file ([closing](#closing)); its row in the tree opens it
@@ -127,6 +130,12 @@ resource is addressed by ID, not by a name or the caller's directory.
 directory when omitted. A command terminal takes its program and arguments
 after `--`, and only it does.
 
+`start --show`, run by a session Adroit runs, asks that the terminal be shown
+to the user beside that session. The window opens it with the keys when it
+appears while the user is looking at that session, as a session another opens
+is shown ([opening sessions](opening-sessions.md)); otherwise it is only listed.
+Run anywhere else, `--show` is refused.
+
 `input` sends what it is given to the terminal's program, in the order given,
 and returns once the terminal has taken it. `--text` is typed as it is, so a
 newline in it is Enter; `--paste` is pasted, bracketed when the program asks
@@ -140,7 +149,10 @@ reads the screen as it is and does not wait.
 A JSON resource contains `resource_id` (UUID), `name`, `cwd`, `program`
 (`shell`, `neovim` or `command`), and for a command terminal `command`, its
 program and arguments. `list --json` returns an array of these resources.
-`screen --json` returns `resource_id` and `lines`; `input --json` returns
+A command terminal whose program has ended adds `exit`, the status it ended
+with: its exit code, or 128 and the number of the signal that ended it.
+`screen --json` returns `resource_id`, `lines` and `exit`, null while the
+program runs; `input --json` returns
 `resource_id` and `sent`; `stop --json` returns `resource_id` and `stopped`.
 Without `--json`, `input` and `stop` print the resource ID.
 
