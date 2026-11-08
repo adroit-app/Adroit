@@ -205,6 +205,155 @@ fn remote_discovery_refuses_absent_hosts_without_starting_local_ones() {
     assert!(!hosts.0.path().join("term.sock").exists());
 }
 
+/// Wait until something listens at `socket`.
+fn listening(socket: &Path) {
+    for _ in 0..500 {
+        if std::os::unix::net::UnixStream::connect(socket).is_ok() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("nothing listens at {}", socket.display());
+}
+
+#[test]
+fn an_instance_named_inside_a_session_of_another_reaches_its_own_hosts_not_the_session_s() {
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    let mut terminal = Service::terminal(&hosts);
+    let socket = root.join("term.sock");
+    listening(&socket);
+    for command in ["daemon", "host"] {
+        // The routing `isolated` names stands for that of a session of the
+        // instance `headless-owner`, which the command was typed in.
+        let output = isolated(root)
+            .env("ADROIT_WORK_INSTANCE", "headless-owner")
+            .env("ADROIT_INSTANCE", "headless-probe")
+            .env("FELIS_SOCKET", &socket)
+            .args([command, "stop"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).starts_with("no "),
+            "{command}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+    assert!(terminal.0.try_wait().unwrap().is_none());
+}
+
+#[test]
+fn stopping_or_restarting_the_hosts_a_command_s_own_session_runs_in_is_refused_unless_forced() {
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    // Started apart from the test, as a window starts them, so that a stop
+    // can wait until they are gone.
+    hosts.run(&["terminal", "list", "--json"]);
+    let socket = root.join("term.sock");
+    listening(&socket);
+    let inside = || {
+        let mut command = isolated(root);
+        command.env("FELIS_SOCKET", &socket);
+        command
+    };
+    for args in [
+        ["daemon", "stop"],
+        ["daemon", "restart"],
+        ["host", "stop"],
+        ["host", "restart"],
+    ] {
+        let output = inside().args(args).output().unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("--force"),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok());
+    assert!(std::os::unix::net::UnixStream::connect(root.join("work.sock")).is_ok());
+    let forced = inside().args(["host", "stop", "--force"]).output().unwrap();
+    assert!(
+        forced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&forced.stdout).trim(),
+        "stopped the work host"
+    );
+    let forced = inside()
+        .args(["daemon", "stop", "--force"])
+        .output()
+        .unwrap();
+    assert!(
+        forced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&forced.stdout).trim(),
+        "stopped the daemon"
+    );
+}
+
+#[test]
+fn a_work_host_a_command_starts_for_the_hosts_of_another_instance_serves_that_instance() {
+    struct Stopped<'a>(&'a Path);
+    impl Drop for Stopped<'_> {
+        fn drop(&mut self) {
+            for command in ["daemon", "host"] {
+                let _ = isolated(self.0)
+                    .env_remove("ADROIT_HOST")
+                    .env_remove("ADROIT_DAEMON")
+                    .env("ADROIT_INSTANCE", "headless-work")
+                    .args([command, "stop", "--force"])
+                    .output();
+            }
+        }
+    }
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    let state = root.join("state/adroit/instances/headless-test");
+    std::fs::create_dir_all(&state).unwrap();
+    adroit_connect::environments::Binding {
+        environment: "own".into(),
+        name: "Own".into(),
+        target: adroit_connect::Target::Local,
+        scope: None,
+        client: "headless-test".into(),
+        work_instance: Some("headless-work".into()),
+    }
+    .save(&state)
+    .unwrap();
+    let _stopped = Stopped(root);
+    let output = isolated(root)
+        .env_remove("ADROIT_HOST")
+        .env_remove("ADROIT_DAEMON")
+        .args(["terminal", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("state/adroit/instances/headless-work/host/host.sock")
+            .exists()
+    );
+    assert!(
+        !root
+            .join("state/adroit/instances/headless-test/host/host.sock")
+            .exists()
+    );
+}
+
 #[test]
 fn a_paired_target_or_invalid_execution_file_never_runs_native_client_commands_locally() {
     let paired = format!(

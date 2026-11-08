@@ -149,10 +149,19 @@ pub async fn stop(socket: &Path) -> Result<bool> {
 }
 
 /// Start `program` with `args` apart from adroit as the work host at
-/// `socket`, and wait until it says hello.
+/// `socket`, and wait until it says hello. It is named the instance it
+/// serves, so that its routing and its instance agree and neither is set
+/// aside.
 pub async fn start(socket: &Path, program: &Path, args: &[String]) -> Result<()> {
     adroit_term::own_dir(socket)?;
-    adroit_term::detached(program, args)?;
+    adroit_term::detached_with(
+        program,
+        args,
+        &[(
+            crate::paths::INSTANCE_ENV.into(),
+            Some(crate::paths::work_instance()),
+        )],
+    )?;
     for _ in 0..100 {
         if let Some(Some(_)) = hello(socket).await {
             return Ok(());
@@ -404,6 +413,19 @@ pub(crate) fn environment_served() -> Served {
 /// stop or restart the work host serving there. Returns the process exit
 /// code.
 pub fn cli(asked: HostCommand) -> i32 {
+    let effect = match asked {
+        HostCommand::Stop { force: false } => {
+            Some("it would cut this session off from its work host, though no session ends")
+        }
+        HostCommand::Restart { force: false } => Some(
+            "it would cut this session off from its work host until another starts, though no session ends",
+        ),
+        _ => None,
+    };
+    if let Some(text) = effect.and_then(crate::cli::refusal) {
+        eprintln!("adroit: {text}");
+        return 1;
+    }
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -418,7 +440,7 @@ pub fn cli(asked: HostCommand) -> i32 {
     let done = rt.block_on(async {
         match asked {
             HostCommand::Serve => serve(&socket).await,
-            HostCommand::Stop => {
+            HostCommand::Stop { .. } => {
                 let stopped = stop(&socket).await?;
                 println!(
                     "{}",
@@ -430,7 +452,7 @@ pub fn cli(asked: HostCommand) -> i32 {
                 );
                 Ok(())
             }
-            HostCommand::Restart => {
+            HostCommand::Restart { .. } => {
                 stop(&socket).await?;
                 start(&socket, &adroit_program(), &serve_args()).await?;
                 println!("restarted the work host");

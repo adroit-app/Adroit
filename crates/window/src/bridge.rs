@@ -998,11 +998,13 @@ pub(crate) fn run_detached(
 /// shows, its own or one beside it, started as this program serving the
 /// work instance `work` with its terminal host at `terminal`. Its routing is
 /// named rather than inherited: the window process carries none, as it
-/// shows several environments.
+/// shows several environments. It is named the work instance as its own, as
+/// a routing apart from the instance a process belongs to is set aside.
 fn work_host(socket: std::path::PathBuf, terminal: &std::path::Path, work: &str) -> To {
     let env = vec![
         ("ADROIT_ENVIRONMENT".into(), None),
         ("ADROIT_REMOTE".into(), None),
+        ("ADROIT_INSTANCE".into(), Some(work.into())),
         ("ADROIT_WORK_INSTANCE".into(), Some(work.into())),
         ("ADROIT_HOST".into(), Some(socket.display().to_string())),
         ("ADROIT_DAEMON".into(), Some(terminal.display().to_string())),
@@ -1314,6 +1316,11 @@ mod tests {
                 .map(|(_, value)| value.clone())
         };
         assert_eq!(named("ADROIT_WORK_INSTANCE"), Some(Some("work".into())));
+        assert_eq!(
+            named("ADROIT_INSTANCE"),
+            Some(Some("work".into())),
+            "an instance apart from its routing would set the routing aside"
+        );
         assert_eq!(named("ADROIT_HOST"), Some(Some("/w/host/host.sock".into())));
         assert_eq!(
             named("ADROIT_DAEMON"),

@@ -113,6 +113,15 @@ const AWAKE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 /// `adroit daemon`: serve sessions at the socket until stopped, or stop or
 /// restart the daemon serving there. Returns the process exit code.
 pub fn cli(asked: DaemonCommand) -> i32 {
+    if matches!(
+        asked,
+        DaemonCommand::Stop { force: false } | DaemonCommand::Restart { force: false }
+    ) && let Some(text) = crate::cli::refusal(
+        "it would end every session its terminal host holds, this one among them",
+    ) {
+        eprintln!("adroit: {text}");
+        return 1;
+    }
     let rt = match runtime() {
         Ok(rt) => rt,
         Err(e) => {
@@ -122,7 +131,7 @@ pub fn cli(asked: DaemonCommand) -> i32 {
     };
     let done = match asked {
         DaemonCommand::Serve => serve(&rt),
-        DaemonCommand::Stop => rt.block_on(async {
+        DaemonCommand::Stop { .. } => rt.block_on(async {
             let stopped = daemon().stop().await?;
             println!(
                 "{}",
@@ -134,7 +143,7 @@ pub fn cli(asked: DaemonCommand) -> i32 {
             );
             Ok(())
         }),
-        DaemonCommand::Restart => rt.block_on(async {
+        DaemonCommand::Restart { .. } => rt.block_on(async {
             let daemon = daemon();
             daemon.restart(&adroit_program(), &serve_args()).await?;
             println!("restarted the daemon");

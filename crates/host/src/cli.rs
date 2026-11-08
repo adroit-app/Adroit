@@ -1,6 +1,6 @@
 //! What the `adroit` command was asked to do.
 
-use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, is_instance};
+use crate::paths::{DEFAULT_INSTANCE, INSTANCE_ENV, WORK_INSTANCE_ENV, is_instance};
 
 /// What `adroit` does, by its arguments.
 #[derive(Debug, PartialEq, Eq)]
@@ -122,8 +122,8 @@ fn remote(args: &[String]) -> Option<Command> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DaemonCommand {
     Serve,
-    Stop,
-    Restart,
+    Stop { force: bool },
+    Restart { force: bool },
 }
 
 /// A window opened as `args`, its options in any order, each once.
@@ -147,8 +147,8 @@ fn window(args: &[String]) -> Option<Command> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostCommand {
     Serve,
-    Stop,
-    Restart,
+    Stop { force: bool },
+    Restart { force: bool },
 }
 
 /// The variables through which a command run inside a session reaches the
@@ -159,6 +159,67 @@ pub const ROUTING: [&str; 4] = [
     "ADROIT_ENVIRONMENT",
     "ADROIT_WORK_INSTANCE",
 ];
+
+/// The inherited variables to set aside before anything reads them: the
+/// routing of a session, and the credential it acts with, when `var`'s
+/// `$ADROIT_INSTANCE` names another instance than the routing does. The
+/// instance named then wins, and the command reaches its own hosts rather
+/// than those of the session it was typed in.
+pub fn set_aside(var: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
+    let named = |name| var(name).filter(|value| !value.is_empty());
+    match (named(INSTANCE_ENV), named(WORK_INSTANCE_ENV)) {
+        (Some(instance), Some(work)) if instance != work => ROUTING
+            .into_iter()
+            .chain([
+                crate::delegation::launch::ROOT_ENV,
+                crate::delegation::launch::TOKEN_ENV,
+            ])
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether a caller whose session names `caller` as its terminal host's
+/// socket runs in the terminal host listening at `terminal`.
+pub fn lives_in(caller: Option<&std::ffi::OsStr>, terminal: &std::path::Path) -> bool {
+    let Some(caller) = caller.map(std::path::Path::new) else {
+        return false;
+    };
+    let terminal = adroit_sys::local::address(terminal);
+    caller == terminal
+        || matches!(
+            (std::fs::canonicalize(caller), std::fs::canonicalize(&terminal)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
+/// Where felis names, to each program it runs, the socket of the terminal
+/// host it runs in.
+pub const TERMINAL_SOCKET_ENV: &str = "FELIS_SOCKET";
+
+/// Why stopping or restarting a host of the instance whose terminal host
+/// holds the session the command runs in is refused unless forced, with
+/// what it would do to that session as `effect`; `None` when the command
+/// runs in no session of it.
+pub fn refusal(effect: &str) -> Option<String> {
+    let caller = std::env::var_os(TERMINAL_SOCKET_ENV);
+    lives_in(caller.as_deref(), &crate::paths::terminal_host_socket()).then(|| {
+        format!(
+            "this runs in a session of the instance it acts on, and {effect}; \
+             name another instance with ADROIT_INSTANCE, or pass --force"
+        )
+    })
+}
+
+/// Whether the words after a host's verb force it: `None` for any word but a
+/// single `--force`.
+fn forced(rest: &[String]) -> Option<bool> {
+    match rest {
+        [] => Some(false),
+        [word] if word == "--force" => Some(true),
+        _ => None,
+    }
+}
 
 impl Command {
     /// Whether the command reaches the hosts of its instance's environment
@@ -177,7 +238,7 @@ impl Command {
     }
 }
 
-pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] | host [stop | restart] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable> [--instance <name>]]";
+pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] [--force] | host [stop | restart] [--force] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable> [--instance <name>]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -221,15 +282,25 @@ pub fn command(args: &[String]) -> Option<Command> {
         Some(adroit_agents::own_login::SUBCOMMAND) => Some(Command::InOwnLogin(rest())),
         Some("daemon") => match &args[1..] {
             [] => Some(Command::Daemon(DaemonCommand::Serve)),
-            [verb] if verb == "stop" => Some(Command::Daemon(DaemonCommand::Stop)),
-            [verb] if verb == "restart" => Some(Command::Daemon(DaemonCommand::Restart)),
-            _ => None,
+            [verb, rest @ ..] => {
+                let force = forced(rest)?;
+                match verb.as_str() {
+                    "stop" => Some(Command::Daemon(DaemonCommand::Stop { force })),
+                    "restart" => Some(Command::Daemon(DaemonCommand::Restart { force })),
+                    _ => None,
+                }
+            }
         },
         Some("host") => match &args[1..] {
             [] => Some(Command::Host(HostCommand::Serve)),
-            [verb] if verb == "stop" => Some(Command::Host(HostCommand::Stop)),
-            [verb] if verb == "restart" => Some(Command::Host(HostCommand::Restart)),
-            _ => None,
+            [verb, rest @ ..] => {
+                let force = forced(rest)?;
+                match verb.as_str() {
+                    "stop" => Some(Command::Host(HostCommand::Stop { force })),
+                    "restart" => Some(Command::Host(HostCommand::Restart { force })),
+                    _ => None,
+                }
+            }
         },
         _ => None,
     }
@@ -258,6 +329,7 @@ pub fn settle_instance(given: Option<String>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn asked(words: &[&str]) -> Option<Command> {
         let args: Vec<String> = words.iter().map(|w| w.to_string()).collect();
@@ -338,20 +410,20 @@ mod tests {
         );
         assert_eq!(
             asked(&["daemon", "stop"]),
-            Some(Command::Daemon(DaemonCommand::Stop))
+            Some(Command::Daemon(DaemonCommand::Stop { force: false }))
         );
         assert_eq!(
             asked(&["daemon", "restart"]),
-            Some(Command::Daemon(DaemonCommand::Restart))
+            Some(Command::Daemon(DaemonCommand::Restart { force: false }))
         );
         assert_eq!(asked(&["host"]), Some(Command::Host(HostCommand::Serve)));
         assert_eq!(
             asked(&["host", "stop"]),
-            Some(Command::Host(HostCommand::Stop))
+            Some(Command::Host(HostCommand::Stop { force: false }))
         );
         assert_eq!(
             asked(&["host", "restart"]),
-            Some(Command::Host(HostCommand::Restart))
+            Some(Command::Host(HostCommand::Restart { force: false }))
         );
         assert_eq!(asked(&["--version"]), Some(Command::Version));
         assert_eq!(
@@ -390,6 +462,96 @@ mod tests {
     #[test]
     fn an_instance_the_environment_names_badly_is_refused() {
         assert!(chosen(None, Some("../up".into())).is_err());
+    }
+
+    fn inherited<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn an_instance_named_apart_from_the_inherited_routing_sets_the_routing_and_credential_aside() {
+        let session = [
+            ("ADROIT_INSTANCE", "probe"),
+            ("ADROIT_WORK_INSTANCE", "default"),
+        ];
+        let aside = set_aside(inherited(&session));
+        for name in ROUTING {
+            assert!(aside.contains(&name), "{name} {aside:?}");
+        }
+        assert!(aside.contains(&"ADROIT_DELEGATION_ROOT"), "{aside:?}");
+        assert!(aside.contains(&"ADROIT_DELEGATION_TOKEN"), "{aside:?}");
+    }
+
+    #[test]
+    fn the_inherited_routing_stays_when_the_instance_agrees_with_it_or_is_not_named() {
+        for env in [
+            &[
+                ("ADROIT_INSTANCE", "work"),
+                ("ADROIT_WORK_INSTANCE", "work"),
+            ][..],
+            &[("ADROIT_WORK_INSTANCE", "work")],
+            &[("ADROIT_INSTANCE", ""), ("ADROIT_WORK_INSTANCE", "work")],
+            &[("ADROIT_INSTANCE", "probe")],
+            &[],
+        ] {
+            assert!(set_aside(inherited(env)).is_empty(), "{env:?}");
+        }
+    }
+
+    #[test]
+    fn stopping_or_restarting_a_host_can_be_forced() {
+        assert_eq!(
+            asked(&["daemon", "stop", "--force"]),
+            Some(Command::Daemon(DaemonCommand::Stop { force: true }))
+        );
+        assert_eq!(
+            asked(&["daemon", "restart", "--force"]),
+            Some(Command::Daemon(DaemonCommand::Restart { force: true }))
+        );
+        assert_eq!(
+            asked(&["host", "stop", "--force"]),
+            Some(Command::Host(HostCommand::Stop { force: true }))
+        );
+        assert_eq!(
+            asked(&["host", "restart", "--force"]),
+            Some(Command::Host(HostCommand::Restart { force: true }))
+        );
+        assert_eq!(asked(&["daemon", "--force"]), None);
+        assert_eq!(asked(&["host", "stop", "--force", "--force"]), None);
+    }
+
+    #[test]
+    fn a_caller_lives_in_the_terminal_host_whose_socket_its_session_names() {
+        let socket = Path::new("/s/adroit/felis/daemon.sock");
+        assert!(lives_in(Some(socket.as_os_str()), socket));
+        assert!(!lives_in(
+            Some(std::ffi::OsStr::new(
+                "/s/adroit/instances/probe/felis/daemon.sock"
+            )),
+            socket
+        ));
+        assert!(!lives_in(None, socket));
+    }
+
+    #[test]
+    fn a_caller_lives_in_the_terminal_host_its_session_names_by_another_path_to_the_same_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("daemon.sock"), "").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&real, dir.path().join("link")).unwrap();
+            assert!(lives_in(
+                Some(dir.path().join("link/daemon.sock").as_os_str()),
+                &real.join("daemon.sock")
+            ));
+        }
     }
 
     #[test]

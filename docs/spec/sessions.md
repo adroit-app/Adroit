@@ -132,6 +132,10 @@ The sessions and terminals of an instance, and the commands run in them,
 belong to it: they see only its sessions and terminals, and the sessions they
 start are its own. Settings and keys are the same in every instance.
 
+A command run in a session with `$ADROIT_INSTANCE` naming another instance
+belongs to the instance named, not to the session's: it reaches that
+instance's hosts, and acts as no session.
+
 ## Windows
 
 Opening Adroit while a window of the instance is open brings that window to
@@ -224,7 +228,9 @@ what they scrolled back, until they are brought back
 ([when the terminal host goes](#when-the-terminal-host-goes)). A terminal host too old to be asked to stop is
 stopped by signal. `adroit host stop` and `adroit host restart` do the same
 for the work host, and end no session. Stopping where no host runs is not an
-error.
+error. Run in a session the terminal host they act on holds, all four refuse
+unless given `--force`: the terminal host's would end that very session, and
+the work host's would cut it off from its work host.
 
 The window restarts the terminal host with Restart Session Daemon
 (`daemon.restart`), only after the user confirms that every session ends

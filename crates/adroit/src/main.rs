@@ -12,7 +12,9 @@ fn main() {
     if args.first().is_some_and(|arg| arg == adroit_host::HOLD) {
         std::process::exit(adroit_host::hold(&args[1..]));
     }
-    use adroit_host::cli::{Command, ROUTING, RemoteCommand, USAGE, command, settle_instance};
+    use adroit_host::cli::{
+        Command, ROUTING, RemoteCommand, USAGE, command, set_aside, settle_instance,
+    };
     // Run from inside an agent's account, such as by its MCP server or a
     // command its session runs, adroit finds its instance where it is
     // outside the account, not where the account moved the agent's folders.
@@ -30,6 +32,10 @@ fn main() {
     // environment exactly as its login leaves it.
     if let Some(Command::InOwnLogin(rest)) = &asked {
         std::process::exit(adroit_agents::own_login::run(rest));
+    }
+    for name in set_aside(|name| std::env::var(name).ok()) {
+        // SAFETY: no other thread exists yet.
+        unsafe { std::env::remove_var(name) };
     }
     let given = match &asked {
         Some(Command::Window { instance, .. } | Command::Remote { instance, .. }) => {

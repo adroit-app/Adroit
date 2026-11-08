@@ -72,6 +72,19 @@ pub fn instance() -> String {
         .unwrap_or_else(|| DEFAULT_INSTANCE.into())
 }
 
+/// Where the instance whose hosts a process works with is named, when its
+/// routing names hosts of an instance other than its own.
+pub const WORK_INSTANCE_ENV: &str = "ADROIT_WORK_INSTANCE";
+
+/// The instance whose hosts this process works with:
+/// `$ADROIT_WORK_INSTANCE`, or its own.
+pub fn work_instance() -> String {
+    std::env::var(WORK_INSTANCE_ENV)
+        .ok()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(instance)
+}
+
 /// The folder of `state` that `instance` keeps its daemon and state in: the
 /// one adroit used before there were instances, for the default one.
 pub fn instance_dir(state: &std::path::Path, instance: &str) -> PathBuf {
