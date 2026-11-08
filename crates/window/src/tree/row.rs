@@ -259,11 +259,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             )
         }
         Item::Terminal(_, id) => {
-            let name = t
-                .terminal(*id)
-                .map(|(_, _, s)| s.name.clone())
-                .unwrap_or_default();
-            ("", name, String::new(), None)
+            let terminal = t.terminal(*id).map(|(_, _, s)| s);
+            let name = terminal.map(|s| s.name.clone()).unwrap_or_default();
+            let state =
+                terminal.and_then(|s| context.completions.read().terminal_state(s).map(glyph));
+            ("", name, String::new(), state)
         }
         Item::Environment(_) | Item::File { .. } | Item::Waiting(_, _) => {
             ("", String::new(), String::new(), None)

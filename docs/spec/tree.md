@@ -24,8 +24,12 @@ contents straight under it, with no worktree row; one outside git always does.
 A worktree's files sit under its Files heading, and what runs in it under
 Sessions and Terminals: Terminals holds every program Adroit runs in a
 terminal there, shells and Neovim alike, each marked by what it runs, save a
-Neovim started on a file, which that file's row stands for. A heading folds,
-and the row of one for what runs counts what it holds. Terminals never sit
+Neovim started on a file, which that file's row stands for. A terminal whose
+program reports how it stands, as a session's does
+([how a session stands](sessions.md#how-a-session-stands)), is marked with
+that state as a session is, done until it is viewed; one whose program
+reports nothing carries no such mark. A heading folds, and the row of one for
+what runs counts what it holds. Terminals never sit
 straight under a workspace: where a workspace has no worktree row, the
 headings are its checkout's.
 

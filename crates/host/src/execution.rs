@@ -157,6 +157,7 @@ pub fn resolve_terminal(
         program: request.program,
         file,
         command,
+        state: None,
     };
     let mut tags = sessions::terminal_tags(&terminal);
     tags.extend(crate::environment::tags());

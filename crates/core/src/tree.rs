@@ -14,7 +14,7 @@ use adroit_model::{EnvironmentId, InboxItem, State, TerminalSession, Tree, inbox
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
 use crate::chrome::status_line::{self, StatusLine};
-use crate::completion::Completions;
+use crate::completion::{Completions, Viewed};
 use crate::content::{Showing, Tab};
 use crate::effect::Effect;
 use crate::host::Hosts;
@@ -410,8 +410,8 @@ pub(crate) fn leave_filter(view: &mut TreeView, left: bool) -> Vec<Effect> {
     vec![Effect::FilterFocus(false)]
 }
 
-/// A finished session is seen once the focused window shows it while the
-/// user is in the window.
+/// A finished session or terminal is seen once the focused window shows it
+/// while the user is in the window.
 pub(crate) fn see_completions(
     view: &mut TreeView,
     shown: Option<&Tab>,
@@ -419,7 +419,8 @@ pub(crate) fn see_completions(
     work: Option<&WorkSnapshot>,
 ) {
     let shown = match (shown, focused) {
-        (Some(Tab::Session(_, id)), true) => Some(id.as_str()),
+        (Some(Tab::Session(_, id)), true) => Some(Viewed::Session(id.as_str())),
+        (Some(Tab::Terminal(_, id)), true) => Some(Viewed::Terminal(*id)),
         _ => None,
     };
     let next = view.completions.updated(listed(work), shown);

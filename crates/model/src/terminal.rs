@@ -20,6 +20,9 @@ pub struct TerminalSession {
     /// The program and its arguments a command terminal runs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<String>,
+    /// How its program last reported it stands; none while it reported nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<crate::State>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

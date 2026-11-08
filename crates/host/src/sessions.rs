@@ -142,6 +142,10 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
                 Some(raw) => serde_json::from_str(&raw).ok()?,
                 None => Vec::new(),
             },
+            state: session
+                .status
+                .as_ref()
+                .map(|s| State::reported(&s.state, s.kind.as_deref())),
         })),
         None => None,
     }
@@ -736,10 +740,28 @@ mod tests {
                 program,
                 file: None,
                 command,
+                state: None,
             };
             let s = kept(9, terminal_tags(&terminal));
             assert_eq!(read(&s), Some(Kept::Terminal(terminal)));
         }
+    }
+
+    #[test]
+    fn a_terminal_stands_as_its_program_reports_and_unmarked_when_it_reports_nothing() {
+        let terminal = adroit_model::testing::shell(9, "/api");
+        let mut s = kept(9, terminal_tags(&terminal));
+        let state = |s: &adroit_term::Session| match read(s) {
+            Some(Kept::Terminal(t)) => t.state,
+            other => panic!("not a terminal: {other:?}"),
+        };
+        assert_eq!(state(&s), None);
+        s.status = Some(Status {
+            state: "done".into(),
+            kind: None,
+            msg: None,
+        });
+        assert_eq!(state(&s), Some(State::Done));
     }
 
     #[test]

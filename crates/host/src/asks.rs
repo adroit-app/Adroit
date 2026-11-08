@@ -464,6 +464,7 @@ async fn open_login(
         command: std::iter::once(program.clone())
             .chain(args.clone())
             .collect(),
+        state: None,
     };
     let (cols, rows) = size(cols, rows);
     let spawn = Spawn {
