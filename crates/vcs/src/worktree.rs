@@ -16,6 +16,9 @@ pub struct Worktree {
     pub path: PathBuf,
     /// The full commit the worktree starts from.
     pub base: String,
+    backend: Backend,
+    root: PathBuf,
+    native: String,
 }
 
 /// Makes a worktree named `name` of the repository holding `source`, starting
@@ -86,7 +89,66 @@ pub async fn create(
             .await?;
         }
     }
-    Ok(Worktree { path, base })
+    Ok(Worktree {
+        path,
+        base,
+        backend,
+        root,
+        native,
+    })
+}
+
+/// Undoes `create` for a worktree nothing has worked in yet: the directory,
+/// the worktree or workspace, and the branch or change made for it.
+pub async fn remove(worktree: &Worktree) -> Result<()> {
+    let native: &OsStr = worktree.native.as_ref();
+    match worktree.backend {
+        Backend::Jj => {
+            let change = format!("{}@", worktree.native);
+            command(
+                &worktree.root,
+                "jj",
+                &["--no-pager".as_ref(), "abandon".as_ref(), change.as_ref()],
+            )
+            .await?;
+            command(
+                &worktree.root,
+                "jj",
+                &[
+                    "--no-pager".as_ref(),
+                    "workspace".as_ref(),
+                    "forget".as_ref(),
+                    native,
+                ],
+            )
+            .await?;
+            if exists(&worktree.path)? {
+                std::fs::remove_dir_all(&worktree.path).map_err(|error| {
+                    format!("cannot remove {}: {error}", worktree.path.display())
+                })?;
+            }
+        }
+        Backend::Git => {
+            command(
+                &worktree.root,
+                "git",
+                &[
+                    "worktree".as_ref(),
+                    "remove".as_ref(),
+                    "--force".as_ref(),
+                    worktree.path.as_os_str(),
+                ],
+            )
+            .await?;
+            command(
+                &worktree.root,
+                "git",
+                &["branch".as_ref(), "-D".as_ref(), native],
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 /// Lower-case words joined by dashes, so a session's name can name a directory.
@@ -428,6 +490,53 @@ mod tests {
         assert!(made.path.join("draft.txt").is_file());
         let workspaces = run(&source, "jj", &["workspace", "list"]);
         assert!(workspaces.contains("take-over"), "{workspaces}");
+    }
+
+    #[tokio::test]
+    async fn a_git_worktree_taken_back_leaves_no_directory_worktree_or_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = git_repository(dir.path());
+        let made = create(&source, "review", None, "review").await.unwrap();
+
+        remove(&made).await.unwrap();
+
+        assert!(!made.path.exists());
+        let worktrees = run(&source, "git", &["worktree", "list"]);
+        assert!(!worktrees.contains("review"), "{worktrees}");
+        let branches = run(&source, "git", &["branch", "--list", "review"]);
+        assert!(branches.trim().is_empty(), "{branches}");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs jj")]
+    async fn a_jj_workspace_taken_back_leaves_no_directory_workspace_or_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("api");
+        std::fs::create_dir(&source).unwrap();
+        run(&source, "jj", &["git", "init", "--colocate"]);
+        std::fs::write(source.join("draft.txt"), "unfinished").unwrap();
+        let made = create(&source, "take over", None, "take over")
+            .await
+            .unwrap();
+
+        remove(&made).await.unwrap();
+
+        assert!(!made.path.exists());
+        let workspaces = run(&source, "jj", &["workspace", "list"]);
+        assert!(!workspaces.contains("take-over"), "{workspaces}");
+        let described = run(
+            &source,
+            "jj",
+            &[
+                "log",
+                "--no-graph",
+                "-r",
+                "description(substring:\"take over\")",
+                "-T",
+                "change_id",
+            ],
+        );
+        assert!(described.is_empty(), "{described}");
     }
 
     #[tokio::test]

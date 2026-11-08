@@ -41,7 +41,9 @@ cannot act as another.
   a git worktree; it starts from the given revision, or from the caller's
   current change or commit. Outside version control, a new worktree is
   refused. A worktree that cannot be made refuses the start; the session never
-  falls back to the caller's directory. A model must be one its profile lists
+  falls back to the caller's directory. A start refused or failed after its
+  worktree is made removes that worktree again, unless the agent may already
+  run on the work machine. A model must be one its profile lists
   (see `models`); any other is refused, naming the listed ones.
 - **`send`** sends a message to another session by its id. Any session Adroit
   started, running or not yet ready, can be sent to; one that has ended
