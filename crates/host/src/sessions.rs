@@ -50,6 +50,16 @@ pub enum Kept {
 
 pub use adroit_model::daemon::{hex, id_of};
 
+/// The tags that keep `conversation` on a daemon session.
+pub(crate) fn conversation_tags(conversation: &str) -> Vec<String> {
+    tags::tagged(CONVERSATION, conversation)
+}
+
+/// The conversation a daemon session is tagged as holding.
+pub(crate) fn conversation_of(session: &adroit_term::Session) -> Option<String> {
+    tags::value(&session.tags, CONVERSATION).filter(|c| !c.is_empty())
+}
+
 /// Keep the conversation reported by the agent's terminal title on its
 /// daemon session, including when the agent switches conversations.
 pub fn follow_title(session: &mut Session, title: &str) -> Option<(u128, &'static str, String)> {
@@ -171,7 +181,7 @@ pub fn agent_tags(
     out.extend(tags::tagged(CWD, &cwd.to_string_lossy()));
     out.extend(tags::tagged(STARTED, &started_ms.to_string()));
     if !conversation.is_empty() {
-        out.extend(tags::tagged(CONVERSATION, conversation));
+        out.extend(conversation_tags(conversation));
     }
     out.extend(tags::tagged(
         PERMISSIONS,

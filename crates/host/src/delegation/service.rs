@@ -552,8 +552,33 @@ impl Watcher {
                 if current && record.readiness == Readiness::Ready {
                     self.deliver(context, &record).await?;
                 }
+            } else {
+                Self::learn_tagged_conversation(context, &mut record, native).await?;
             }
         }
+        Ok(())
+    }
+
+    /// Records the conversation the session's daemon session is tagged as
+    /// holding, which the work host keeps there as it follows the agent.
+    /// Codex's is followed from its title here instead, as delivering to it
+    /// needs the conversation the moment its title names one.
+    async fn learn_tagged_conversation(
+        context: &Context,
+        record: &mut Session,
+        native: &adroit_term::Session,
+    ) -> Result<()> {
+        let Some(conversation) = crate::sessions::conversation_of(native) else {
+            return Ok(());
+        };
+        if record.conversation.as_deref() == Some(conversation.as_str()) {
+            return Ok(());
+        }
+        let (id, learned) = (record.id, conversation.clone());
+        context
+            .call(move |store| store.learn_conversation(id, &learned))
+            .await?;
+        record.conversation = Some(conversation);
         Ok(())
     }
 
@@ -745,13 +770,23 @@ mod tests {
     fn conversation_watch(
         title: &str,
     ) -> (tempfile::TempDir, Context, Session, adroit_term::Session) {
+        watching(Agent::Codex, Some(title), Vec::new())
+    }
+
+    /// A recorded session of `agent` that knows a conversation, and the
+    /// daemon session it runs in, with `title` and `tags`.
+    fn watching(
+        agent: Agent,
+        title: Option<&str>,
+        tags: Vec<String>,
+    ) -> (tempfile::TempDir, Context, Session, adroit_term::Session) {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
         let (id, _) = store
             .register(super::super::store::NewSession {
                 parent: None,
-                agent: Agent::Codex,
-                profile: "codex".parse().unwrap(),
+                agent,
+                profile: adroit_model::profile::ProfileId::builtin(agent),
                 home: None,
                 name: "review".into(),
                 cwd: dir.path().into(),
@@ -773,13 +808,39 @@ mod tests {
         };
         let native = adroit_term::Session {
             id: 1,
-            tags: Vec::new(),
-            title: Some(title.into()),
+            tags,
+            title: title.map(Into::into),
             exited: false,
             status: None,
             sequence: 1,
         };
         (dir, context, record, native)
+    }
+
+    #[tokio::test]
+    async fn the_conversation_another_agent_s_session_is_tagged_with_is_recorded() {
+        let next = "223e4567-e89b-12d3-a456-426614174000";
+        for agent in [Agent::Claude, Agent::Pi, Agent::OpenCode] {
+            let tags = crate::sessions::conversation_tags(next);
+            let (_dir, context, mut record, native) = watching(agent, None, tags);
+            Watcher::learn_tagged_conversation(&context, &mut record, &native)
+                .await
+                .unwrap();
+            assert_eq!(record.conversation.as_deref(), Some(next), "{agent:?}");
+            let kept = context.store.lock().unwrap().known(record.id).unwrap();
+            assert_eq!(kept.conversation.as_deref(), Some(next), "{agent:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_tagged_with_no_conversation_keeps_the_recorded_one() {
+        let (_dir, context, mut record, native) = watching(Agent::Claude, None, Vec::new());
+        let known = record.conversation.clone();
+        Watcher::learn_tagged_conversation(&context, &mut record, &native)
+            .await
+            .unwrap();
+        assert!(known.is_some());
+        assert_eq!(record.conversation, known);
     }
 
     #[tokio::test]
