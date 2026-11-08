@@ -287,7 +287,8 @@ The state a session shows, working, waiting on you and for what, done or
 failed, is what its program reports with the
 [OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status),
 as the daemon keeps it. When Codex, Pi or OpenCode reports no status, its visible activity and
-requests for approval or input supply the state instead. A session Adroit
+requests for approval or input supply the state instead. A request for
+approval or input on its screen wins over a report that it is working. A session Adroit
 started shows as starting until its program reports a state or its visible
 activity supplies one.
 

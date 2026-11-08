@@ -30,8 +30,8 @@ shows on screen asking the user wins over a report that it is working.
 
 ## Consequences
 
-- An agent shows its state once it reports OSC 7501; one that reports nothing
-  shows as idle.
+- An agent shows its state once it reports OSC 7501; for one that reports
+  nothing, its screen is all there is to read.
 - Any program in a session or a terminal can report its state.
 - The screen of a session reporting working is still read for dialogs.
 - The terminal has to answer a program's query for the protocol, which felis

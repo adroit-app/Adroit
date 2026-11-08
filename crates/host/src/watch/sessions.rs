@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use adroit_model::{Session, TerminalSession, Worktree, build};
+use adroit_model::{Session, State, TerminalSession, Worktree, build};
 use adroit_protocol::{Listed, TreeChange};
 use adroit_term::Daemon;
 
@@ -170,13 +170,19 @@ pub async fn read_sessions(
                 {
                     learned.push(tag);
                 }
-                if s.status.is_none()
+                let reported = s.status.is_some();
+                if (!reported || c.state == State::Working)
                     && adapter.capabilities().screen_state
                     && let Ok(Ok(screen)) =
                         tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id)).await
-                    && let Some(state) = adapter.screen_state(&screen)
+                    && let Some(state) = match reported {
+                        true => past_working(&c.state, adapter, &screen),
+                        false => adapter.screen_state(&screen),
+                    }
                 {
                     c.state = state;
+                    // What the program said went with the report set aside.
+                    c.status_message = None;
                 }
                 // Named as the settings it started with call its profile,
                 // which the settings now may hold no more.
@@ -228,6 +234,24 @@ pub async fn read_sessions(
     Ok((own, kept_shells))
 }
 
+/// How a session stands whose program reports `reported`, when `adapter`
+/// reads on its `screen` a request that waits on the user while the report
+/// says it works: a report of working that the program never followed up
+/// would hide the request. A dialog the user opened, such as a picker, asks
+/// nothing of them and leaves the report standing.
+fn past_working(
+    reported: &State,
+    adapter: &dyn adroit_agents::AgentAdapter,
+    screen: &[String],
+) -> Option<State> {
+    if *reported != State::Working {
+        return None;
+    }
+    adapter
+        .screen_state(screen)
+        .filter(|seen| matches!(seen, State::Waiting(_)))
+}
+
 /// Each agent and login `own` has sessions in, with the context the
 /// first of those sessions `of` tells one for runs in, tried in turn; one whose sessions
 /// tell none is left out.
@@ -268,6 +292,59 @@ mod tests {
     use adroit_model::testing::session;
 
     use super::*;
+
+    fn screen(name: &str) -> Vec<String> {
+        let path = format!(
+            "{}/../agents/tests/screens/{name}.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{path}: {e}"))
+            .lines()
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn a_request_on_screen_wins_over_a_report_of_working() {
+        let on = |agent: Agent, name: &str| {
+            past_working(
+                &State::Working,
+                adroit_agents::adapter(agent),
+                &screen(name),
+            )
+        };
+        assert!(
+            matches!(
+                on(Agent::OpenCode, "opencode-permission"),
+                Some(State::Waiting(_))
+            ),
+            "{:?}",
+            on(Agent::OpenCode, "opencode-permission")
+        );
+        assert_eq!(on(Agent::OpenCode, "opencode-working"), None);
+        assert_eq!(on(Agent::Claude, "working"), None);
+    }
+
+    #[test]
+    fn a_picker_the_user_opened_while_the_agent_works_leaves_it_working() {
+        let claude = adroit_agents::adapter(Agent::Claude);
+        assert_eq!(
+            past_working(&State::Working, claude, &screen("model-while-working")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_report_of_anything_but_working_is_not_read_against_the_screen() {
+        let opencode = adroit_agents::adapter(Agent::OpenCode);
+        for reported in [State::Idle, State::Done, State::Failed] {
+            assert_eq!(
+                past_working(&reported, opencode, &screen("opencode-permission")),
+                None
+            );
+        }
+    }
 
     #[tokio::test]
     async fn a_login_is_asked_through_the_first_of_its_sessions_whose_context_is_known() {
