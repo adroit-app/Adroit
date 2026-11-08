@@ -9,7 +9,7 @@ use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
 use crate::content::{fresh_name, label_from, label_of};
-use crate::scratch::{self, Moment};
+use crate::scratch;
 use crate::sessions;
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
@@ -170,6 +170,7 @@ async fn start_as(
             model: asked.model.clone(),
             permissions: Some(asked.permissions.clone()),
             name: asked.name.clone(),
+            show: false,
         });
     let started = crate::delegation::protocol::ask(root, credential, command, None)
         .await
@@ -317,7 +318,7 @@ fn prepared(
         .as_ref()
         .map_or_else(|| cwd.to_path_buf(), |d| cwd.join(d));
     let dir = adroit_sys::fs::canonicalize(dir)
-        .and_then(|d| scratch::start_dir(&d, &crate::paths::scratch_dir(), Moment::now()))?;
+        .and_then(|d| scratch::start_dir(&d, &crate::paths::scratch_dir()))?;
     Ok(Prepared { asked, dir, prompt })
 }
 

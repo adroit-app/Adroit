@@ -331,6 +331,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         permissions: start.permissions.unwrap_or_default(),
         env: crate::daemon::agent_env(),
         started_ms: super::now_ms(),
+        show: start.show,
         ..Default::default()
     };
     let palette = crate::themes::palette_in_force(&settings)

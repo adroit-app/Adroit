@@ -113,6 +113,12 @@ impl SessionBuilder {
         self
     }
 
+    /// Asked by the session that opened it to be shown to the user.
+    pub fn show(mut self) -> Self {
+        self.0.show = true;
+        self
+    }
+
     pub fn adroit_editor(mut self, runs: bool) -> Self {
         self.0.adroit_editor = runs;
         self

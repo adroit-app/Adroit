@@ -1,118 +1,39 @@
-//! Scratch sessions: each runs in a directory of its own under the scratch
-//! root, made when the session starts and named by the local time it did.
+//! Scratch sessions: every one runs in the scratch folder, made when the
+//! first one starts.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// A local date and time, to the minute.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Moment {
-    pub year: i32,
-    pub month: u32,
-    pub day: u32,
-    pub hour: u32,
-    pub minute: u32,
-}
-
-impl Moment {
-    /// Now, in the local time zone.
-    pub fn now() -> Moment {
-        let (year, month, day, hour, minute) = adroit_sys::local_time();
-        Moment {
-            year,
-            month,
-            day,
-            hour,
-            minute,
-        }
-    }
-
-    /// The name a scratch directory made at this moment is given.
-    pub fn stamp(&self) -> String {
-        format!(
-            "{:04}{:02}{:02}-{:02}{:02}",
-            self.year, self.month, self.day, self.hour, self.minute
-        )
-    }
-}
-
-/// The names to try for a directory stamped `stamp`, in order: the stamp,
-/// then the stamp with `-2`, `-3`, ….
-fn names(stamp: &str) -> impl Iterator<Item = String> + '_ {
-    std::iter::once(stamp.to_string()).chain((2..).map(move |n| format!("{stamp}-{n}")))
-}
-
-/// Make a new directory under `root`, making `root` too, named by `stamp` or,
-/// when that is taken, by the first of its numbered names that is free.
-pub fn make(root: &Path, stamp: &str) -> io::Result<PathBuf> {
-    std::fs::create_dir_all(root)?;
-    for name in names(stamp) {
-        let dir = root.join(name);
-        // Made, not looked for first: two sessions started in the same minute
-        // would otherwise both take the name.
-        match std::fs::create_dir(&dir) {
-            Ok(()) => return Ok(dir),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    unreachable!("the names never run out")
-}
-
-/// Where a session started from a draft in `worktree` runs: a new directory
-/// for a draft in the scratch root itself, otherwise the draft's own.
-pub fn start_dir(worktree: &Path, root: &Path, at: Moment) -> io::Result<PathBuf> {
+/// Where a session started from a draft in `worktree` runs: the scratch
+/// folder `root`, made if it is not there yet, for a draft in it, otherwise
+/// the draft's own directory.
+pub fn start_dir(worktree: &Path, root: &Path) -> io::Result<PathBuf> {
     if worktree == root {
-        make(root, &at.stamp())
-    } else {
-        Ok(worktree.to_path_buf())
+        std::fs::create_dir_all(root)?;
     }
+    Ok(worktree.to_path_buf())
+}
+
+/// Whether a session working in `dir` is a scratch session: one in the
+/// scratch folder `root` or below it.
+pub fn holds(root: &Path, dir: &Path) -> bool {
+    dir.starts_with(root)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const AT: Moment = Moment {
-        year: 2026,
-        month: 3,
-        day: 9,
-        hour: 7,
-        minute: 5,
-    };
-
     #[test]
-    fn a_scratch_directory_is_named_by_the_local_date_and_time_to_the_minute() {
-        assert_eq!(AT.stamp(), "20260309-0705");
-    }
-
-    #[test]
-    fn a_new_directory_is_made_under_the_root_made_with_it() {
+    fn every_draft_in_the_scratch_folder_starts_in_the_folder_itself_made_with_it() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("adroit").join("scratch");
-        let dir = make(&root, "20260309-0705").unwrap();
-        assert_eq!(dir, root.join("20260309-0705"));
-        assert!(dir.is_dir());
-    }
-
-    #[test]
-    fn a_taken_name_gets_the_next_free_number() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        std::fs::create_dir(root.join("20260309-0705")).unwrap();
-        std::fs::create_dir(root.join("20260309-0705-2")).unwrap();
-        let dir = make(root, "20260309-0705").unwrap();
-        assert_eq!(dir, root.join("20260309-0705-3"));
-    }
-
-    #[test]
-    fn a_draft_in_the_scratch_root_starts_in_a_new_directory_of_its_own() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().join("scratch");
-        let first = start_dir(&root, &root, AT).unwrap();
-        let second = start_dir(&root, &root, AT).unwrap();
-        assert_eq!(first, root.join("20260309-0705"));
-        assert_eq!(second, root.join("20260309-0705-2"));
+        let first = start_dir(&root, &root).unwrap();
+        let second = start_dir(&root, &root).unwrap();
+        assert_eq!(first, root);
+        assert_eq!(second, root);
+        assert!(root.is_dir());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
     }
 
     #[test]
@@ -120,11 +41,20 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("scratch");
         let inside = root.join("20260309-0705");
-        assert_eq!(start_dir(&inside, &root, AT).unwrap(), inside);
+        assert_eq!(start_dir(&inside, &root).unwrap(), inside);
         assert_eq!(
-            start_dir(Path::new("/w/api"), &root, AT).unwrap(),
+            start_dir(Path::new("/w/api"), &root).unwrap(),
             PathBuf::from("/w/api")
         );
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn a_session_in_the_scratch_folder_or_below_it_is_a_scratch_session() {
+        let root = Path::new("/d/adroit/scratch");
+        assert!(holds(root, root));
+        assert!(holds(root, &root.join("20260309-0705")));
+        assert!(!holds(root, Path::new("/d/adroit/scratchpad")));
+        assert!(!holds(root, Path::new("/w/api")));
     }
 }

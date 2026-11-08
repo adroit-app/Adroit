@@ -20,7 +20,9 @@ carries all the new session needs: the line of work, and what you know that it
 cannot find out itself. Set `worktree: true` when it edits files, so it works
 apart from you, and `base` to start from a revision another session left.
 Choose `agent` and `model` for the work; `models` lists what each agent
-accepts. Tell the user you opened it and why.
+accepts. Set `show: true` when you hand over the talk the user is having with
+you, so it opens in your place while the user is looking at you. Tell the user
+you opened it and why.
 
 The session works in its own console, which the user can open and type into.
 It answers to the user, not to you, and reports to no one.

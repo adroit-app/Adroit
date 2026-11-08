@@ -15,7 +15,7 @@ use tokio::sync::watch;
 
 use crate::delegation::app as delegation;
 use crate::execution::{COLS, ROWS, StartRequest, TerminalStartRequest, spawn_may_have_happened};
-use crate::scratch::{self, Moment};
+use crate::scratch;
 use crate::serve::Asks;
 use crate::terminal_host::{self, Judged};
 use crate::watch::Watched;
@@ -204,7 +204,7 @@ fn here(place: HostPath) -> Result<PathBuf, String> {
 }
 
 /// Start the session `start` asks for, held, as the delegation store records
-/// it: a draft's in a new folder of its own when it is in the scratch folder.
+/// it: a draft's in the scratch folder, made if need be, when it is there.
 async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer, String> {
     let settings = settings::current();
     let verb = if start.resume.is_some() {
@@ -216,8 +216,8 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
     let at = here(start.cwd).map_err(|e| format!("cannot {verb} {name}: {e}"))?;
     let cwd = if start.draft {
         let root = settings::scratch_folder(&settings, &crate::paths::home());
-        scratch::start_dir(&at, &root, Moment::now())
-            .map_err(|e| format!("cannot make a directory for {name}: {e}"))?
+        scratch::start_dir(&at, &root)
+            .map_err(|e| format!("cannot make the scratch folder for {name}: {e}"))?
     } else {
         at
     };

@@ -21,12 +21,17 @@ pub const TOOLS: &str = "mcp__adroit__*";
 pub const SESSION_TAG: &str = "adroit.session";
 /// The session tag holding the identity of the session that opened it.
 pub const PARENT_TAG: &str = "adroit.parent";
+/// The session tag set on a session the session that opened it asked be
+/// shown to the user.
+pub const SHOW_TAG: &str = "adroit.show";
 
 #[derive(Clone)]
 pub struct Delegation {
     pub id: SessionId,
     pub parent: Option<SessionId>,
     pub root: PathBuf,
+    /// Whether the session that opened it asked that it be shown to the user.
+    pub show: bool,
     token: String,
 }
 
@@ -37,6 +42,7 @@ impl fmt::Debug for Delegation {
             .field("id", &self.id)
             .field("parent", &self.parent)
             .field("root", &self.root)
+            .field("show", &self.show)
             .field("token", &"[redacted]")
             .finish()
     }
@@ -48,6 +54,7 @@ impl Delegation {
             id,
             parent,
             root,
+            show: false,
             token,
         }
     }
@@ -120,16 +127,30 @@ impl Delegation {
         if let Some(parent) = self.parent {
             tags.extend(adroit_term::tags::tagged(PARENT_TAG, &parent.to_string()));
         }
+        if self.show {
+            tags.extend(adroit_term::tags::tagged(SHOW_TAG, "1"));
+        }
         tags
     }
 }
 
 /// What every session is told, naming `program`, the adroit that starts it,
 /// by its whole path: a session in another repository may not find `adroit`
-/// on its `PATH`.
-pub fn instructions(program: &Path) -> String {
-    INSTRUCTIONS.replace("@ADROIT@", &adroit_agents::shell_word(program))
+/// on its `PATH`. A session in the scratch folder is told besides to hand
+/// project work on.
+pub fn instructions(program: &Path, scratch: bool) -> String {
+    let told = INSTRUCTIONS.replace("@ADROIT@", &adroit_agents::shell_word(program));
+    if scratch {
+        format!("{told}\n\n{SCRATCH}")
+    } else {
+        told
+    }
 }
+
+const SCRATCH: &str = "\
+You run in Adroit's scratch folder, which every scratch session shares, for talk that belongs to no project; keep what you write here small. \
+Once the talk turns to work on a particular project — reading its code, changing it, running it — open a session in that project's directory with `start_session`, `show` set, and a first prompt that carries everything said here that it needs, then tell the user the work goes on there and leave it to that session. \
+Find the project's directory among the user's repositories (`ghq list --full-path` lists those ghq keeps); when you cannot tell which project is meant, ask the user.";
 
 /// What every session is told of Adroit's tools, whoever started it.
 const INSTRUCTIONS: &str = "\
@@ -188,6 +209,25 @@ mod tests {
     }
 
     #[test]
+    fn a_session_asked_to_be_shown_is_tagged_so_and_no_other_is() {
+        let mut shown = delegation(Some(SessionId::new()));
+        shown.show = true;
+        assert!(adroit_term::tags::value(&shown.tags(), SHOW_TAG).is_some());
+        let listed = delegation(Some(SessionId::new()));
+        assert_eq!(adroit_term::tags::value(&listed.tags(), SHOW_TAG), None);
+    }
+
+    #[test]
+    fn a_scratch_session_is_told_to_hand_project_work_to_a_session_shown_in_its_place() {
+        let told = instructions(Path::new("/bin/adroit"), true);
+        assert!(told.contains("scratch folder"), "{told}");
+        assert!(told.contains("`show`"), "{told}");
+        assert!(told.contains("Do your work yourself"), "{told}");
+        let elsewhere = instructions(Path::new("/bin/adroit"), false);
+        assert!(!elsewhere.contains("scratch folder"), "{elsewhere}");
+    }
+
+    #[test]
     fn a_session_opened_by_another_is_tagged_with_the_session_that_opened_it() {
         let parent = SessionId::new();
         let started = delegation(Some(parent));
@@ -204,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_session_is_told_to_keep_its_own_work_and_open_sessions_only_for_a_separate_line_of_it() {
-        let told = instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"), false);
         assert!(told.contains("Do your work yourself"), "{told}");
         assert!(told.contains("separate line of work"), "{told}");
         assert!(told.contains("answers to the user"), "{told}");
@@ -213,27 +253,30 @@ mod tests {
 
     #[test]
     fn a_session_is_told_to_ask_a_session_that_knows_and_never_to_hand_it_work() {
-        let told = instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"), false);
         assert!(told.contains("ask the session that knows"), "{told}");
         assert!(told.contains("never hand it work"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_how_to_coordinate_with_sessions_it_shares_a_repository_with() {
-        let told = instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"), false);
         assert!(told.contains("call `sessions`"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_to_run_probes_in_adroit_terminals_rather_than_hidden_ones() {
-        let told = instructions(Path::new("/bin/adroit"));
+        let told = instructions(Path::new("/bin/adroit"), false);
         assert!(told.contains("`/bin/adroit terminal start`"), "{told}");
         assert!(told.contains("tmux"), "{told}");
     }
 
     #[test]
     fn every_session_is_told_the_adroit_that_started_it_by_its_whole_path() {
-        let told = instructions(Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"));
+        let told = instructions(
+            Path::new("/Applications/Adroit.app/Contents/MacOS/adroit"),
+            false,
+        );
         assert!(
             told.contains("/Applications/Adroit.app/Contents/MacOS/adroit terminal start"),
             "{told}"
@@ -243,7 +286,7 @@ mod tests {
 
     #[test]
     fn an_adroit_path_with_spaces_is_quoted_for_the_shell() {
-        let told = instructions(Path::new("/My Apps/adroit"));
+        let told = instructions(Path::new("/My Apps/adroit"), false);
         assert!(
             told.contains("`'/My Apps/adroit' terminal start`"),
             "{told}"

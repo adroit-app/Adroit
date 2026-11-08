@@ -163,29 +163,26 @@ A **scratch session** is for talking to Claude about something no project
 holds, with no directory to choose. The picker's first row or New
 Scratch Session in the Session menu opens one, with the prompt ready as for a
 new session, and so does a prompt sent with nothing open
-([prompt](prompt.md)). The first prompt sent starts it in
-a new directory of its own,
-named by the local date and time, in the scratch folder: the one the settings
-name, or `$XDG_DATA_HOME/adroit/scratch` (`~/.local/share/adroit/scratch`
-when `$XDG_DATA_HOME` is unset). One never sent makes no directory.
+([prompt](prompt.md)). Every scratch session runs in the scratch folder: the
+one the settings name, or `$XDG_DATA_HOME/adroit/scratch`
+(`~/.local/share/adroit/scratch` when `$XDG_DATA_HOME` is unset), made when
+the first one starts.
 
-The tree lists everything that runs in the scratch folder as one
+The tree lists everything that runs in the scratch folder or below it as one
 workspace, Scratch, after every other, its sessions and shells straight under
-it. Starting a session from it starts another scratch session in
-a directory of its own; a shell opened from it runs in the scratch folder.
+it. Starting a session from it starts another scratch session; a shell opened
+from it runs in the scratch folder.
 
-Adroit removes none of these directories. Claude Code keeps each conversation
-by the directory it ran in, and the picker offers that directory among those
-Claude Code has been used in. Its conversations are resumed from every
-directory's past conversations
-([resuming](sessions.md#resuming-a-past-conversation)).
+A scratch session keeps to talk that belongs to no project. When the talk
+turns to work on a project, it opens a session in that project's directory,
+handing it what it needs, and asks that it be shown
+([sessions that open sessions](opening-sessions.md)): while you are looking at
+the scratch session, the new one opens in its place with the keys, and the
+work carries on there.
 
 Claude Code asks whether to trust a folder before a session first works in
-it, and each scratch session works in a new one: its console shows the
-question until it is answered there. Claude Code takes a folder outside git
-as trusted when a folder above it is, so trusting the scratch folder itself,
-by running `claude` once in a shell opened from Scratch, keeps the question
-from coming back.
+it: the first scratch session shows the question in its console until it is
+answered there, and none asks again.
 
 ## File trees
 

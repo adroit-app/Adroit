@@ -239,12 +239,63 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
             typing,
         }],
         event => {
+            let before = listed_ids(&state.hosts, &environment);
+            let is_patch = matches!(event, Event::Patch(_));
             // A host is known from the first word it says, whether or not the
             // window was told it shows that environment.
             let host = state.hosts.each.entry(environment.clone()).or_default();
-            receive(&environment, host, event)
+            let mut effects = receive(&environment, host, event);
+            // A snapshot is the work as a window first finds it, not sessions
+            // appearing while the user looks on.
+            if is_patch {
+                effects.extend(show_asked(state, &environment, &before));
+            }
+            effects
         }
     }
+}
+
+fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Vec<String> {
+    hosts
+        .work(environment)
+        .map(|work| work.tree.sessions().iter().map(|s| s.id.clone()).collect())
+        .unwrap_or_default()
+}
+
+/// Show, with the keys, a session of `environment` not among `before` whose
+/// opener asked that it be shown, when the focused window shows that opener.
+fn show_asked(
+    state: &mut ViewState,
+    environment: &EnvironmentId,
+    before: &[String],
+) -> Vec<Effect> {
+    let Some(Tab::Session(looked_at, looked_id)) = state.content.windows.focused() else {
+        return Vec::new();
+    };
+    if looked_at != environment {
+        return Vec::new();
+    }
+    let Some(work) = state.hosts.work(environment) else {
+        return Vec::new();
+    };
+    let sessions = work.tree.sessions();
+    let Some(opener) = sessions
+        .iter()
+        .find(|s| &s.id == looked_id)
+        .and_then(|s| s.delegation)
+    else {
+        return Vec::new();
+    };
+    let Some(shown) = sessions
+        .iter()
+        .find(|s| s.show && s.parent == Some(opener) && !before.contains(&s.id))
+        .map(|s| s.id.clone())
+    else {
+        return Vec::new();
+    };
+    let effects = crate::content::show_session(state, environment.clone(), shown);
+    state.content.focus = crate::content::Area::Console;
+    effects
 }
 
 /// A patch is applied only on top of the one before it. One the window
@@ -475,6 +526,90 @@ mod tests {
         // One host waiting for its snapshot does not keep another from asking.
         let run = run.event_from(here(), patch(6));
         assert_eq!(run.last_effects(), [asks_snapshot(here())]);
+    }
+
+    mod shown {
+        use adroit_model::SessionId;
+        use adroit_model::testing::SessionBuilder;
+
+        use super::*;
+        use crate::content::{Area, Tab};
+
+        fn opener(id: SessionId) -> SessionBuilder {
+            session("opener").delegation(id)
+        }
+
+        /// The window looking at `looking`, listing `listed`, then the host
+        /// listing `appearing` besides.
+        fn appears(
+            looking: &str,
+            listed: Vec<SessionBuilder>,
+            appearing: SessionBuilder,
+        ) -> Scenario {
+            let mut all = listed.clone();
+            all.push(appearing);
+            Scenario::new()
+                .event_from(here(), listing(listed).seq(1))
+                .send(testing::show(Tab::Session(here(), looking.into())))
+                .event_from(here(), testing::patch(2).listed(listed_of(all)))
+        }
+
+        fn listed_of(sessions: Vec<SessionBuilder>) -> adroit_protocol::Listed {
+            adroit_protocol::testing::listed()
+                .sessions(sessions)
+                .build()
+        }
+
+        fn focused(run: &Scenario) -> Option<Tab> {
+            run.state().content.windows.focused().cloned()
+        }
+
+        #[test]
+        fn a_session_asked_to_be_shown_opens_with_the_keys_while_its_opener_is_looked_at() {
+            let id = SessionId::new();
+            let run = appears("opener", vec![opener(id)], session("new").parent(id).show());
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "new".into())));
+            assert_eq!(run.state().content.focus, Area::Console);
+        }
+
+        #[test]
+        fn a_session_appearing_while_the_user_looks_elsewhere_is_only_listed() {
+            let id = SessionId::new();
+            let run = appears(
+                "other",
+                vec![opener(id), session("other")],
+                session("new").parent(id).show(),
+            );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "other".into())));
+        }
+
+        #[test]
+        fn a_session_not_asked_to_be_shown_is_only_listed() {
+            let id = SessionId::new();
+            let run = appears("opener", vec![opener(id)], session("new").parent(id));
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        }
+
+        #[test]
+        fn a_session_asked_to_be_shown_by_another_opener_is_only_listed() {
+            let run = appears(
+                "opener",
+                vec![opener(SessionId::new())],
+                session("new").parent(SessionId::new()).show(),
+            );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        }
+
+        #[test]
+        fn a_session_listed_again_is_not_shown_again() {
+            let id = SessionId::new();
+            let both = || vec![opener(id), session("new").parent(id).show()];
+            let run = Scenario::new()
+                .event_from(here(), listing(both()).seq(1))
+                .send(testing::show(Tab::Session(here(), "opener".into())))
+                .event_from(here(), testing::patch(2).listed(listed_of(both())));
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        }
     }
 
     #[test]

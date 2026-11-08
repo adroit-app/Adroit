@@ -79,6 +79,9 @@ pub struct Session {
     pub delegation: Option<SessionId>,
     /// The session that opened this one; none for one the user started.
     pub parent: Option<SessionId>,
+    /// Whether the session that opened it asked that it be shown to the user.
+    #[serde(default)]
+    pub show: bool,
     pub agent: Agent,
     /// The profile it started from, and the folder of that profile's own it
     /// runs in, none for its agent's own environment; the agent's own

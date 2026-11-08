@@ -101,6 +101,9 @@ pub struct Start {
     /// A short name; made from the prompt when omitted.
     #[serde(default)]
     pub name: Option<String>,
+    /// Show it to the user in your place: set it when you hand over the talk the user is having with you. It opens with the keys only while the user is looking at you.
+    #[serde(default)]
+    pub show: bool,
 }
 
 /// Send a message to another session.

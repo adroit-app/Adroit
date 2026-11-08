@@ -63,6 +63,8 @@ pub struct StartRequest {
     /// continues, which it has to run in; none for its agent's own
     /// environment.
     pub home: Option<PathBuf>,
+    /// Whether the session that opens it asks that it be shown to the user.
+    pub show: bool,
 }
 
 pub use adroit_model::ModelSource;
@@ -237,7 +239,11 @@ pub fn resolve(
     let mut args = adapter.integration_args(adroit_program, &crate::paths::instance_state());
     if let Some(delegation) = &request.delegation {
         args.extend(delegation.args(request.agent, adroit_program));
-        let told = crate::delegation::launch::instructions(adroit_program);
+        let scratch = crate::scratch::holds(
+            &crate::settings::scratch_folder(settings, &crate::paths::home()),
+            &request.cwd,
+        );
+        let told = crate::delegation::launch::instructions(adroit_program, scratch);
         let instructions = match (&request.developer_instructions, request.agent) {
             (Some(base), Agent::Codex) => format!("{base}\n\n{told}"),
             _ => told,

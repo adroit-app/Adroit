@@ -27,8 +27,11 @@ cannot act as another.
 - **`start_session`** opens a session with a first prompt. It takes the
   directory to work in (the caller's own when omitted), whether to work in a
   new worktree, the revision that worktree starts from, the profile, the
-  agent, the model, the permission profile and a name. It returns the new
-  session's id and name. It starts from the profile it names, which has to
+  agent, the model, the permission profile, a name, and whether to show it to
+  you. It returns the new session's id and name. A session asked to be shown
+  opens in the window with the keys when it appears while the window's focused
+  window shows the session that opened it; otherwise it is only listed, as is
+  any other. It starts from the profile it names, which has to
   start the agent when both are named; else from the agent's default profile,
   else from the default profile ([settings](settings.md#profiles)).
   It never starts from the caller's profile unless it names it. A profile that
@@ -97,6 +100,9 @@ what it did; it neither waits for their answer nor takes a lock. A session
 asks another that knows something rather than working it out again, and
 plans nothing on an answer coming. Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
+A [scratch session](tree.md#scratch-sessions) is told besides to hand work on
+a project to a session in that project's directory, shown to you, and to
+leave it there.
 
 Where the instructions name an `adroit` command, such as `adroit terminal`
 for probes, they name the Adroit whose work host started the session by its

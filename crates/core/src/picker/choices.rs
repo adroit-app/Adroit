@@ -37,7 +37,7 @@ pub const SCRATCH: &str = "New scratch session";
 /// What a row of the list offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
-    /// A session to start in a new directory of its own.
+    /// A session to start in the scratch folder.
     Scratch,
     /// A session to open.
     Session(SessionOffer),

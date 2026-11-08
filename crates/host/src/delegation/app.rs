@@ -83,7 +83,9 @@ async fn record(
     let (id, token) = with_store(root, move |store| store.register(new))
         .await
         .map_err(|error| error.to_string())?;
-    request.delegation = Some(Delegation::new(id, parent, root.to_path_buf(), token));
+    let mut delegation = Delegation::new(id, parent, root.to_path_buf(), token);
+    delegation.show = request.show;
+    request.delegation = Some(delegation);
     Ok(Recorded {
         root: root.to_path_buf(),
         id,

@@ -325,7 +325,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")
         .bar("New Session", Icon::MessagePlus)
         .row("New session here", Start),
-    S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in a new directory of its own, for talking about something no project holds ([details](tree.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
+    S::new(A::SessionScratch, "session.scratch", "start a scratch session, with the prompt ready: one that runs in the scratch folder, for talking about something no project holds ([details](tree.md#scratch-sessions))").bar("New Scratch Session", Icon::Notes),
     S::new(A::SessionResume, "session.resume", "list the conversations Claude Code and Codex kept, to resume one in a new session ([details](sessions.md#resuming-a-past-conversation))").bar("Resume Conversation…", Icon::TransferIn),
     S::new(A::SessionStop, "session.stop", "end a session Adroit runs after asking; Claude Code keeps its conversation, for `/resume` in a session started later; on a terminal's row, end that terminal")
         .bar("End…", Icon::PlayerStop)
