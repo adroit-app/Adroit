@@ -38,6 +38,18 @@ pub fn fate(listed: Option<bool>, ran_in: Option<&str>, now: Option<&str>) -> Fa
     }
 }
 
+/// `told`, given whether the terminal host now running drains toward its
+/// stop, none when that cannot be told. What ends while it drains, it takes
+/// down itself, so that waits for the terminal host after it to be told
+/// interrupted rather than ended.
+pub fn settled(told: Fate, draining: Option<bool>) -> Fate {
+    match (told, draining) {
+        (Fate::Ended, Some(false)) => Fate::Ended,
+        (Fate::Ended, _) => Fate::Unknown,
+        (told, _) => told,
+    }
+}
+
 /// What the window lists of what waits to be brought back, sessions first.
 pub fn listed(sessions: &[Session], terminals: &[KeptTerminal]) -> Vec<Interrupted> {
     let sessions = sessions.iter().filter_map(|record| {
@@ -457,6 +469,25 @@ mod tests {
                 fate(listed, ran_in, now),
                 expected,
                 "listed {listed:?}, ran in {ran_in:?}, now {now:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_ends_while_its_terminal_host_drains_toward_its_stop_waits_for_the_next_one() {
+        let cases = [
+            (Fate::Ended, Some(false), Fate::Ended),
+            (Fate::Ended, Some(true), Fate::Unknown),
+            (Fate::Ended, None, Fate::Unknown),
+            (Fate::Runs, Some(true), Fate::Runs),
+            (Fate::Interrupted, Some(true), Fate::Interrupted),
+            (Fate::Unknown, Some(false), Fate::Unknown),
+        ];
+        for (told, draining, expected) in cases {
+            assert_eq!(
+                settled(told, draining),
+                expected,
+                "told {told:?}, draining {draining:?}"
             );
         }
     }

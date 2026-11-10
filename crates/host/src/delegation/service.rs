@@ -515,6 +515,16 @@ fn asked_of(started: &adroit_agents::AgentContext) -> adroit_model::Asked {
     }
 }
 
+/// `told`, unless the terminal host is taking down what it tells ended.
+/// The listing is read before it is asked, so whatever its stop ended is
+/// already ended by the time it says it drains.
+async fn judged(context: &Context, told: Fate) -> Fate {
+    if told != Fate::Ended {
+        return told;
+    }
+    crate::restore::settled(told, context.daemon.draining().await.ok())
+}
+
 async fn supervise(context: Context) {
     let mut interval = tokio::time::interval(Duration::from_millis(500));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -571,9 +581,15 @@ impl Watcher {
             let Some(terminal) = record.terminal else {
                 continue;
             };
-            let Some(native) = native.iter().find(|native| native.id == terminal) else {
+            let listed = native.iter().find(|native| native.id == terminal);
+            if listed.is_none_or(|native| native.exited) {
                 let id = record.id;
-                match crate::restore::fate(None, record.generation.as_deref(), now.as_deref()) {
+                let told = crate::restore::fate(
+                    listed.map(|native| native.exited),
+                    record.generation.as_deref(),
+                    now.as_deref(),
+                );
+                match judged(context, told).await {
                     Fate::Interrupted => {
                         context.call(move |store| store.interrupt(id)).await?;
                         interrupted = true;
@@ -582,12 +598,8 @@ impl Watcher {
                     Fate::Runs | Fate::Unknown => {}
                 }
                 continue;
-            };
-            if native.exited {
-                let id = record.id;
-                context.call(move |store| store.end(id)).await?;
-                continue;
             }
+            let native = listed.expect("a listed terminal that runs");
             if record.readiness != Readiness::Ready {
                 let screen = context
                     .daemon
@@ -669,7 +681,8 @@ impl Watcher {
         for kept in kept {
             let id = kept.terminal.id;
             let listed = native.iter().find(|n| n.id == id).map(|n| n.exited);
-            match crate::restore::fate(listed, kept.generation.as_deref(), now) {
+            let told = crate::restore::fate(listed, kept.generation.as_deref(), now);
+            match judged(context, told).await {
                 Fate::Interrupted => {
                     context
                         .call(move |store| store.interrupt_terminal(id))

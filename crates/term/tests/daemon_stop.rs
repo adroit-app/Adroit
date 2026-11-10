@@ -103,6 +103,52 @@ async fn stopping_ends_the_daemon_and_the_programs_of_its_sessions() {
 }
 
 #[tokio::test]
+async fn a_daemon_serving_on_does_not_drain() {
+    let dir = socket_dir();
+    let socket = dir.path().join("d.sock");
+    let _served = run("serving_fixture", &socket).await;
+
+    assert!(!Daemon::new(&socket).draining().await.unwrap());
+}
+
+#[tokio::test]
+#[cfg_attr(windows, ignore = "sh traps signals of its own, not Windows'")]
+async fn a_daemon_told_to_stop_drains_while_it_takes_its_sessions_down() {
+    let dir = socket_dir();
+    let socket = dir.path().join("d.sock");
+    let _served = run("serving_fixture", &socket).await;
+    let daemon = Daemon::new(&socket);
+    let told = dir.path().join("program.pid");
+    let mut spawn = sh(r#"trap '' HUP TERM; echo $$ > "$0"; while :; do sleep 1; done"#);
+    spawn.args.push(told.to_string_lossy().into_owned());
+    daemon.spawn(spawn).await.unwrap();
+    for _ in 0..200 {
+        if told.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let stopping = tokio::spawn({
+        let daemon = Daemon::new(&socket);
+        async move { daemon.stop().await }
+    });
+
+    let mut seen = false;
+    for _ in 0..200 {
+        match daemon.draining().await {
+            Ok(true) => {
+                seen = true;
+                break;
+            }
+            Ok(false) => tokio::time::sleep(Duration::from_millis(5)).await,
+            Err(_) => break,
+        }
+    }
+    stopping.await.unwrap().unwrap();
+    assert!(seen, "the daemon was never seen draining");
+}
+
+#[tokio::test]
 async fn a_daemon_that_does_not_answer_is_still_stopped() {
     let dir = socket_dir();
     let socket = dir.path().join("d.sock");

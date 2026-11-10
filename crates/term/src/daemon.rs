@@ -225,6 +225,12 @@ impl Daemon {
         .await
     }
 
+    /// Whether the daemon has been told to stop and is taking its sessions
+    /// down: what ends meanwhile, it ends, and the program did not.
+    pub async fn draining(&self) -> Result<bool> {
+        Ok(self.ops().await?.daemon_status().await?.draining)
+    }
+
     /// Stop the daemon if one listens, then start `program` with `args` as
     /// [`Daemon::start`] does.
     pub async fn restart(&self, program: &Path, args: &[String]) -> Result<()> {
