@@ -1304,6 +1304,43 @@ fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_an_environment() {
     assert!(devices.contains("laptop"), "{devices}");
 }
 
+/// Whether the gateway listening at the loopback `address` answers there but
+/// at none of the other addresses it is announced at.
+async fn answers_only_on_loopback(
+    client: &adroit_net::Identity,
+    server: adroit_net::Fingerprint,
+    address: &str,
+) -> bool {
+    let answers = |address: String| async move {
+        let remote = adroit_net::Remote::new(client.clone(), server, address);
+        matches!(
+            tokio::time::timeout(Duration::from_secs(3), remote.info()).await,
+            Ok(Ok(_))
+        )
+    };
+    if !answers(address.to_string()).await {
+        return false;
+    }
+    let heard = adroit_net::browse(Duration::from_secs(3))
+        .await
+        .unwrap_or_default();
+    let elsewhere: Vec<_> = heard
+        .into_iter()
+        .filter(|found| found.server == server)
+        .flat_map(|found| found.addresses)
+        .filter(|announced| !announced.ip().is_loopback())
+        .collect();
+    if elsewhere.is_empty() {
+        return false;
+    }
+    for announced in elsewhere {
+        if answers(announced.to_string()).await {
+            return false;
+        }
+    }
+    true
+}
+
 #[test]
 fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed() {
     let hosts = Hosts::new();
@@ -1351,6 +1388,14 @@ fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed(
                 // local network with no one to allow it.
                 if said.contains("cannot announce itself on the local network") {
                     eprintln!("not tested where the gateway may not announce: {said}");
+                    return false;
+                }
+                // As on a Mac whose local network privacy keeps the gateway
+                // a freshly built executable runs from answering anywhere
+                // but the loopback, while its announcements still go out.
+                let server = gateway.server.parse().unwrap();
+                if answers_only_on_loopback(&client, server, &gateway.address).await {
+                    eprintln!("not tested where the gateway may answer only on the loopback");
                     return false;
                 }
                 panic!(
