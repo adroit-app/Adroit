@@ -42,9 +42,26 @@ pub struct Found {
     pub addresses: Vec<SocketAddr>,
 }
 
-/// Announces the gateway whose key is `server` at `port` under `name`.
-pub fn advertise(name: &str, server: Fingerprint, port: u16) -> Result<Advertisement, Error> {
+/// Announces the gateway whose key is `server` under `name`, at the port it
+/// listens on and only at addresses of the families its listeners accept.
+pub fn advertise(
+    name: &str,
+    server: Fingerprint,
+    listening: &[SocketAddr],
+) -> Result<Advertisement, Error> {
+    let port = listening
+        .first()
+        .ok_or_else(|| Error::Io(std::io::Error::other("the gateway listens nowhere")))?
+        .port();
     let daemon = mdns_sd::ServiceDaemon::new().map_err(discovery)?;
+    // A client takes the first announcement it hears, which may carry only
+    // one family's addresses: none of them may be one nobody answers at.
+    match accepted(listening) {
+        (true, false) => daemon.disable_interface(mdns_sd::IfKind::IPv6),
+        (false, true) => daemon.disable_interface(mdns_sd::IfKind::IPv4),
+        _ => Ok(()),
+    }
+    .map_err(discovery)?;
     let id = server.to_string();
     // A host name of its own, so the announcement neither takes nor
     // collides with the name the operating system answers for.
@@ -62,6 +79,17 @@ pub fn advertise(name: &str, server: Fingerprint, port: u16) -> Result<Advertise
     let fullname = info.get_fullname().to_string();
     daemon.register(info).map_err(discovery)?;
     Ok(Advertisement { daemon, fullname })
+}
+
+/// Whether `listening` accepts IPv4 and IPv6 clients. An unspecified IPv6
+/// address is taken to accept both, as sockets are dual-stack by default on
+/// the systems a gateway runs on.
+fn accepted(listening: &[SocketAddr]) -> (bool, bool) {
+    let v4 = listening
+        .iter()
+        .any(|a| a.is_ipv4() || a.ip() == IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED));
+    let v6 = listening.iter().any(SocketAddr::is_ipv6);
+    (v4, v6)
 }
 
 /// Whether this process can send to the mDNS group, by asking it once for
@@ -177,7 +205,8 @@ mod tests {
     #[tokio::test]
     async fn an_announced_gateway_is_found_by_its_key() {
         let server = Identity::generate().unwrap().fingerprint();
-        let _announced = advertise("Adroit test", server, 47999).unwrap();
+        let _announced =
+            advertise("Adroit test", server, &["0.0.0.0:47999".parse().unwrap()]).unwrap();
         let found = find(server, Duration::from_secs(10))
             .await
             .unwrap()
@@ -190,6 +219,45 @@ mod tests {
                 .addresses
                 .iter()
                 .all(|address| address.port() == 47999)
+        );
+    }
+
+    #[test]
+    fn a_listener_accepts_the_families_of_its_address() {
+        let families = |listening: &[&str]| {
+            let listening: Vec<SocketAddr> = listening.iter().map(|a| a.parse().unwrap()).collect();
+            accepted(&listening)
+        };
+        assert_eq!(families(&["0.0.0.0:47130"]), (true, false));
+        assert_eq!(families(&["192.168.0.5:47130"]), (true, false));
+        // An unspecified IPv6 address takes IPv4 clients too.
+        assert_eq!(families(&["[::]:47130"]), (true, true));
+        assert_eq!(families(&["[fd00::5]:47130"]), (false, true));
+        assert_eq!(
+            families(&["0.0.0.0:47130", "[fd00::5]:47130"]),
+            (true, true)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_gateway_listening_on_ipv4_is_announced_only_at_ipv4_addresses() {
+        let server = Identity::generate().unwrap().fingerprint();
+        let _announced = advertise(
+            "Adroit on IPv4",
+            server,
+            &["0.0.0.0:47997".parse().unwrap()],
+        )
+        .unwrap();
+        let heard = browse(Duration::from_secs(3)).await.unwrap();
+        let found = heard
+            .iter()
+            .find(|found| found.server == server)
+            .expect("the announcement is heard");
+        assert!(!found.addresses.is_empty());
+        assert!(
+            found.addresses.iter().all(SocketAddr::is_ipv4),
+            "{:?}",
+            found.addresses
         );
     }
 
@@ -215,7 +283,8 @@ mod tests {
     #[tokio::test]
     async fn browsing_lists_an_announced_gateway() {
         let server = Identity::generate().unwrap().fingerprint();
-        let _announced = advertise("Adroit listed", server, 47998).unwrap();
+        let _announced =
+            advertise("Adroit listed", server, &["[::]:47998".parse().unwrap()]).unwrap();
         let mut heard = Vec::new();
         for _ in 0..5 {
             heard = browse(Duration::from_secs(2)).await.unwrap();

@@ -156,9 +156,8 @@ async fn serve(
     );
     // Kept for as long as the gateway serves; dropping it withdraws it.
     let _announced = if advertise {
-        let port = running.listening[0].port();
         let name = format!("Adroit on {}", adroit_net::host_name());
-        match adroit_net::advertise(&name, running.server, port) {
+        match adroit_net::advertise(&name, running.server, &running.listening) {
             Ok(announced) => {
                 running.announcing(true);
                 tokio::spawn(watch_announcing());
