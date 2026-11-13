@@ -31,6 +31,7 @@ pub fn record(name: &str) -> RecordBuilder {
         generation: None,
         interrupted: false,
         brought_back_by: None,
+        name_given: false,
     })
 }
 

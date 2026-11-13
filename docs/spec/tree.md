@@ -159,10 +159,12 @@ picker.
 
 Choosing a session opens it as its row in the tree would, leaving the keys
 where they were. Choosing a directory opens a new session there: the first
-prompt sent starts it, named from its first words, a path among them by
-its file name, or from a first line `name: <label>`. A prompt with no words
-in ASCII letters, one written in Japanese for one, is named by its own first
-letters, cut short.
+prompt sent starts it, named from a first line `name: <label>`, or else
+from its first words, a path or a URL among them by what it names. A prompt
+with words in another script, Japanese for one, is named by its own letters
+as far as a row of the tree holds them, cut where a word likely ends. A name
+made from the prompt stands until the session's agent
+[names the session](sessions.md#renaming-a-session).
 
 A window showing more than one environment offers the sessions and the
 directories of each, every row naming its environment, and a new session

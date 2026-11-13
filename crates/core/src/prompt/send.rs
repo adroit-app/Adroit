@@ -198,6 +198,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
         ),
         Some(draft @ Tab::Draft { .. }) => {
             let (given, text) = named(&taken.text);
+            let name_given = given.is_some();
             let label = given.unwrap_or_else(|| label_from(&text));
             let listed = tree::listed(state.hosts.work(draft.environment()));
             let names: Vec<&str> = listed.sessions().map(|(_, s)| s.name.as_str()).collect();
@@ -215,6 +216,7 @@ fn go(state: &mut ViewState, taken: Taken) -> Vec<Effect> {
                 draft,
                 profile,
                 name,
+                name_given,
                 text,
                 options,
                 taken,
@@ -235,6 +237,8 @@ pub struct Start {
     pub profile: adroit_model::profile::ProfileId,
     /// Its name: the one given above the prompt, or one made from it.
     pub name: String,
+    /// Whether the name was given above the prompt.
+    pub name_given: bool,
     /// The prompt, without the name given above it.
     pub text: String,
     pub options: DraftOptions,

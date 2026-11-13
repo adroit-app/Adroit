@@ -48,6 +48,10 @@ cannot act as another.
 - **`send`** sends a message to another session by its id. Any session Adroit
   started, running or not yet ready, can be sent to; one that has ended
   cannot.
+- **`rename_session`** names the caller's own session anew
+  ([renaming](sessions.md#renaming-a-session)), and returns the name it
+  took, numbered when another session has it. It is refused for a name you
+  gave and while renaming is switched off, telling the agent to keep the name.
 - **`sessions`** lists the sessions Adroit runs, each with its id, name,
   workspace, the directory it runs in, how it stands and which session opened
   it. It can be narrowed to one repository or directory.

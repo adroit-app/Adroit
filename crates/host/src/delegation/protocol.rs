@@ -58,6 +58,8 @@ pub enum Command {
     Send(Send),
     Sessions(Sessions),
     Models,
+    /// Name the caller's own session anew.
+    Rename(Rename),
     /// The oldest message waiting for the caller, as its agent is to read it.
     Next,
     Delivered {
@@ -68,7 +70,10 @@ pub enum Command {
 impl Command {
     /// Whether the command acts for the session rather than reading.
     pub fn acts(&self) -> bool {
-        matches!(self, Self::StartSession(_) | Self::Send(_))
+        matches!(
+            self,
+            Self::StartSession(_) | Self::Send(_) | Self::Rename(_)
+        )
     }
 }
 
@@ -113,6 +118,14 @@ pub struct Send {
     /// The recipient's id, as `sessions` lists it.
     pub to: SessionId,
     pub body: String,
+}
+
+/// Name your own session anew.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Rename {
+    /// A few words saying what this session works on, in the language the user writes in.
+    pub name: String,
 }
 
 /// List the sessions Adroit runs.

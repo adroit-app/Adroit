@@ -21,6 +21,7 @@ when the file does not name it, and what it does
 | `profile` | string | `"claude"` | The profile a new session starts from, by id, when it names neither a profile nor an agent; left out, the first profile. A session not started yet can be switched to another agent for the current run of the window. |
 | `prompt_max_rows` | integer | `12` | The most lines the prompt grows to before it scrolls inside. |
 | `prompt_min_rows` | integer | `3` | The fewest lines the prompt shows. |
+| `rename_sessions` | boolean | `true` | Let a session's agent name its session once it has answered the first prompt, and again when the work turns to something else; a name given by hand, above the prompt or by renaming, is kept all the same. |
 | `restore_sessions` |  | `"ask"` | Whether the sessions and terminals a terminal host took with it, as it restarted, crashed or went with the machine, come back: offered by the window to bring back, at once, or never. |
 | `scratch_dir` | string | `""` | Where scratch sessions run, `~` standing for your home folder; empty for Adroit's own folder. |
 | `zoom` | number | `1.0` | How large the window draws everything when it opens, from 0.67 to 1.75. Command 0 comes back to it. |

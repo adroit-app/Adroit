@@ -523,12 +523,12 @@ mod sending {
     #[test]
     fn a_draft_starts_a_session_named_by_its_prompt_or_the_name_above_it() {
         let draft = Tab::draft(here(), "/r/a");
-        // (written, the name, the prompt it starts with)
+        // (written, the name, whether it was given, the prompt it starts with)
         let cases = [
-            ("name: fixer\nfix the tests", "fixer", "fix the tests"),
-            ("a", "a-2", "a"),
+            ("name: fixer\nfix the tests", "fixer", true, "fix the tests"),
+            ("a", "a-2", false, "a"),
         ];
-        for (text, name, prompt) in cases {
+        for (text, name, given, prompt) in cases {
             let run = sending(State::Idle, draft.clone())
                 .send(Msg::PromptTaken(Box::new(written(draft.clone(), text))));
             let sends = sends(&run);
@@ -544,6 +544,7 @@ mod sending {
             };
             assert_eq!(start.draft, draft, "{text:?}");
             assert_eq!(start.name, name, "{text:?}");
+            assert_eq!(start.name_given, given, "{text:?}");
             assert_eq!(start.text, prompt, "{text:?}");
         }
     }

@@ -650,3 +650,24 @@ fn opencode_reaches_adroit_through_its_server_and_the_plugin_adroit_writes_for_i
         "{args:?}"
     );
 }
+
+#[test]
+fn a_session_is_told_to_name_itself_unless_a_person_named_it_or_the_user_said_not() {
+    let told = |name_given: bool, settings: &str| {
+        let mut request = request(Agent::Claude, None);
+        request.delegation = Some(recorded(None));
+        request.name_given = name_given;
+        let settings = Settings::parse(settings).unwrap();
+        let launch = resolve(&settings, request, Path::new("/bin/adroit")).unwrap();
+        let args = launch.spawn.args;
+        let told = args
+            .windows(2)
+            .find(|pair| pair[0] == "--append-system-prompt")
+            .unwrap()[1]
+            .clone();
+        told.contains("rename_session")
+    };
+    assert!(told(false, ""));
+    assert!(!told(true, ""));
+    assert!(!told(false, "rename_sessions = false\n"));
+}

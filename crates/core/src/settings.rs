@@ -194,6 +194,10 @@ pub struct Settings {
     /// is not in front; with several windows open, the one holding the lowest
     /// number tells.
     pub notify_waiting: bool,
+    /// Let a session's agent name its session once it has answered the first
+    /// prompt, and again when the work turns to something else; a name given
+    /// by hand, above the prompt or by renaming, is kept all the same.
+    pub rename_sessions: bool,
     /// Whether the sessions and terminals a terminal host took with it, as it
     /// restarted, crashed or went with the machine, come back: offered by the
     /// window to bring back, at once, or never.
@@ -248,6 +252,7 @@ struct SettingsFile {
     theme: Option<String>,
     keep_awake: bool,
     notify_waiting: bool,
+    rename_sessions: bool,
     restore_sessions: RestoreSessions,
     shell: ShellLaunch,
     neovim: Launch,
@@ -284,6 +289,7 @@ impl Default for SettingsFile {
             theme: s.theme,
             keep_awake: s.keep_awake,
             notify_waiting: s.notify_waiting,
+            rename_sessions: s.rename_sessions,
             restore_sessions: s.restore_sessions,
             shell: s.shell,
             neovim: s.neovim,
@@ -381,6 +387,7 @@ impl TryFrom<SettingsFile> for Settings {
             theme: file.theme,
             keep_awake: file.keep_awake,
             notify_waiting: file.notify_waiting,
+            rename_sessions: file.rename_sessions,
             restore_sessions: file.restore_sessions,
             shell: file.shell,
             neovim: file.neovim,
@@ -475,6 +482,7 @@ impl Default for Settings {
             theme: None,
             keep_awake: true,
             notify_waiting: false,
+            rename_sessions: true,
             restore_sessions: RestoreSessions::Ask,
             shell: ShellLaunch::default(),
             neovim: Launch::default(),
@@ -903,6 +911,16 @@ model = "chosen-model"
     }
 
     #[test]
+    fn agents_name_their_sessions_unless_the_setting_says_not() {
+        assert!(Settings::parse("").unwrap().rename_sessions);
+        assert!(
+            !Settings::parse("rename_sessions = false\n")
+                .unwrap()
+                .rename_sessions
+        );
+    }
+
+    #[test]
     fn the_mac_is_kept_awake_unless_the_setting_says_not() {
         assert!(Settings::parse("").unwrap().keep_awake);
         assert!(!Settings::parse("keep_awake = false\n").unwrap().keep_awake);
@@ -1090,6 +1108,7 @@ model = "chosen-model"
             theme: None,
             keep_awake: false,
             notify_waiting: true,
+            rename_sessions: true,
             restore_sessions: RestoreSessions::Always,
             shell: ShellLaunch {
                 command: vec!["/bin/bash".into(), "-l".into()],

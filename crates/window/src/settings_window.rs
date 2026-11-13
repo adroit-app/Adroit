@@ -480,6 +480,12 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     },
                 }
             }
+            SettingRow { label: "Let agents name their sessions", hint: "Once it has answered the first prompt, and again when the work turns to something else; a name you give is kept.",
+                Toggle {
+                    checked: now.rename_sessions,
+                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.rename_sessions = on)),
+                }
+            }
             SettingRow { label: "Offer ghq's repositories", hint: "The picker lists the repositories ghq keeps, and its file tree ghq's roots.",
                 Toggle {
                     checked: now.picker.ghq,

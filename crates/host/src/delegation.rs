@@ -69,6 +69,8 @@ pub struct Session {
     pub interrupted: bool,
     /// The session it was brought back as.
     pub brought_back_by: Option<SessionId>,
+    /// Whether a person gave its name, which its agent then never changes.
+    pub name_given: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

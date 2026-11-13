@@ -60,7 +60,7 @@ impl Drop for Background {
 
 /// The tools every session has, whoever started it.
 fn tools() -> Vec<Value> {
-    use super::protocol::{Send, Sessions, Start};
+    use super::protocol::{Rename, Send, Sessions, Start};
     let tool = |name: &str, description: &str, schema: schemars::Schema| json!({"name": name, "description": description, "inputSchema": schema});
     vec![
         tool(
@@ -77,6 +77,11 @@ fn tools() -> Vec<Value> {
             "sessions",
             "List the sessions Adroit runs, with where each works and which session opened it.",
             schemars::schema_for!(Sessions),
+        ),
+        tool(
+            "rename_session",
+            "Name your own session anew, as the user sees it in Adroit: a few words saying what it works on, in the language the user writes in. Call it once you have answered the first prompt, and again only when the work turns to something else entirely, never as it moves from step to step. When it is refused, keep the name.",
+            schemars::schema_for!(Rename),
         ),
         json!({
             "name": "models",
@@ -101,6 +106,7 @@ fn command(name: &str, arguments: Value) -> std::result::Result<Command, String>
         "send" => Command::Send(serde_json::from_value(arguments).map_err(parsed)?),
         "sessions" => Command::Sessions(serde_json::from_value(arguments).map_err(parsed)?),
         "models" => Command::Models,
+        "rename_session" => Command::Rename(serde_json::from_value(arguments).map_err(parsed)?),
         _ => return Err(format!("unknown tool {name}")),
     })
 }
@@ -405,7 +411,13 @@ mod tests {
         .await;
         assert_eq!(
             names(&out[1]),
-            ["start_session", "send", "sessions", "models"]
+            [
+                "start_session",
+                "send",
+                "sessions",
+                "rename_session",
+                "models"
+            ]
         );
     }
 

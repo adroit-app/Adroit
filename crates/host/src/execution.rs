@@ -45,6 +45,8 @@ pub struct StartRequest {
     pub profile: Option<ProfileId>,
     pub model: Option<String>,
     pub name: String,
+    /// Whether a person gave the name, which the agent then never changes.
+    pub name_given: bool,
     pub cwd: PathBuf,
     pub prompt: String,
     pub images: Vec<PathBuf>,
@@ -255,7 +257,13 @@ pub fn resolve(
             &crate::settings::scratch_folder(settings, &crate::paths::home()),
             &request.cwd,
         );
-        let told = crate::delegation::launch::instructions(adroit_program, scratch);
+        let mut told = crate::delegation::launch::instructions(adroit_program, scratch);
+        if settings.rename_sessions && !request.name_given {
+            told = format!(
+                "{told}\n\n{}",
+                crate::delegation::launch::naming(&request.name)
+            );
+        }
         let instructions = match (&request.developer_instructions, request.agent) {
             (Some(base), Agent::Codex) => format!("{base}\n\n{told}"),
             _ => told,

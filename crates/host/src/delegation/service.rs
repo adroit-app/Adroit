@@ -194,6 +194,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
             }))
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
+        Command::Rename(asked) => rename(context, &caller, asked).await,
         Command::Send(send) => {
             let id = context
                 .call(move |store| store.send(caller.id, send.to, &send.body))
@@ -266,6 +267,55 @@ pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
         ),
         None => format!("[message] from {}:\n{}", message.sender, message.body),
     }
+}
+
+/// Name the caller's session as its agent asks, in its tags, which the tree
+/// shows, and in its record. A name a person gave is kept, and so is every
+/// name while the user has switched renaming off. Its agent is not told
+/// with its own command, which would have to be typed while it works.
+async fn rename(context: &Context, caller: &Session, asked: protocol::Rename) -> Result<Value> {
+    if !context.settings()?.rename_sessions {
+        return Err(Error::new(
+            Code::Refused,
+            format!(
+                "the user has switched off sessions naming themselves; keep the name {}",
+                caller.name
+            ),
+        ));
+    }
+    if caller.name_given {
+        return Err(Error::new(
+            Code::Refused,
+            format!("the user named this session {}; keep the name", caller.name),
+        ));
+    }
+    let label = crate::content::label_of(&asked.name)
+        .ok_or_else(|| Error::new(Code::Invalid, "the name holds no letters or digits"))?;
+    let terminal = caller
+        .terminal
+        .ok_or_else(|| Error::new(Code::Refused, "the session has no terminal yet"))?;
+    let listed = context.daemon.sessions().await.map_err(Error::storage)?;
+    let names: Vec<String> = crate::sessions::agents(&listed)
+        .filter(|s| crate::sessions::id_of(&s.id) != Some(terminal))
+        .map(|s| s.name)
+        .collect();
+    let taken: Vec<&str> = names.iter().map(String::as_str).collect();
+    let name = crate::content::fresh_name(&label, &taken);
+    let held = listed
+        .iter()
+        .find(|s| s.id == terminal)
+        .map(|s| tags::holding(&s.tags, crate::sessions::NAME))
+        .unwrap_or_default();
+    context
+        .daemon
+        .tag(terminal, tags::tagged(crate::sessions::NAME, &name), held)
+        .await
+        .map_err(Error::storage)?;
+    let (id, kept) = (caller.id, name.clone());
+    context
+        .call(move |store| store.rename(id, &kept, false))
+        .await?;
+    Ok(json!({"name": name}))
 }
 
 async fn start(context: &Context, caller: &Session, start: protocol::Start) -> Result<Value> {
@@ -908,6 +958,7 @@ mod tests {
                 model: None,
                 permissions: Default::default(),
                 started_ms: 1,
+                name_given: false,
             })
             .unwrap();
         store
@@ -957,6 +1008,47 @@ mod tests {
             .unwrap();
         assert!(known.is_some());
         assert_eq!(record.conversation, known);
+    }
+
+    fn renaming(name: &str) -> protocol::Rename {
+        protocol::Rename { name: name.into() }
+    }
+
+    #[tokio::test]
+    async fn a_session_is_not_renamed_by_its_agent_while_renaming_is_switched_off() {
+        let (_dir, mut context, caller, _) = conversation_watch("review");
+        context.settings = Arc::new(|| Ok(Settings::parse("rename_sessions = false\n").unwrap()));
+
+        let refused = rename(&context, &caller, renaming("レビュー"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(refused.code, Code::Refused);
+        assert!(refused.message.contains("keep"), "{}", refused.message);
+    }
+
+    #[tokio::test]
+    async fn a_name_a_person_gave_is_not_changed_by_the_session_s_agent() {
+        let (_dir, context, mut caller, _) = conversation_watch("review");
+        caller.name_given = true;
+
+        let refused = rename(&context, &caller, renaming("レビュー"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(refused.code, Code::Refused);
+        assert!(refused.message.contains("review"), "{}", refused.message);
+    }
+
+    #[tokio::test]
+    async fn a_name_without_letters_or_digits_is_refused() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let refused = rename(&context, &caller, renaming(" ！？ "))
+            .await
+            .unwrap_err();
+
+        assert_eq!(refused.code, Code::Invalid);
     }
 
     #[tokio::test]
@@ -1258,6 +1350,7 @@ mod tests {
             model: None,
             permissions: Default::default(),
             started_ms: 1,
+            name_given: false,
         };
         let to = {
             let mut store = Store::open(&path).unwrap();
@@ -1297,6 +1390,7 @@ mod tests {
                 model: None,
                 permissions: Default::default(),
                 started_ms: 1,
+                name_given: false,
             }
         };
         let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();

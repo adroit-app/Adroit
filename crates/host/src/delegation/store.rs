@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -90,6 +90,9 @@ const MIGRATIONS: &[&str] = &[
          ended INTEGER NOT NULL DEFAULT 0,
          interrupted INTEGER NOT NULL DEFAULT 0
      );",
+    // A name a person gave a session is kept from its agent's renaming;
+    // every name from before was made from the prompt or by a session.
+    "ALTER TABLE sessions ADD COLUMN name_given INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -106,6 +109,8 @@ pub struct NewSession {
     pub model: Option<String>,
     pub permissions: AgentPermissions,
     pub started_ms: u64,
+    /// Whether a person gave its name, which its agent then never changes.
+    pub name_given: bool,
 }
 
 /// A terminal as Adroit keeps it, with the terminal host that holds it.
@@ -169,8 +174,8 @@ impl Store {
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
-            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms, model, permissions)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms, model, permissions, name_given)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 id.to_string(),
                 token,
@@ -185,6 +190,7 @@ impl Store {
                 new.started_ms as i64,
                 new.model,
                 serde_json::to_string(&new.permissions).map_err(Error::storage)?,
+                new.name_given,
             ],
         )?;
         transaction.commit()?;
@@ -249,6 +255,28 @@ impl Store {
         if changed == 0 {
             return Err(Error::new(Code::NotFound, "the session is unknown"));
         }
+        Ok(())
+    }
+
+    /// Names `id` anew, as given by a person or not.
+    pub fn rename(&mut self, id: SessionId, name: &str, given: bool) -> Result<()> {
+        let changed = self.connection.execute(
+            "UPDATE sessions SET name = ?2, name_given = ?3 WHERE id = ?1",
+            params![id.to_string(), name, given],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(Code::NotFound, "the session is unknown"));
+        }
+        Ok(())
+    }
+
+    /// Names anew, as given by a person or not, the session running in
+    /// `terminal`, if one is recorded there.
+    pub fn rename_terminal(&mut self, terminal: u128, name: &str, given: bool) -> Result<()> {
+        self.connection.execute(
+            "UPDATE sessions SET name = ?2, name_given = ?3 WHERE terminal = ?1 AND ended = 0",
+            params![crate::sessions::hex(terminal), name, given],
+        )?;
         Ok(())
     }
 
@@ -472,7 +500,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by, name_given";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -492,6 +520,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let generation = row.get(14)?;
     let interrupted = row.get(15)?;
     let brought_back_by: Option<String> = row.get(16)?;
+    let name_given = row.get(17)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(Error::storage)?,
@@ -525,6 +554,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
                 .map(|by| by.parse())
                 .transpose()
                 .map_err(Error::storage)?,
+            name_given,
         })
     })())
 }
@@ -712,6 +742,7 @@ mod tests {
             model: None,
             permissions: AgentPermissions::Default,
             started_ms: 1,
+            name_given: false,
         }
     }
 
@@ -1135,6 +1166,62 @@ PRAGMA user_version = 1;
         let kept = store.known(id).unwrap();
         assert_eq!(kept.model.as_deref(), Some("opus"));
         assert_eq!(kept.permissions, AgentPermissions::ReadOnly);
+    }
+
+    #[test]
+    fn a_session_keeps_whether_a_person_gave_its_name() {
+        let (_dir, mut store) = store();
+        let (given, _) = store
+            .register(NewSession {
+                name_given: true,
+                ..new(None, "fixer")
+            })
+            .unwrap();
+        let made = register(&mut store, None, "fix-tests");
+
+        assert!(store.known(given).unwrap().name_given);
+        assert!(!store.known(made).unwrap().name_given);
+    }
+
+    #[test]
+    fn a_session_renamed_keeps_its_new_name_and_who_gave_it() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "fix-tests");
+        store.attach(id, 7, None).unwrap();
+
+        store.rename(id, "テストの修正", false).unwrap();
+        let kept = store.known(id).unwrap();
+        assert_eq!(
+            (kept.name.as_str(), kept.name_given),
+            ("テストの修正", false)
+        );
+
+        store.rename_terminal(7, "fixer", true).unwrap();
+        let kept = store.known(id).unwrap();
+        assert_eq!((kept.name.as_str(), kept.name_given), ("fixer", true));
+        // A terminal no session is recorded in renames nothing.
+        store.rename_terminal(8, "other", true).unwrap();
+    }
+
+    #[test]
+    fn a_database_from_before_names_were_told_apart_reads_every_name_as_made() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delegation/state.sqlite3");
+        let id = {
+            let mut store = Store::open(&path).unwrap();
+            let id = register(&mut store, None, "fixer");
+            store
+                .connection
+                .execute_batch(
+                    "ALTER TABLE sessions DROP COLUMN name_given; PRAGMA user_version = 5;",
+                )
+                .unwrap();
+            id
+        };
+
+        let store = Store::open(&path).unwrap();
+
+        assert!(!store.known(id).unwrap().name_given);
     }
 
     #[test]

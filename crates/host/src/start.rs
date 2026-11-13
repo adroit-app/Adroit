@@ -110,6 +110,7 @@ async fn start(
         profile: Some(chosen.profile),
         model: asked.model.clone(),
         name: name.clone(),
+        name_given: asked.name.is_some(),
         cwd,
         permissions: asked.permissions.clone(),
         prompt: prompt.into(),

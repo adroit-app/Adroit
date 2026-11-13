@@ -84,6 +84,7 @@ async fn record(
         model: request.model.clone(),
         permissions: request.permissions.clone(),
         started_ms: request.started_ms,
+        name_given: request.name_given,
     };
     let (id, token) = with_store(root, move |store| store.register(new))
         .await

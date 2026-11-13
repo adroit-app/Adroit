@@ -147,6 +147,17 @@ pub fn instructions(program: &Path, scratch: bool) -> String {
     }
 }
 
+/// What a session whose name was made for it is told, `name` being that
+/// name: a name made from the first words of a prompt says little of the
+/// work, which its agent knows once it has answered.
+pub fn naming(name: &str) -> String {
+    format!(
+        "Adroit named this session `{name}` from the first words it was given, which say little of the work. \
+         Once you have answered the first prompt, call `rename_session` with a few words saying what this session works on, in the language the user writes in. \
+         Call it again only when the work turns to something else entirely."
+    )
+}
+
 const SCRATCH: &str = "\
 You run in Adroit's scratch folder, which every scratch session shares, for talk that belongs to no project; keep what you write here small. \
 Once the talk turns to work on a particular project — reading its code, changing it, running it — open a session in that project's directory with `start_session`, `show` set, and a first prompt that carries everything said here that it needs, then tell the user the work goes on there and leave it to that session. \

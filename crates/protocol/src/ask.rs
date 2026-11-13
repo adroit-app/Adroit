@@ -127,6 +127,10 @@ pub struct SessionStart {
     #[serde(default)]
     pub profile: Option<adroit_model::profile::ProfileId>,
     pub name: String,
+    /// Whether the person starting it gave the name, which its agent then
+    /// never changes; a name made from the prompt is the agent's to change.
+    #[serde(default)]
+    pub name_given: bool,
     /// Where it runs, or the draft's place a new folder is made under when
     /// it is the scratch folder.
     pub cwd: HostPath,

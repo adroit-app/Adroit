@@ -242,6 +242,14 @@ async fn rename(
         watched.tell(window, failure(format!("cannot rename {was}: {e}")));
         return Err(e.to_string());
     }
+    let given = name.clone();
+    let kept = crate::delegation::app::with_store(&crate::delegation::app::root(), move |store| {
+        store.rename_terminal(terminal, &given, true)
+    })
+    .await;
+    if let Err(e) = kept {
+        eprintln!("adroit: keeping the name {name} of {was}: {e}");
+    }
     watched.relist();
     if let Some(command) = adroit_agents::adapter(agent).rename_command(&name) {
         if crate::remote::active() {
