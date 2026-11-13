@@ -331,8 +331,10 @@ status, or what it reported was lost as its terminal was reset, its screen
 supplies the state instead: its visible
 activity and requests for approval or input, read by the agent's
 [screen rules](screen-rules.md), which a set of your own may replace. A request
-for approval or input on its screen wins over a report that it is working. A
-session Adroit started shows as starting until its program reports a state or
+for approval or input on its screen wins over a report that it is working.
+Work it started, such as subagents or shells, still running after a report
+that its turn ended, as its screen or its transcript tells, shows it as in the
+background, not done, until that work ends. A session Adroit started shows as starting until its program reports a state or
 its screen supplies one.
 
 A working session whose screen turns idle with no sign of its own that the

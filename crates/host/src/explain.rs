@@ -8,6 +8,7 @@ use adroit_model::{Agent, StartupReadiness, State};
 use serde_json::{Value, json};
 
 use crate::watch::hold::Shown;
+use crate::watch::sessions;
 
 pub(crate) const USAGE: &str = "usage: adroit session explain <session> [--json] | adroit session explain --file <path> --agent <claude|codex|pi|opencode> [--json]";
 
@@ -70,6 +71,8 @@ pub(crate) enum Source {
     Reported,
     /// What its screen shows.
     Screen,
+    /// What its transcript tells of the subagents it started.
+    Transcript,
     /// Neither yet: it shows as starting.
     Startup,
 }
@@ -79,6 +82,7 @@ impl Source {
         match self {
             Source::Reported => "osc7501",
             Source::Screen => "screen",
+            Source::Transcript => "transcript",
             Source::Startup => "startup",
         }
     }
@@ -92,10 +96,12 @@ pub(crate) struct Explained {
     pub agent: Agent,
     pub reported: Option<Reported>,
     /// How the screen reads; none when the screen was not read, as while the
-    /// program reports its state.
+    /// program reports a state its screen is not read past.
     pub screen: Option<Judgement<State>>,
     /// What the screen was last shown as by the reads that list sessions.
     pub shown: Option<Shown>,
+    /// Whether its transcript tells of a subagent it started still running.
+    pub subagent_running: bool,
     pub startup: Judgement<StartupReadiness>,
     pub start: Option<Start>,
     pub rules: RulesUsed,
@@ -124,10 +130,15 @@ impl Explained {
     /// The state the session shows and where it came from.
     pub(crate) fn state(&self) -> (State, Source) {
         if let Some(reported) = &self.reported {
-            return (
-                State::reported(&reported.state, reported.kind.as_deref()),
-                Source::Reported,
-            );
+            let reported = State::reported(&reported.state, reported.kind.as_deref());
+            let seen = self.screen.as_ref().and_then(|s| s.value.clone());
+            if let Some(state) = seen.and_then(|seen| sessions::past(&reported, seen)) {
+                return (state, Source::Screen);
+            }
+            return match sessions::behind(&reported, self.subagent_running) {
+                Some(state) => (state, Source::Transcript),
+                None => (reported, Source::Reported),
+            };
         }
         let read = self
             .shown
@@ -173,6 +184,9 @@ impl Explained {
                     .into(),
             );
         }
+        if self.subagent_running {
+            out.push("subagents: one still runs".into());
+        }
         let told = self.startup.value.map_or("nothing", readiness_key);
         out.push(format!(
             "startup: {told} {}",
@@ -213,6 +227,7 @@ impl Explained {
                 "verdict": verdict_json(&read.verdict),
             })),
             "held": self.shown.as_ref().is_some_and(|shown| shown.held),
+            "subagent_running": self.subagent_running,
             "startup": {
                 "readiness": self.startup.value.map(readiness_key),
                 "verdict": verdict_json(&self.startup.verdict),
@@ -285,6 +300,7 @@ pub(crate) fn of_screen(agent: Agent, screen: &[String]) -> Explained {
         reported: None,
         screen: Some(adapter.judge_state(screen)),
         shown: None,
+        subagent_running: false,
         startup: adapter.judge_startup(screen),
         start: None,
         rules: RulesUsed::of(agent),
@@ -348,7 +364,16 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
     };
     let adapter = adroit_agents::adapter(c.agent);
     let screen = daemon.visible(native.id).await.map_err(|e| e.to_string())?;
-    let read = native.status.is_none() && adapter.capabilities().screen_state;
+    let reported = native
+        .status
+        .as_ref()
+        .map(|s| State::reported(&s.state, s.kind.as_deref()));
+    let read =
+        reported.as_ref().is_none_or(sessions::reads_past) && adapter.capabilities().screen_state;
+    let subagent_running = match reported.as_ref().is_some_and(sessions::ended) {
+        true => crate::watch::behind::running(native.id, &c).await,
+        false => false,
+    };
     let start = match c.delegation {
         Some(id) => crate::delegation::app::sessions(&crate::delegation::app::root())
             .await
@@ -375,7 +400,8 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
             msg: s.msg.clone(),
         }),
         screen: read.then(|| adapter.judge_state(&screen)),
-        shown: crate::watch::hold::shown(native.id).filter(|_| read),
+        shown: crate::watch::hold::shown(native.id).filter(|_| reported.is_none() && read),
+        subagent_running,
         startup: adapter.judge_startup(&screen),
         start,
         rules: RulesUsed::of(c.agent),
@@ -508,6 +534,45 @@ mod tests {
         let mut starting = of_screen(Agent::Claude, &[]);
         starting.session = Some(("fix".into(), "00ab".into()));
         assert_eq!(starting.state(), (State::Starting, Source::Startup));
+    }
+
+    #[test]
+    fn work_running_behind_a_reported_end_of_turn_is_read_from_the_screen() {
+        let mut e = explained(
+            Some(Reported {
+                state: "done".into(),
+                kind: None,
+                msg: None,
+            }),
+            None,
+        );
+        e.screen = of_screen(Agent::Claude, &recorded("background-work")).screen;
+        assert_eq!(e.state(), (State::Background, Source::Screen));
+        assert!(e.text().contains("\nstate: background (from screen)\n"));
+        assert!(
+            e.text()
+                .contains("\nscreen: background by rule claude.work_running_behind")
+        );
+    }
+
+    #[test]
+    fn a_subagent_running_behind_a_reported_end_of_turn_is_read_from_the_transcript() {
+        let mut e = explained(
+            Some(Reported {
+                state: "done".into(),
+                kind: None,
+                msg: None,
+            }),
+            None,
+        );
+        e.screen = of_screen(Agent::Claude, &recorded("input")).screen;
+        assert_eq!(e.state().0, State::Done);
+        e.subagent_running = true;
+        assert_eq!(e.state(), (State::Background, Source::Transcript));
+        let text = e.text();
+        assert!(text.contains("\nstate: background (from transcript)\n"));
+        assert!(text.contains("\nsubagents: one still runs\n"));
+        assert_eq!(e.json()["subagent_running"], true);
     }
 
     #[test]

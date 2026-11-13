@@ -14,6 +14,7 @@ use tokio::sync::watch;
 
 use crate::work::{Host, Seen, Sent, WindowId};
 
+pub(crate) mod behind;
 mod commands;
 mod config;
 mod context;
@@ -28,7 +29,7 @@ mod past;
 mod place;
 mod processes;
 mod repository;
-mod sessions;
+pub(crate) mod sessions;
 mod system;
 mod usage;
 

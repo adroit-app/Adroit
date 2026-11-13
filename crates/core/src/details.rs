@@ -60,7 +60,7 @@ pub fn overview_facts(
     }
     let (state, tone) = match &s.state {
         State::Waiting(why) => (format!("waiting · {why}"), "wait"),
-        State::Working => ("working".into(), "run"),
+        other @ (State::Working | State::Background) => (other.word().into(), "run"),
         State::Done => ("done".into(), "done"),
         State::Failed => ("failed".into(), "fail"),
         other @ (State::Starting | State::Idle) => (other.word().into(), "idle"),
@@ -1369,6 +1369,10 @@ mod tests {
             ("starting".to_string(), Some("idle"))
         );
         assert_eq!(tone(State::Working), ("working".to_string(), Some("run")));
+        assert_eq!(
+            tone(State::Background),
+            ("background".to_string(), Some("run"))
+        );
         assert_eq!(tone(State::Idle), ("idle".to_string(), Some("idle")));
         assert_eq!(tone(State::Done), ("done".to_string(), Some("done")));
         assert_eq!(tone(State::Failed), ("failed".to_string(), Some("fail")));

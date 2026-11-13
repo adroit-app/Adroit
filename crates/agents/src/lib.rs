@@ -265,6 +265,18 @@ pub trait ConversationReader: Send {
     }
 }
 
+/// Whether work a session started still runs behind it, read anew on each
+/// call.
+pub trait WorkBehind: Send {
+    fn running(&mut self) -> bool;
+}
+
+impl WorkBehind for claude::subagents::Behind {
+    fn running(&mut self) -> bool {
+        claude::subagents::Behind::running(self)
+    }
+}
+
 type DeveloperInstructions =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, String>> + Send>>;
 
@@ -433,6 +445,16 @@ pub trait AgentAdapter: Sync {
     ) -> Option<Box<dyn ConversationReader>> {
         None
     }
+    /// What follows the work a session leaves running behind a turn that
+    /// ended, where its agent writes that work into its transcript.
+    fn work_behind(
+        &self,
+        _context: &AgentContext,
+        _home: &Path,
+        _session: &adroit_model::Session,
+    ) -> Option<Box<dyn WorkBehind>> {
+        None
+    }
     fn list_sessions(&self, _context: AgentContext) -> Listing {
         Box::pin(async { Ok(Vec::new()) })
     }
@@ -514,7 +536,7 @@ pub trait AgentAdapter: Sync {
 pub(crate) fn readiness(state: adroit_model::State) -> Option<adroit_model::StartupReadiness> {
     use adroit_model::{StartupReadiness, State, Wait};
     match state {
-        State::Idle | State::Working => Some(StartupReadiness::Ready),
+        State::Idle | State::Working | State::Background => Some(StartupReadiness::Ready),
         State::Waiting(Wait::Permission) => Some(StartupReadiness::AwaitingPermission),
         State::Waiting(Wait::Input) => Some(StartupReadiness::AwaitingInput),
         _ => None,
@@ -566,6 +588,7 @@ mod tests {
         for (state, readiness_is) in [
             (State::Idle, Some(StartupReadiness::Ready)),
             (State::Working, Some(StartupReadiness::Ready)),
+            (State::Background, Some(StartupReadiness::Ready)),
             (
                 State::Waiting(Wait::Permission),
                 Some(StartupReadiness::AwaitingPermission),

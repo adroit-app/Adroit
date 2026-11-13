@@ -127,6 +127,15 @@ impl AgentAdapter for Claude {
             super::transcript::Transcript::new(path, &session.cwd, home.to_path_buf()),
         )))
     }
+    fn work_behind(
+        &self,
+        context: &AgentContext,
+        home: &Path,
+        session: &adroit_model::Session,
+    ) -> Option<Box<dyn WorkBehind>> {
+        let path = super::places::transcript(context, home, &session.cwd, &session.session_id);
+        Some(Box::new(super::subagents::Behind::new(&path)))
+    }
     fn list_sessions(&self, context: AgentContext) -> Listing {
         Box::pin(async move {
             super::list_sessions(|args| asked(&context, args))

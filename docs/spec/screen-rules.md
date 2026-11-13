@@ -114,14 +114,14 @@ rule without `when` holds on any screen, and the last rule has none.
 | --- | --- |
 | `id` | the rule's name; `adroit session explain` names it `<agent>.<id>` |
 | `when` | the condition the rule holds on |
-| `state` | `working`, `idle`, `waiting-input` or `waiting-permission`; without it the screen tells no state |
+| `state` | `working`, `background`, `idle`, `waiting-input` or `waiting-permission`; without it the screen tells no state. `background` is work still running behind a turn that ended, and stands in place of a report that the turn ended |
 | `dialog` | `true`, or a condition: whether a dialog of the agent's own holds the keys while this rule decides |
 | `startup` | `ready`, `awaiting-trust`, `awaiting-permission` or `awaiting-input`: how a session still starting stands, in place of what its state says |
 | `default` | `true` when the rule decides for want of a sign: a working session that this rule reads idle is held working until the screen is read idle once more |
 | `shows` | a region whose rows `adroit session explain` shows as those the rule went by, beside the rows its `has` conditions matched |
 
 A session still starting stands as its rule's `startup` says, or else as its
-state says: `idle` and `working` are ready, `waiting-input` awaits input and
+state says: `idle`, `working` and `background` are ready, `waiting-input` awaits input and
 `waiting-permission` awaits permission. A set may instead tell how a session
 starts by rules of their own, `[[startup]]`, tried the same way in place of
 `[[rules]]`; each takes `id`, `when`, `startup`, `default` and `shows`, and

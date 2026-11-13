@@ -140,6 +140,9 @@ pub enum State {
     /// before the folder is trusted, so it may be asking that.
     Starting,
     Working,
+    /// Its turn ended, and work it started, as subagents or shells, still
+    /// runs behind it and brings it back once it ends.
+    Background,
     #[default]
     Idle,
     Done,
@@ -158,6 +161,7 @@ impl State {
             State::Waiting(_) => "waiting",
             State::Starting => "starting",
             State::Working => "working",
+            State::Background => "background",
             State::Idle => "idle",
             State::Done => "done",
             State::Failed => "failed",
@@ -321,8 +325,14 @@ mod tests {
         assert!(State::Starting.takes_every_key());
         assert!(!State::Idle.takes_every_key());
         assert!(!State::Working.takes_every_key());
+        assert!(!State::Background.takes_every_key());
         assert!(!State::Done.takes_every_key());
         assert!(!State::Failed.takes_every_key());
+    }
+
+    #[test]
+    fn a_session_whose_turn_ended_with_work_running_behind_it_is_in_the_background() {
+        assert_eq!(State::Background.word(), "background");
     }
 
     #[test]

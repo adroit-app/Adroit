@@ -21,6 +21,10 @@ spinner = '^[^\p{Alphabetic}\p{N}\s] .*… \(\d'
 trust_asked = '(?i)trust this project|trust this folder|trust this directory|trust the files in this folder'
 permission_asked = '(?i)do you want to allow|allow this tool|permission to'
 decision = '(?i)trust this project|trust this folder|trust this directory|trust the files in this folder|do you want to allow|allow this tool|permission to'
+# The footer's count of the shells still running behind a session, as in
+# `⏵⏵ auto mode on · 2 shells · ← 2 agents`. Its count of agents takes in
+# those that finished too, so it tells nothing.
+running_behind = '(?:^\s*|· )\d+ shells?(?:\s|$)'
 yes = '(?i)yes'
 no = '(?i)no'
 
@@ -60,6 +64,11 @@ when = { absent = "input" }
 id = "spinner_above_input"
 state = "working"
 when = { in = "near_input", has = "spinner" }
+
+[[rules]]
+id = "work_running_behind"
+state = "background"
+when = { in = "below_lowest_rule", has = "running_behind" }
 
 [[rules]]
 id = "input_box_idle"

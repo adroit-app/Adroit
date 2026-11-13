@@ -162,6 +162,7 @@ struct GateSpec {
 #[serde(rename_all = "kebab-case")]
 enum StateName {
     Working,
+    Background,
     Idle,
     WaitingInput,
     WaitingPermission,
@@ -171,6 +172,7 @@ impl From<StateName> for State {
     fn from(name: StateName) -> Self {
         match name {
             StateName::Working => State::Working,
+            StateName::Background => State::Background,
             StateName::Idle => State::Idle,
             StateName::WaitingInput => State::Waiting(Wait::Input),
             StateName::WaitingPermission => State::Waiting(Wait::Permission),

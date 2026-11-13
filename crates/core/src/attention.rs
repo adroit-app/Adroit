@@ -7,8 +7,17 @@ use adroit_model::{EnvironmentId, State, Tree};
 
 /// The words of the states as shown, the one that needs the user most first:
 /// one waiting on the user, one finished the user has not seen, one that
-/// failed, then those still at work, and last those with nothing to say.
-pub const ORDER: [&str; 6] = ["waiting", "done", "failed", "working", "starting", "idle"];
+/// failed, then those still at work, those whose work runs behind a turn that
+/// ended, and last those with nothing to say.
+pub const ORDER: [&str; 7] = [
+    "waiting",
+    "done",
+    "failed",
+    "working",
+    "background",
+    "starting",
+    "idle",
+];
 
 /// Where `word`, a state as shown, stands in [`ORDER`]; past every state for
 /// a word that is not one.
@@ -98,10 +107,11 @@ mod tests {
     }
 
     #[test]
-    fn the_states_stand_waiting_then_done_failed_working_starting_and_idle_last() {
+    fn the_states_stand_waiting_then_done_failed_working_background_starting_and_idle_last() {
         let words: Vec<&str> = [
             State::Idle,
             State::Starting,
+            State::Background,
             State::Working,
             State::Failed,
             State::Done,
@@ -114,7 +124,15 @@ mod tests {
         sorted.sort_by_key(|w| rank(w));
         assert_eq!(
             sorted,
-            ["waiting", "done", "failed", "working", "starting", "idle"]
+            [
+                "waiting",
+                "done",
+                "failed",
+                "working",
+                "background",
+                "starting",
+                "idle"
+            ]
         );
         assert_eq!(rank("no such state"), ORDER.len());
     }
@@ -128,6 +146,7 @@ mod tests {
             ("W", &["waiting"]),
             ("d", &["done"]),
             ("f", &["failed"]),
+            ("b", &["background"]),
             ("s", &["starting"]),
             ("i", &["idle"]),
             ("idle", &["idle"]),

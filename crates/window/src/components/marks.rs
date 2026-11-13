@@ -13,6 +13,7 @@ pub(crate) fn glyph(state: &State) -> (&'static str, Icon, &'static str) {
         State::Waiting(_) => ("state-glyph wait", Icon::Bell),
         State::Starting => ("state-glyph idle", Icon::Circle),
         State::Working => ("state-glyph run", Icon::Loader),
+        State::Background => ("state-glyph behind", Icon::Dots),
         State::Idle => ("state-glyph idle", Icon::Circle),
         State::Done => ("state-glyph done", Icon::Check),
         State::Failed => ("state-glyph fail", Icon::AlertTriangle),

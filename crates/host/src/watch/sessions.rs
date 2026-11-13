@@ -175,7 +175,7 @@ pub async fn read_sessions(
                     learned.push(tag);
                 }
                 let reported = s.status.is_some();
-                let screen = match (!reported || c.state == State::Working)
+                let screen = match (!reported || reads_past(&c.state))
                     && adapter.capabilities().screen_state
                 {
                     true => tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id))
@@ -187,9 +187,16 @@ pub async fn read_sessions(
                 let state = match reported {
                     true => {
                         super::hold::settled(s.id, None);
-                        screen
+                        let seen = screen
                             .as_ref()
-                            .and_then(|screen| past_working(&c.state, adapter, screen))
+                            .and_then(|screen| past_report(&c.state, adapter, screen));
+                        match seen {
+                            Some(seen) => Some(seen),
+                            None if ended(&c.state) => {
+                                behind(&c.state, super::behind::running(s.id, &c).await)
+                            }
+                            None => None,
+                        }
                     }
                     false => super::hold::settled(
                         s.id,
@@ -212,7 +219,9 @@ pub async fn read_sessions(
             None => {}
         }
     }
-    super::hold::keep_only(&kept.iter().map(|s| s.id).collect::<Vec<_>>());
+    let ids: Vec<u128> = kept.iter().map(|s| s.id).collect();
+    super::hold::keep_only(&ids);
+    super::behind::keep_only(&ids);
     // Without Claude Code, or with a listing it cannot give, nothing is
     // learned; the sessions are listed all the same.
     // Each login lists the sessions running in it alone, so each is asked as
@@ -252,22 +261,48 @@ pub async fn read_sessions(
     Ok((own, kept_shells))
 }
 
+/// Whether the screen of a session whose program reports `reported` is read
+/// for what the report may not tell, as [`past_report`] takes it.
+pub(crate) fn reads_past(reported: &State) -> bool {
+    matches!(reported, State::Working | State::Done | State::Idle)
+}
+
+/// What a session whose program reports `reported` stands as, now that its
+/// screen reads as `seen`; none when the report stands, as
+/// [`past_report`] tells.
+pub(crate) fn past(reported: &State, seen: State) -> Option<State> {
+    match (reported, &seen) {
+        (State::Working, State::Waiting(_)) => Some(seen),
+        (reported, State::Background) if ended(reported) => Some(seen),
+        _ => None,
+    }
+}
+
+/// What a session whose program reports `reported` stands as while a
+/// subagent it started is `running` or not; none when the report stands.
+pub(crate) fn behind(reported: &State, running: bool) -> Option<State> {
+    (running && ended(reported)).then_some(State::Background)
+}
+
+/// Whether `reported` says the session's turn ended, which work it started
+/// may still run behind.
+pub(crate) fn ended(reported: &State) -> bool {
+    matches!(reported, State::Done | State::Idle)
+}
+
 /// How a session stands whose program reports `reported`, when `adapter`
-/// reads on its `screen` a request that waits on the user while the report
-/// says it works: a report of working that the program never followed up
-/// would hide the request. A dialog the user opened, such as a picker, asks
+/// reads on its `screen` what the report does not tell: a request that waits
+/// on the user while the report says it works, as a report of working that
+/// the program never followed up would hide the request; or work still
+/// running behind a turn the report says ended, which brings the session
+/// back once it ends. A dialog the user opened, such as a picker, asks
 /// nothing of them and leaves the report standing.
-fn past_working(
+fn past_report(
     reported: &State,
     adapter: &dyn adroit_agents::AgentAdapter,
     screen: &[String],
 ) -> Option<State> {
-    if *reported != State::Working {
-        return None;
-    }
-    adapter
-        .screen_state(screen)
-        .filter(|seen| matches!(seen, State::Waiting(_)))
+    past(reported, adapter.screen_state(screen)?)
 }
 
 /// Each agent and login `own` has sessions in, with the context the
@@ -326,7 +361,7 @@ mod tests {
     #[test]
     fn a_request_on_screen_wins_over_a_report_of_working() {
         let on = |agent: Agent, name: &str| {
-            past_working(
+            past_report(
                 &State::Working,
                 adroit_agents::adapter(agent),
                 &screen(name),
@@ -348,20 +383,69 @@ mod tests {
     fn a_picker_the_user_opened_while_the_agent_works_leaves_it_working() {
         let claude = adroit_agents::adapter(Agent::Claude);
         assert_eq!(
-            past_working(&State::Working, claude, &screen("model-while-working")),
+            past_report(&State::Working, claude, &screen("model-while-working")),
             None
         );
     }
 
     #[test]
-    fn a_report_of_anything_but_working_is_not_read_against_the_screen() {
+    fn a_request_on_screen_wins_over_no_report_but_working() {
         let opencode = adroit_agents::adapter(Agent::OpenCode);
         for reported in [State::Idle, State::Done, State::Failed] {
             assert_eq!(
-                past_working(&reported, opencode, &screen("opencode-permission")),
+                past_report(&reported, opencode, &screen("opencode-permission")),
                 None
             );
         }
+    }
+
+    #[test]
+    fn a_finished_turn_with_work_running_behind_it_stands_in_the_background() {
+        let claude = adroit_agents::adapter(Agent::Claude);
+        for reported in [State::Done, State::Idle] {
+            assert_eq!(
+                past_report(&reported, claude, &screen("background-work")),
+                Some(State::Background),
+                "{reported:?}"
+            );
+            assert_eq!(
+                past_report(&reported, claude, &screen("after-a-reply")),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn work_running_behind_neither_a_working_turn_nor_a_failure_changes_it() {
+        let claude = adroit_agents::adapter(Agent::Claude);
+        for reported in [State::Working, State::Failed] {
+            assert_eq!(
+                past_report(&reported, claude, &screen("background-work")),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn a_subagent_running_behind_a_finished_turn_stands_it_in_the_background() {
+        assert_eq!(behind(&State::Done, true), Some(State::Background));
+        assert_eq!(behind(&State::Idle, true), Some(State::Background));
+        assert_eq!(behind(&State::Done, false), None);
+        assert_eq!(behind(&State::Working, true), None);
+        assert_eq!(behind(&State::Failed, true), None);
+        assert_eq!(
+            behind(&State::Waiting(adroit_model::Wait::Input), true),
+            None
+        );
+    }
+
+    #[test]
+    fn the_screen_is_read_past_a_report_of_working_done_or_idle_alone() {
+        assert!(reads_past(&State::Working));
+        assert!(reads_past(&State::Done));
+        assert!(reads_past(&State::Idle));
+        assert!(!reads_past(&State::Failed));
+        assert!(!reads_past(&State::Waiting(adroit_model::Wait::Input)));
     }
 
     #[tokio::test]

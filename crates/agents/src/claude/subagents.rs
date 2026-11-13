@@ -312,6 +312,50 @@ impl Subagents {
     }
 }
 
+/// Whether any subagent of a session still runs, read from its transcript as
+/// it grows: lighter than [`Subagents`], which also reads each subagent's own
+/// transcript, so that it can follow every session, not only those shown.
+#[derive(Debug)]
+pub struct Behind {
+    path: PathBuf,
+    tail: crate::tail::Tail,
+    found: Collector,
+}
+
+impl Behind {
+    /// Following the transcript at `transcript`.
+    pub fn new(transcript: &Path) -> Self {
+        Behind {
+            path: transcript.to_path_buf(),
+            tail: crate::tail::Tail::default(),
+            found: Collector::default(),
+        }
+    }
+
+    /// Take in what was written since the last read; whether a subagent
+    /// still runs. One that shrank or was replaced is read from its start.
+    pub fn running(&mut self) -> bool {
+        match self.tail.read(&self.path) {
+            crate::tail::Tailed::Lines {
+                restarted, values, ..
+            } => {
+                if restarted {
+                    self.found = Collector::default();
+                }
+                for v in &values {
+                    self.found.feed(v);
+                }
+            }
+            crate::tail::Tailed::Missing => self.found = Collector::default(),
+            crate::tail::Tailed::Unreadable => {}
+        }
+        self.found
+            .held
+            .iter()
+            .any(|h| h.agent.standing == Standing::Running)
+    }
+}
+
 /// The latest steps in the end of the subagent transcript at `path`.
 fn steps_at(path: &Path) -> Vec<Step> {
     use std::io::{Read, Seek, SeekFrom};
@@ -504,6 +548,24 @@ mod tests {
     const T1: &str = "2026-10-19T14:13:02.184Z";
     const T2: &str = "2026-10-19T14:15:00.648Z";
     const T3: &str = "2026-10-19T14:20:00.648Z";
+
+    #[test]
+    fn a_transcript_tells_as_it_grows_whether_a_subagent_still_runs_behind_it() {
+        let dir = std::env::temp_dir().join(format!("adroit-behind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("talk.jsonl");
+        let mut behind = Behind::new(&path);
+        assert!(!behind.running(), "no transcript yet");
+        let line = |text: String| format!("{text}\n");
+        crate::testing::append(&path, &line(launch("toolu_a", "Survey", T0)));
+        crate::testing::append(&path, &line(launched("toolu_a", "a7cd", T1)));
+        assert!(behind.running());
+        assert!(behind.running(), "read again with nothing new");
+        crate::testing::append(&path, &line(told(&notice(None, "a7cd", "completed"), T2)));
+        assert!(!behind.running());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_subagent_launched_runs_named_by_its_description_kind_and_prompt() {

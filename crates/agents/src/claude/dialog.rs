@@ -94,7 +94,9 @@ mod tests {
     // input box's top rule as a session started with `--name` shows it. `dev-channels` was recorded from 2.1.304
     // at 120×40 launched with a development channel, and
     // `dev-channels-confirmed` right after confirming it, with the lines only
-    // that recording's environment showed taken out.
+    // that recording's environment showed taken out. `background-work` is the
+    // last rows of a session on 2.1.323 whose turn ended with two shells
+    // still running, its commands written shorter.
 
     #[test]
     fn the_pickers_and_settings_slash_commands_open_are_dialogs() {
@@ -255,6 +257,11 @@ mod tests {
                 "claude.input_box_idle",
             ),
             ("slash-menu", Some(State::Idle), "claude.input_box_idle"),
+            (
+                "background-work",
+                Some(State::Background),
+                "claude.work_running_behind",
+            ),
             ("model", None, "claude.dialog_open"),
             ("model-while-working", None, "claude.dialog_open"),
             ("model-while-working-named", None, "claude.dialog_open"),
@@ -271,6 +278,19 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn the_footer_s_count_of_agents_alone_tells_no_work_running_behind() {
+        let lines: Vec<String> = recorded("background-work")
+            .into_iter()
+            .map(|line| line.replace(" · 2 shells", ""))
+            .collect();
+        let judged = judge_state(&lines);
+        assert_eq!(
+            (judged.value, judged.verdict.rule.as_str()),
+            (Some(State::Idle), "claude.input_box_idle")
+        );
     }
 
     #[test]
