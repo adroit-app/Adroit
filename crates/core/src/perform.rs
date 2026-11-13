@@ -2,6 +2,7 @@
 //! what a click on a row's, a tab's or the menu bar's entry runs.
 
 use adroit_model::Key;
+use adroit_protocol::Request;
 
 use crate::actions::Action;
 use crate::console::Probe;
@@ -430,14 +431,24 @@ pub(crate) fn perform(
                 let Some(ws) = tree.workspaces.iter().find(|ws| ws.root == root) else {
                     return Vec::new();
                 };
+                let sessions: Vec<_> = ws.sessions().cloned().collect();
+                let terminals: Vec<_> = ws
+                    .worktrees
+                    .iter()
+                    .flat_map(|w| w.terminals.iter().map(|t| t.id))
+                    .collect();
+                // Nothing ends, so there is nothing to ask.
+                if sessions.is_empty() && terminals.is_empty() {
+                    return vec![Effect::Host {
+                        environment,
+                        request: Request::DropWorkspace { root },
+                    }];
+                }
                 let ask = Ask::RemoveWorkspace {
                     name: ws.name.clone(),
-                    sessions: ws.sessions().cloned().collect(),
-                    terminals: ws
-                        .worktrees
-                        .iter()
-                        .flat_map(|w| w.terminals.iter().map(|t| t.id))
-                        .collect(),
+                    root,
+                    sessions,
+                    terminals,
                     environment,
                 };
                 step(state, Msg::Confirm(Box::new(ask)))

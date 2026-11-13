@@ -3,6 +3,7 @@
 //! anew, letting a held program go. Each is
 //! carried out on its own, and the window that asked is told how it went.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use adroit_model::{Agent, Process, Session};
@@ -46,6 +47,8 @@ pub(crate) async fn apply(watched: &Watched, window: WindowId, mut job: Request)
             Ok(())
         }
         Request::EndTerminal { id } => end_terminal(watched, id).await,
+        Request::KeepWorkspace { dir } => keep_workspace(watched, window, dir).await,
+        Request::DropWorkspace { root } => drop_workspace(watched, window, root).await,
         _ => Err("unsupported mutation request".into()),
     };
     match result {
@@ -146,6 +149,48 @@ async fn end_terminal(watched: &Watched, id: u128) -> Result<(), String> {
     }
     watched.terminal_closed(id);
     Ok(())
+}
+
+/// Keep the workspace holding `dir` in the tree: its repository's when git
+/// holds it, the scratch folder's for one below it, or else the directory.
+async fn keep_workspace(watched: &Watched, window: WindowId, dir: PathBuf) -> Result<(), String> {
+    if !dir.is_dir() {
+        let text = format!("{} is not a directory", dir.display());
+        watched.tell(window, failure(text.clone()));
+        return Err(text);
+    }
+    let scratch = crate::paths::scratch_dir();
+    let root = match dir.starts_with(&scratch) {
+        true => scratch,
+        false => adroit_vcs::inspect(&dir)
+            .await
+            .map_or(dir, |worktree| worktree.repo),
+    };
+    let state = crate::paths::instance_state();
+    let kept =
+        crate::environment::spawn_blocking(move || crate::workspaces::keep(&state, [root])).await;
+    let result = kept.map_err(|e| e.to_string()).and_then(|kept| kept);
+    if let Err(error) = &result {
+        watched.tell(window, failure(format!("cannot add to the tree: {error}")));
+    }
+    watched.relist();
+    result.map(|_| ())
+}
+
+/// Keep the workspace `root` in the tree no more.
+async fn drop_workspace(watched: &Watched, window: WindowId, root: PathBuf) -> Result<(), String> {
+    let state = crate::paths::instance_state();
+    let forgot =
+        crate::environment::spawn_blocking(move || crate::workspaces::forget(&state, &root)).await;
+    let result = forgot.map_err(|e| e.to_string()).and_then(|forgot| forgot);
+    if let Err(error) = &result {
+        watched.tell(
+            window,
+            failure(format!("cannot remove from the tree: {error}")),
+        );
+    }
+    watched.relist();
+    result.map(|_| ())
 }
 
 /// Kill `process`, which runs in `session`.

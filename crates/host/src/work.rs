@@ -311,7 +311,9 @@ impl Host {
             | Request::Kill { .. }
             | Request::Rename { .. }
             | Request::Release { .. }
-            | Request::EndTerminal { .. }) => {
+            | Request::EndTerminal { .. }
+            | Request::KeepWorkspace { .. }
+            | Request::DropWorkspace { .. }) => {
                 // Carried out by the host's watchers; the window that
                 // asked has gone when nothing takes it.
                 let _ = self.jobs.send((window, job));

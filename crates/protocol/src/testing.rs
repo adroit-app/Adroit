@@ -38,6 +38,7 @@ pub struct ListedBuilder {
     repo: Option<PathBuf>,
     found: HashMap<PathBuf, Option<Worktree>>,
     worktrees: Vec<Worktree>,
+    kept: Vec<PathBuf>,
 }
 
 impl ListedBuilder {
@@ -93,6 +94,12 @@ impl ListedBuilder {
         self
     }
 
+    /// A workspace the tree keeps, whether anything runs in it or not.
+    pub fn kept(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.kept.push(dir.into());
+        self
+    }
+
     pub fn build(self) -> Listed {
         let mut found = self.found;
         if let Some(repo) = &self.repo {
@@ -108,6 +115,7 @@ impl ListedBuilder {
             &self.terminals,
             &found,
             &self.worktrees,
+            &self.kept,
             None::<&Path>,
         );
         Listed {
@@ -250,7 +258,10 @@ mod tests {
             ("/r/b".into(), Some(worktree("/r/b", REPO, "main"))),
             ("/x".into(), None),
         ]);
-        assert_eq!(l.tree, build(&l.sessions, &l.terminals, &found, &[], None));
+        assert_eq!(
+            l.tree,
+            build(&l.sessions, &l.terminals, &found, &[], &[], None)
+        );
         assert_eq!(l.sessions.len(), 2);
         assert_eq!(l.terminals.len(), 1);
     }

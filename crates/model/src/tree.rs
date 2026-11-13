@@ -146,13 +146,16 @@ impl Tree {
 /// runs in, the git worktree holding it, or `None` outside git; a directory
 /// missing from it is taken as outside git. `listed` adds worktrees without
 /// sessions, those git knows of a workspace when every worktree is to be shown.
-/// Whatever runs in `scratch` or below it, whatever git says, is in one
-/// workspace of that directory, listed after every other.
+/// `kept` names workspaces listed whether anything runs in them or not, each
+/// placed as a session running there would be; one where something runs
+/// gains no row by it. Whatever runs in `scratch` or below it, whatever git
+/// says, is in one workspace of that directory, listed after every other.
 pub fn build(
     sessions: &[Session],
     terminals: &[TerminalSession],
     found: &HashMap<PathBuf, Option<Worktree>>,
     listed: &[Worktree],
+    kept: &[PathBuf],
     scratch: Option<&Path>,
 ) -> Tree {
     let mut tree = Tree::default();
@@ -172,6 +175,12 @@ pub fn build(
     for shell in terminals {
         let (worktree, holder) = held(&shell.cwd);
         worktree_node(&mut tree, &worktree, holder);
+    }
+    for dir in kept {
+        let (worktree, holder) = held(dir);
+        if !tree.workspaces.iter().any(|ws| ws.root == worktree.repo) {
+            worktree_node(&mut tree, &worktree, holder);
+        }
     }
     for w in listed {
         if tree.workspaces.iter().any(|ws| ws.git && ws.root == w.repo) {
@@ -333,6 +342,42 @@ mod tests {
         assert_eq!(ws.worktrees.len(), 2);
         assert!(ws.worktrees[1].sessions.is_empty());
         assert!(!ws.flat());
+    }
+
+    #[test]
+    fn a_kept_directory_is_a_workspace_with_nothing_running_in_it() {
+        let t = tree()
+            .kept("/api")
+            .kept("/notes")
+            .checkout("/api", "/api", "main")
+            .found("/notes", None)
+            .build();
+        let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, vec!["api", "notes"]);
+        assert!(t.workspaces[0].git && t.workspaces[0].flat());
+        assert!(!t.workspaces[1].git && t.workspaces[1].flat());
+        assert!(t.worktrees().all(|w| w.sessions.is_empty()));
+    }
+
+    #[test]
+    fn a_kept_repository_where_something_runs_adds_no_row_for_its_main_checkout() {
+        let x = "/api/.claude/worktrees/x";
+        let t = tree()
+            .session(session("a").cwd(x))
+            .kept("/api")
+            .checkout(x, "/api", "x")
+            .checkout("/api", "/api", "main")
+            .build();
+        assert_eq!(t.workspaces.len(), 1);
+        let paths: Vec<_> = t.worktrees().map(|w| w.worktree.path.as_path()).collect();
+        assert_eq!(paths, vec![Path::new(x)]);
+    }
+
+    #[test]
+    fn a_kept_scratch_folder_is_the_scratch_workspace() {
+        let t = tree().kept("/scratch").scratch("/scratch").build();
+        assert!(t.workspaces[0].scratch);
+        assert_eq!(t.workspaces[0].name, "Scratch");
     }
 
     #[test]

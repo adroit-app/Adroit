@@ -485,6 +485,8 @@ fn label(request: &adroit_protocol::Request) -> String {
         Request::Stop { .. } | Request::Kill { .. } => "Stop a remote program".into(),
         Request::Rename { name, .. } => format!("Rename session: {name}"),
         Request::EndTerminal { .. } => "Close a terminal".into(),
+        Request::KeepWorkspace { dir } => format!("Add to the tree: {}", dir.display()),
+        Request::DropWorkspace { root } => format!("Remove from the tree: {}", root.display()),
         Request::Release { .. } => "Release a held program".into(),
         _ => "Change the remote work".into(),
     }

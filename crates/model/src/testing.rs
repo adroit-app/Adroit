@@ -193,6 +193,7 @@ pub struct TreeBuilder {
     terminals: Vec<TerminalSession>,
     found: HashMap<PathBuf, Option<Worktree>>,
     listed: Vec<Worktree>,
+    kept: Vec<PathBuf>,
     scratch: Option<PathBuf>,
 }
 
@@ -234,12 +235,19 @@ impl TreeBuilder {
         self
     }
 
+    /// A workspace the tree keeps, whether anything runs in it or not.
+    pub fn kept(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.kept.push(dir.into());
+        self
+    }
+
     pub fn build(self) -> Tree {
         build(
             &self.sessions,
             &self.terminals,
             &self.found,
             &self.listed,
+            &self.kept,
             self.scratch.as_deref(),
         )
     }
@@ -277,6 +285,7 @@ mod tests {
                 &[sh],
                 &found(&[("/api", Some(worktree("/api", "/api", "main")))]),
                 &[worktree("/api/w", "/api", "w")],
+                &[],
                 None,
             )
         );

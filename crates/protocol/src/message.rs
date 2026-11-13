@@ -90,6 +90,12 @@ pub enum Request {
         #[serde(with = "crate::wire::wide")]
         id: u128,
     },
+    /// Keep the workspace holding `dir` in the tree, whether anything runs
+    /// there or not.
+    KeepWorkspace { dir: PathBuf },
+    /// Keep the workspace `root` in the tree no more; it is listed again
+    /// while anything runs there.
+    DropWorkspace { root: PathBuf },
 }
 
 /// What the work host tells a window.

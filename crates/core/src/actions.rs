@@ -364,7 +364,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::EnvironmentPair, "environment.pair", "pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](environments.md#create-and-configure))")
         .icon(Icon::Link)
         .row("Pair again…", Reach),
-    S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it after asking, by ending every session and terminal running there; starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
+    S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
         .icon(Icon::SquareMinus)
         .row("Remove from tree…", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),

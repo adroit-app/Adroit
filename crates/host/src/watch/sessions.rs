@@ -1,11 +1,11 @@
 //! The sessions and terminals there are, placed by what git says of where
 //! each runs, listed every two seconds or as soon as a window asks.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use adroit_model::{Session, State, TerminalSession, Worktree, build};
+use adroit_model::{Session, State, TerminalSession, Tree, Worktree, build};
 use adroit_protocol::{Listed, TreeChange};
 use adroit_term::Daemon;
 
@@ -22,17 +22,29 @@ pub(super) async fn watch(mut watched: Watched) {
     // repository's worktrees, with when it said it.
     let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
     let mut lists: HashMap<PathBuf, (Instant, Vec<Worktree>)> = HashMap::new();
+    let mut ran = Ran::default();
     loop {
         match read_sessions(&daemon, &watched.inputs()).await {
             Ok((sessions, terminals)) => {
-                let found = inspect(&sessions, &terminals, &mut cache).await;
+                let kept = kept_workspaces();
+                let found = inspect(&sessions, &terminals, &kept, &mut cache).await;
+                let scratch = crate::paths::scratch_dir();
+                let tree = |listed: &[Worktree]| {
+                    build(&sessions, &terminals, &found, listed, &kept, Some(&scratch))
+                };
+                let started = ran.started(&tree(&[]), &sessions, &terminals);
+                if !started.is_empty()
+                    && let Err(error) =
+                        crate::workspaces::keep(&crate::paths::instance_state(), started)
+                {
+                    eprintln!("adroit: cannot keep the workspaces sessions started in: {error}");
+                }
                 // Listed all the same when the store cannot be read: what waits
                 // is only offered.
                 let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
-                let scratch = crate::paths::scratch_dir();
                 let listing = |listed: &[Worktree]| TreeChange::Listed {
                     listed: Box::new(Listed {
-                        tree: build(&sessions, &terminals, &found, listed, Some(&scratch)),
+                        tree: tree(listed),
                         sessions: sessions.clone(),
                         terminals: terminals.clone(),
                         interrupted: interrupted.clone(),
@@ -65,11 +77,60 @@ fn every_worktree(seen: &[Seen]) -> bool {
     seen.iter().any(|s| s.sight.tree.every_worktree)
 }
 
-/// What git says of each directory a session or a terminal runs in, asked
-/// again of those it said nothing of lately.
+/// The workspaces the tree keeps that are still on disk; none while they
+/// cannot be read.
+fn kept_workspaces() -> Vec<PathBuf> {
+    match crate::workspaces::load(&crate::paths::instance_state()) {
+        Ok(kept) => kept.into_iter().filter(|dir| dir.is_dir()).collect(),
+        Err(error) => {
+            eprintln!("adroit: {error}");
+            Vec::new()
+        }
+    }
+}
+
+/// The sessions and terminals already seen running, by their ids.
+#[derive(Debug, Default)]
+struct Ran {
+    sessions: HashSet<String>,
+    terminals: HashSet<u128>,
+}
+
+impl Ran {
+    /// The workspaces in `tree` that a session or terminal not seen running
+    /// before runs in, to be kept once it ends. One seen before is passed
+    /// over, so a workspace taken out of the tree while it ran stays out.
+    fn started(
+        &mut self,
+        tree: &Tree,
+        sessions: &[Session],
+        terminals: &[TerminalSession],
+    ) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = sessions
+            .iter()
+            .filter(|s| !self.sessions.contains(&s.id))
+            .filter_map(|s| tree.find(&s.id).map(|(ws, _, _)| ws.root.clone()))
+            .chain(
+                terminals
+                    .iter()
+                    .filter(|t| !self.terminals.contains(&t.id))
+                    .filter_map(|t| tree.terminal(t.id).map(|(ws, _, _)| ws.root.clone())),
+            )
+            .collect();
+        roots.sort();
+        roots.dedup();
+        self.sessions = sessions.iter().map(|s| s.id.clone()).collect();
+        self.terminals = terminals.iter().map(|t| t.id).collect();
+        roots
+    }
+}
+
+/// What git says of each directory a session or a terminal runs in, and of
+/// each workspace kept, asked again of those it said nothing of lately.
 async fn inspect(
     sessions: &[Session],
     terminals: &[TerminalSession],
+    kept: &[PathBuf],
     cache: &mut HashMap<PathBuf, (Instant, Option<Worktree>)>,
 ) -> HashMap<PathBuf, Option<Worktree>> {
     let dirs = || {
@@ -77,6 +138,7 @@ async fn inspect(
             .iter()
             .map(|s| &s.cwd)
             .chain(terminals.iter().map(|s| &s.cwd))
+            .chain(kept)
     };
     // Asked of git all at once: one by one, every directory would hold the
     // list back by its calls.
@@ -342,9 +404,34 @@ where
 #[cfg(test)]
 mod tests {
     use adroit_model::Agent;
-    use adroit_model::testing::session;
+    use adroit_model::testing::{session, shell, tree};
 
     use super::*;
+
+    #[test]
+    fn the_workspace_of_what_starts_running_is_kept_once_and_only_then() {
+        let sessions = [session("a").cwd("/api").build()];
+        let terminals = [shell(7, "/notes")];
+        let t = tree()
+            .sessions(sessions.clone())
+            .terminal(terminals[0].clone())
+            .checkout("/api", "/api", "main")
+            .found("/notes", None)
+            .build();
+        let mut ran = Ran::default();
+
+        assert_eq!(
+            ran.started(&t, &sessions, &terminals),
+            [PathBuf::from("/api"), "/notes".into()]
+        );
+        assert!(ran.started(&t, &sessions, &terminals).is_empty());
+        assert!(ran.started(&t, &[], &[]).is_empty());
+        assert_eq!(
+            ran.started(&t, &sessions, &[]),
+            [PathBuf::from("/api")],
+            "one that ended and runs again starts anew"
+        );
+    }
 
     fn screen(name: &str) -> Vec<String> {
         let path = format!(

@@ -88,10 +88,13 @@ window does not keep this between runs.
 
 A session that has ended is listed no more; its agent keeps its
 conversation, which can be resumed in a new session
-([resuming](sessions.md#resuming-a-past-conversation)). A workspace is listed
-while anything runs in it. Removing it from the tree, from its row's menu,
-asks first and then ends every session and terminal running there; starting
-anything there lists it again.
+([resuming](sessions.md#resuming-a-past-conversation)). A workspace stays
+listed once anything has run in it, after everything there has ended and
+across runs, until it is removed from the tree, from its row's menu. Where
+nothing runs, removing it asks nothing; where something does, it asks first
+and then ends every session and terminal running there. Starting anything in
+a removed workspace lists it again. A workspace whose directory is gone is
+listed no more.
 
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.

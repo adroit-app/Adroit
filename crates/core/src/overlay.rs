@@ -236,6 +236,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
         Ask::RemoveEnvironment(environment, _) => vec![Effect::ArchiveEnvironment(environment)],
         Ask::RemoveWorkspace {
             environment,
+            root,
             sessions,
             terminals,
             ..
@@ -244,10 +245,15 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 environment: environment.clone(),
                 id: *id,
             });
+            let dropped = Effect::Host {
+                environment: environment.clone(),
+                request: Request::DropWorkspace { root },
+            };
             sessions
                 .into_iter()
                 .map(|s| stop(&environment, s))
                 .chain(ends)
+                .chain([dropped])
                 .collect()
         }
     }

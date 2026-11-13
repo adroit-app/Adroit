@@ -50,6 +50,7 @@ pub mod themes;
 pub mod watch;
 pub mod work;
 pub mod work_host;
+pub mod workspaces;
 
 use adroit_core::content;
 

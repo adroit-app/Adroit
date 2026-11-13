@@ -48,7 +48,9 @@ impl Request {
             | Self::Kill { .. }
             | Self::Rename { .. }
             | Self::Release { .. }
-            | Self::EndTerminal { .. } => true,
+            | Self::EndTerminal { .. }
+            | Self::KeepWorkspace { .. }
+            | Self::DropWorkspace { .. } => true,
             _ => false,
         }
     }

@@ -85,7 +85,7 @@ changes them ([keys](../keys.md)).
 | `environment.rename` |  | edit the name of the environment selected in the tree in place, on its heading; every window calls it by the name given ([details](../environments.md)) |  |
 | `environment.retry` |  | try at once to reach again the work machine of the environment selected in the tree, or else of the tab shown, while the window waits to try it ([details](../environments.md)) |  |
 | `environment.pair` |  | pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](../environments.md#create-and-configure)) |  |
-| `workspace.remove` |  | take the workspace selected in the tree out of it after asking, by ending every session and terminal running there; starting anything there lists it again ([details](../tree.md#workspaces-and-worktrees)) |  |
+| `workspace.remove` |  | take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](../tree.md#workspaces-and-worktrees)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |

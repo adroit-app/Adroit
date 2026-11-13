@@ -1,5 +1,7 @@
 //! A question the window holds the keys for until it is answered.
 
+use std::path::PathBuf;
+
 use adroit_model::{EnvironmentId, Process, Session};
 
 use crate::details::Entry;
@@ -15,10 +17,11 @@ pub enum Ask {
     RestartDaemon(EnvironmentId),
     /// Remove the environment, by this name, from the environments kept.
     RemoveEnvironment(EnvironmentId, String),
-    /// Take the workspace, by this name, out of the tree by ending what runs
-    /// there: these sessions and the terminals by these ids.
+    /// Take the workspace at `root`, by this name, out of the tree, ending
+    /// what runs there: these sessions and the terminals by these ids.
     RemoveWorkspace {
         environment: EnvironmentId,
+        root: PathBuf,
         name: String,
         sessions: Vec<Session>,
         terminals: Vec<u128>,
@@ -137,6 +140,7 @@ mod tests {
     fn removing(sessions: Vec<Session>, terminals: Vec<u128>) -> Ask {
         Ask::RemoveWorkspace {
             environment: EnvironmentId::default(),
+            root: "/api".into(),
             name: "api".into(),
             sessions,
             terminals,

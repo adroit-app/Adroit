@@ -847,10 +847,37 @@ fn removing_a_workspace_asks_first_naming_what_ends_and_then_ends_it_all() {
                     ..
                 },
                 Effect::EndShell { id: 7, .. },
-            ] if session.id == "a"
+                Effect::Host {
+                    request: Request::DropWorkspace { root },
+                    ..
+                },
+            ] if session.id == "a" && root == std::path::Path::new("/r")
         ),
         "{:?}",
         answered.last_effects()
+    );
+}
+
+#[test]
+fn a_workspace_where_nothing_runs_is_removed_without_asking() {
+    let run = Scenario::new()
+        .event(snapshot().listed(listed().kept("/notes")))
+        .send(Msg::Focus(Area::Sidebar));
+    let row = workspace_row(&run);
+    let removed = run.send(Msg::TreeSelect(Some(row))).send(perform(
+        Action::WorkspaceRemove,
+        None,
+        Probe::default(),
+    ));
+    assert_eq!(removed.state().overlays.confirm, None);
+    assert_eq!(
+        removed.last_effects(),
+        [Effect::Host {
+            environment: here(),
+            request: Request::DropWorkspace {
+                root: "/notes".into()
+            },
+        }]
     );
 }
 
