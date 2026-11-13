@@ -108,6 +108,13 @@ pub(crate) fn Body() -> Element {
                     onstart: EventHandler::new(move |item| {
                         app.dispatch(Msg::MenuRun { target: Target::Row(item), action: Action::SessionNew });
                     }),
+                    onclose: EventHandler::new(move |item: Item| {
+                        let action = match item {
+                            Item::Worktree(..) => Action::WorktreeClose,
+                            _ => Action::WorkspaceRemove,
+                        };
+                        app.dispatch(Msg::MenuRun { target: Target::Row(item), action });
+                    }),
                 },
                 field: local.filter_field,
                 waiting_keys: (waiting_prev, waiting_next),

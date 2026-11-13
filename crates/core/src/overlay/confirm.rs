@@ -26,6 +26,14 @@ pub enum Ask {
         sessions: Vec<Session>,
         terminals: Vec<u128>,
     },
+    /// End what runs in a worktree, by this name, which takes its row out
+    /// of the tree: these sessions and the terminals by these ids.
+    CloseWorktree {
+        environment: EnvironmentId,
+        name: String,
+        sessions: Vec<Session>,
+        terminals: Vec<u128>,
+    },
 }
 
 impl Ask {
@@ -79,22 +87,23 @@ impl Ask {
                 sessions,
                 terminals,
                 ..
-            } => {
-                let running = [
-                    counted(sessions.len(), "session"),
-                    counted(terminals.len(), "terminal"),
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" and ");
-                (
-                    Icon::SquareMinus,
-                    format!("Remove {name} from the tree?"),
-                    format!("Ending its {running} takes it out of the tree; it is listed again once anything starts there. Conversations remain in the provider's history."),
-                    "End and remove",
-                )
-            }
+            } => (
+                Icon::SquareMinus,
+                format!("Remove {name} from the tree?"),
+                format!("Ending its {} takes it out of the tree; it is listed again once anything starts there. Conversations remain in the provider's history.", running(sessions, terminals)),
+                "End and remove",
+            ),
+            Self::CloseWorktree {
+                name,
+                sessions,
+                terminals,
+                ..
+            } => (
+                Icon::X,
+                format!("Close {name}?"),
+                format!("Ending its {} takes it out of the tree; the workspace stays listed. Conversations remain in the provider's history.", running(sessions, terminals)),
+                "End and close",
+            ),
         }
     }
 
@@ -102,10 +111,24 @@ impl Ask {
     pub fn destroys(&self) -> bool {
         match self {
             Self::KillProcess(..) | Self::RestartDaemon(_) => true,
-            Self::RemoveWorkspace { terminals, .. } => !terminals.is_empty(),
+            Self::RemoveWorkspace { terminals, .. } | Self::CloseWorktree { terminals, .. } => {
+                !terminals.is_empty()
+            }
             Self::Stop(..) | Self::RemoveEnvironment(..) => false,
         }
     }
+}
+
+/// What ends, said as a count of each kind.
+fn running(sessions: &[Session], terminals: &[u128]) -> String {
+    [
+        counted(sessions.len(), "session"),
+        counted(terminals.len(), "terminal"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" and ")
 }
 
 /// `n` of `what`, said as a count; none when there are none.
@@ -159,6 +182,26 @@ mod tests {
         assert_eq!(action, "End and remove");
         let (_, _, body, _) = removing(vec![Session::default()], vec![]).dialog();
         assert!(body.starts_with("Ending its 1 session takes"), "{body}");
+    }
+
+    #[test]
+    fn closing_a_worktree_names_it_counts_what_ends_and_is_a_loss_only_for_terminals() {
+        let closing = |sessions, terminals| Ask::CloseWorktree {
+            environment: EnvironmentId::default(),
+            name: "feat/oauth".into(),
+            sessions,
+            terminals,
+        };
+        let ask = closing(vec![Session::default()], vec![7, 8]);
+        let (_, title, body, action) = ask.dialog();
+        assert_eq!(title, "Close feat/oauth?");
+        assert!(
+            body.starts_with("Ending its 1 session and 2 terminals takes"),
+            "{body}"
+        );
+        assert_eq!(action, "End and close");
+        assert!(ask.destroys());
+        assert!(!closing(vec![Session::default()], vec![]).destroys());
     }
 
     #[test]

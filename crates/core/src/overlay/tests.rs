@@ -359,6 +359,7 @@ fn a_menu_runs_its_entry_on_what_it_was_opened_on() {
             Target::Row(Item::Session(here(), "b".into())),
             Area::Sidebar,
         ),
+        (Target::Start(Item::Environment(here())), Area::Sidebar),
         (Target::Tab(session_tab("a")), Area::Console),
         (Target::Link { at: 0, file: false }, Area::Details),
     ];

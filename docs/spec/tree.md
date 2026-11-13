@@ -90,11 +90,15 @@ A session that has ended is listed no more; its agent keeps its
 conversation, which can be resumed in a new session
 ([resuming](sessions.md#resuming-a-past-conversation)). A workspace stays
 listed once anything has run in it, after everything there has ended and
-across runs, until it is removed from the tree, from its row's menu. Where
-nothing runs, removing it asks nothing; where something does, it asks first
-and then ends every session and terminal running there. Starting anything in
-a removed workspace lists it again. A workspace whose directory is gone is
-listed no more.
+across runs, until it is removed from the tree, from its row's menu or the
+close button its row shows under the pointer. Where nothing runs, removing it
+asks nothing; where something does, it asks first and then ends every session
+and terminal running there. Starting anything in a removed workspace lists it
+again. A workspace whose directory is gone is listed no more.
+
+A worktree where something runs is closed the same ways: it asks first, then
+ends every session and terminal running there, and its row goes while its
+workspace stays listed.
 
 The filter at the top of the tree narrows it as it is typed into. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
@@ -117,7 +121,9 @@ next waiting session reaches each of them. A session, a shell or a Neovim
 started from a row, or beside a tab, starts in the environment of that row or
 tab. From a heading, a new session opens the picker on that environment, and a
 shell or a Neovim starts in its host's home directory, once a host on a work
-machine has said where that is. A heading's menu also opens the environment's
+machine has said where that is. The `+` on a heading offers what starts
+work in its environment: a new session, a shell, a Neovim, and Add to Tree
+for any directory. A heading's menu also opens the environment's
 settings, renames it in place, tries its work machine again at once while the
 window waits to, pairs with its work machine again, and removes it.
 

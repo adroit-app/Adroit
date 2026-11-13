@@ -169,7 +169,7 @@ pub(crate) fn close_menu(state: &mut ViewState) -> Vec<Effect> {
 pub(crate) fn run_menu(state: &mut ViewState, target: Target, action: Action) -> Vec<Effect> {
     state.overlays.menu = None;
     let (at, area) = match target {
-        Target::Row(item) => (Msg::TreeSelect(Some(item)), Area::Sidebar),
+        Target::Row(item) | Target::Start(item) => (Msg::TreeSelect(Some(item)), Area::Sidebar),
         Target::Tab(tab) => (Msg::TabReveal(tab), Area::Console),
         Target::Link { at, .. } => (Msg::DetailsSelect(at), Area::Details),
     };
@@ -254,6 +254,22 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 .map(|s| stop(&environment, s))
                 .chain(ends)
                 .chain([dropped])
+                .collect()
+        }
+        Ask::CloseWorktree {
+            environment,
+            sessions,
+            terminals,
+            ..
+        } => {
+            let ends = terminals.iter().map(|id| Effect::EndShell {
+                environment: environment.clone(),
+                id: *id,
+            });
+            sessions
+                .into_iter()
+                .map(|s| stop(&environment, s))
+                .chain(ends)
                 .collect()
         }
     }

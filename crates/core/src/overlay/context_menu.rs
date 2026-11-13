@@ -11,6 +11,9 @@ use crate::tree::nav::Item;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Row(Item),
+    /// The `+` of a row: what starts work where the row is, and nothing
+    /// else its menu offers.
+    Start(Item),
     Tab(Tab),
     /// Row `at` of the overview's links, and whether it is a file.
     Link {
@@ -89,9 +92,12 @@ pub fn entries(
             .chain(here)
             .chain([close])
             .collect(),
-        Target::Row(Item::Worktree(_, _)) => {
-            opens.into_iter().chain([copy_path]).chain(here).collect()
-        }
+        Target::Row(Item::Worktree(_, _)) => opens
+            .into_iter()
+            .chain([copy_path])
+            .chain(here)
+            .chain([offer(Action::WorktreeClose)])
+            .collect(),
         Target::Row(Item::Workspace(_, _)) => [fold, copy_path]
             .into_iter()
             .chain(here)
@@ -116,6 +122,11 @@ pub fn entries(
                 .chain((environment != own).then(|| offer(Action::EnvironmentRemove)))
                 .collect()
         }
+        Target::Start(Item::Environment(_)) => here
+            .into_iter()
+            .chain([offer(Action::WorkspaceAdd)])
+            .collect(),
+        Target::Start(_) => here.into_iter().collect(),
         Target::Tab(Tab::Session(_, _)) => [close_tab]
             .into_iter()
             .chain(rename)
@@ -272,8 +283,24 @@ mod tests {
         );
         assert_eq!(
             actions(Target::Row(Item::Worktree(here(), "/api".into())), None),
-            [&OPENS[..], &[Action::CursorCopy], &starts].concat()
+            [
+                &OPENS[..],
+                &[Action::CursorCopy],
+                &starts,
+                &[Action::WorktreeClose]
+            ]
+            .concat()
         );
+    }
+
+    #[test]
+    fn the_plus_of_an_environment_s_heading_offers_only_what_starts_work_there() {
+        let start = Target::Start(Item::Environment(crate::testing::there()));
+        assert_eq!(actions(start.clone(), None), STARTS);
+        for (action, label) in entries(&start, None, &here(), Reach::Here) {
+            assert!(action.icon().is_some(), "{label}");
+            assert!(action.spec().row.is_some(), "{label}");
+        }
     }
 
     #[test]

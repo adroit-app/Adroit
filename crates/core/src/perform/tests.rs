@@ -888,6 +888,78 @@ fn removing_a_workspace_from_anywhere_but_its_row_asks_nothing() {
     assert!(run.last_effects().is_empty());
 }
 
+/// The worktree row the session `a` and the shell 7 run in.
+fn worktree_row(run: &Scenario) -> Item {
+    let tree = tree::listed(run.state().hosts.work(&here()));
+    Item::Worktree(
+        here(),
+        tree.worktrees().next().unwrap().worktree.path.clone(),
+    )
+}
+
+#[test]
+fn closing_a_worktree_asks_first_naming_what_ends_and_then_ends_it_all() {
+    use crate::overlay::confirm::Ask;
+
+    let run = showing(Area::Sidebar);
+    let row = worktree_row(&run);
+    let asked = run.send(Msg::TreeSelect(Some(row.clone()))).send(perform(
+        Action::WorktreeClose,
+        None,
+        Probe::default(),
+    ));
+    let Some(Ask::CloseWorktree {
+        environment,
+        sessions,
+        terminals,
+        ..
+    }) = asked.state().overlays.confirm.clone()
+    else {
+        panic!("{:?}", asked.state().overlays.confirm);
+    };
+    assert_eq!(environment, here());
+    assert_eq!(
+        sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+        ["a"]
+    );
+    assert_eq!(terminals, [7]);
+    assert!(asked.last_effects().is_empty());
+
+    let answered = asked.send(Msg::ConfirmAnswer(true));
+    assert!(
+        matches!(
+            answered.last_effects(),
+            [
+                Effect::Host {
+                    request: Request::Stop { session },
+                    ..
+                },
+                Effect::EndShell { id: 7, .. },
+            ] if session.id == "a"
+        ),
+        "{:?}",
+        answered.last_effects()
+    );
+}
+
+#[test]
+fn closing_a_worktree_where_nothing_runs_or_from_anywhere_but_its_row_does_nothing() {
+    let vacant = Scenario::new()
+        .event(snapshot().listed(listed().kept("/notes")))
+        .send(Msg::Focus(Area::Sidebar))
+        .send(Msg::TreeSelect(Some(Item::Worktree(
+            here(),
+            "/notes".into(),
+        ))))
+        .send(perform(Action::WorktreeClose, None, Probe::default()));
+    let elsewhere =
+        showing(Area::Console).send(perform(Action::WorktreeClose, None, Probe::default()));
+    for run in [vacant, elsewhere] {
+        assert_eq!(run.state().overlays.confirm, None);
+        assert!(run.last_effects().is_empty());
+    }
+}
+
 #[test]
 fn reading_the_console_starts_from_its_window_or_the_prompt_below_whatever_it_shows() {
     // (what the console shows, where the keys are, a pane shown) -> reading starts

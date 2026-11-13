@@ -460,6 +460,32 @@ pub(crate) fn perform(
             }
             _ => Vec::new(),
         },
+        Action::WorktreeClose => match cur.filter(|_| on_list) {
+            Some(Item::Worktree(environment, path)) => {
+                let tree = tree::listed(state.hosts.work(&environment));
+                let Some(w) = tree.worktrees().find(|w| w.worktree.path == path) else {
+                    return Vec::new();
+                };
+                // Nothing runs, so nothing holds the row up.
+                if w.sessions.is_empty() && w.terminals.is_empty() {
+                    return Vec::new();
+                }
+                let name = w.worktree.branch.clone().unwrap_or_else(|| {
+                    path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |f| f.to_string_lossy().into_owned(),
+                    )
+                });
+                let ask = Ask::CloseWorktree {
+                    name,
+                    sessions: w.sessions.clone(),
+                    terminals: w.terminals.iter().map(|t| t.id).collect(),
+                    environment,
+                };
+                step(state, Msg::Confirm(Box::new(ask)))
+            }
+            _ => Vec::new(),
+        },
         Action::TreeToggle => step(state, Msg::PanelToggle(Side::Sidebar)),
         Action::DetailsToggle => step(state, Msg::PanelToggle(Side::Details)),
         Action::ZoomIn => step(state, Msg::Zoom(zoom::Step::In)),

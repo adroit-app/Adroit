@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::settings::Settings;
 use adroit_core::tree;
@@ -90,6 +91,22 @@ pub(crate) struct RowEvents {
     pub(crate) onopen: EventHandler<Item>,
     /// Start a session where the row works.
     pub(crate) onstart: EventHandler<Item>,
+    /// Take a workspace out of the tree, or close a worktree.
+    pub(crate) onclose: EventHandler<Item>,
+}
+
+/// The `+` of an environment's heading: a menu of what starts work there,
+/// opened under the pointer.
+fn start_menu(app: AppCtx, item: Item) -> EventHandler<MouseEvent> {
+    EventHandler::new(move |e: MouseEvent| {
+        e.stop_propagation();
+        let at = e.client_coordinates();
+        app.dispatch(Msg::MenuOpen {
+            x: at.x,
+            y: at.y,
+            target: Target::Start(item.clone()),
+        });
+    })
 }
 
 #[component]
@@ -204,6 +221,12 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 }
                 if waiting > 0 {
                     span { class: "waiting-count", title: "Sessions waiting on you", "{waiting}" }
+                }
+                span {
+                    class: "list-row-start",
+                    title: "Start work here: a session, a shell, Neovim, or a directory added to the tree",
+                    onclick: start_menu(app, it.clone()),
+                    IconView { icon: Icon::Plus, size: 13 }
                 }
             }
         };
@@ -322,6 +345,17 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let target = Target::Row(it.clone());
     // Where a session can start, a button starts one there.
     let starts = matches!(it, Item::Workspace(_, _) | Item::Worktree(_, _));
+    // A workspace is taken out of the tree, a worktree closed, while
+    // something runs there to hold its row up.
+    let closes = match &it {
+        Item::Workspace(_, _) => Some("Remove from the tree"),
+        Item::Worktree(_, path) => t
+            .worktrees()
+            .find(|w| &w.worktree.path == path)
+            .filter(|w| !w.sessions.is_empty() || !w.terminals.is_empty())
+            .map(|_| "Close: end what runs here"),
+        _ => None,
+    };
     let has_draft = match &it {
         Item::Session(environment, id) | Item::Waiting(environment, id) => context
             .drafted
@@ -332,6 +366,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let badge = row_badge(t, &app.config.read().settings, &it);
     let here = it.clone();
     let start = it.clone();
+    let close = it.clone();
     rsx! {
         ListRow {
             kind,
@@ -374,6 +409,17 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                         on.onstart.call(start.clone());
                     },
                     IconView { icon: Icon::Plus, size: 13 }
+                }
+            }
+            if let Some(tip) = closes {
+                span {
+                    class: "list-row-close",
+                    title: tip,
+                    onclick: move |e: Event<MouseData>| {
+                        e.stop_propagation();
+                        on.onclose.call(close.clone());
+                    },
+                    IconView { icon: Icon::X, size: 13 }
                 }
             }
         }

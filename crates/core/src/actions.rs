@@ -93,6 +93,7 @@ pub enum Action {
     EnvironmentPair,
     WorkspaceAdd,
     WorkspaceRemove,
+    WorktreeClose,
     WindowClose,
     WindowOpen,
     Refresh,
@@ -381,6 +382,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
         .icon(Icon::SquareMinus)
         .row("Remove from tree…", End),
+    S::new(A::WorktreeClose, "worktree.close", "end, after asking, every session and terminal running in the worktree selected in the tree, which takes its row out of it; the workspace stays listed ([details](tree.md#workspaces-and-worktrees))")
+        .icon(Icon::X)
+        .row("Close worktree…", End),
     S::new(A::WindowClose, "window.close", "close the window; the instance's other windows stay open, and its sessions run on").bar("Close Window", Icon::AppWindow),
     S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
@@ -639,6 +643,7 @@ mod tests {
             EnvironmentPair,
             WorkspaceAdd,
             WorkspaceRemove,
+            WorktreeClose,
             WindowClose,
             WindowOpen,
             Refresh,

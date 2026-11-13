@@ -90,6 +90,7 @@ changes them ([keys](../keys.md)).
 | `environment.pair` |  | pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](../environments.md#create-and-configure)) |  |
 | `workspace.add` | Add to Tree… | open the picker on the directories alone, to add the one chosen to the tree with nothing running there ([details](../tree.md#going-to-a-session-or-starting-one)) | `tree`: `A` |
 | `workspace.remove` |  | take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](../tree.md#workspaces-and-worktrees)) |  |
+| `worktree.close` |  | end, after asking, every session and terminal running in the worktree selected in the tree, which takes its row out of it; the workspace stays listed ([details](../tree.md#workspaces-and-worktrees)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |
