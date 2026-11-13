@@ -166,12 +166,15 @@ impl Sender {
             self.refuse(request, waiting, text);
             return;
         }
-        if let Err(error) = self.queue.try_send(Command::Work { request, prompt }) {
+        if let Err(error) = self.queue.try_send(Command::Work {
+            request: Box::new(request),
+            prompt: prompt.map(Box::new),
+        }) {
             let Command::Work { request, .. } = error.into_inner() else {
                 unreachable!()
             };
             self.refuse(
-                request,
+                *request,
                 waiting,
                 "The remote request queue is full or closed; the request was not sent",
             );
@@ -322,7 +325,7 @@ impl Keep {
             return;
         };
         shown.note(&request);
-        if let Request::Ask { asked, .. } = request
+        if let Request::Ask { asked, .. } = *request
             && let Some(waiting) = lock(&self.waiting).remove(&asked)
         {
             let _ = waiting.send(Answer::Failed {
@@ -497,6 +500,7 @@ impl Keep {
                 request = self.requests.recv() => match request {
                     Some(command) => {
                         let Command::Work { request, prompt } = command else { self.shared.control(command); continue; };
+                        let (request, prompt) = (*request, prompt.map(|p| *p));
                         if request.mutates() { self.shared.change(request, prompt, self.waiting.clone()); continue; }
                         shown.note(&request);
                         if let Request::Ask { asked, .. } = &request {

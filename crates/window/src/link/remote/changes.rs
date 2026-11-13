@@ -8,9 +8,10 @@ use std::sync::atomic::Ordering;
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) enum Command {
+    /// Boxed, as a request and its prompt dwarf every other command.
     Work {
-        request: Request,
-        prompt: Option<PromptContext>,
+        request: Box<Request>,
+        prompt: Option<Box<PromptContext>>,
     },
     Query(MutationStamp),
     Draft {

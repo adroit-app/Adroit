@@ -11,9 +11,36 @@ use crate::Started;
 pub fn program(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let program = dir.path().join(name);
-    std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
+    write_program(&program, &format!("#!/bin/sh\n{body}\n"));
     adroit_sys::fs::set_mode(&program, 0o755).unwrap();
     (dir, program)
+}
+
+/// Write `text` to `path` from a child of its own. A program written by this
+/// process cannot be run while a child another test forked still holds the
+/// file open for writing, which Linux refuses as busy; the child that writes
+/// it has ended before anyone runs it.
+#[cfg(unix)]
+fn write_program(path: &Path, text: &str) {
+    use std::io::Write;
+    let mut writing = std::process::Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    writing
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
+    assert!(writing.wait().unwrap().success());
+}
+
+#[cfg(not(unix))]
+fn write_program(path: &Path, text: &str) {
+    std::fs::write(path, text).unwrap();
 }
 
 /// `program` started with the arguments a probe asks for and nothing else.
