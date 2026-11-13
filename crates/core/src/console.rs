@@ -123,6 +123,16 @@ pub fn waits(state: &ViewState) -> bool {
     }
 }
 
+/// The agent of the session the console shows.
+fn shown_agent(state: &ViewState) -> Option<adroit_model::Agent> {
+    match state.content.active() {
+        Some(Tab::Session(environment, id)) => {
+            state.hosts.session(environment, id).map(|(_, s)| s.agent)
+        }
+        _ => None,
+    }
+}
+
 /// Where text typed or pasted now goes. A dialog open types in its own
 /// field, or takes no text.
 pub fn text_goes(state: &ViewState) -> Typed {
@@ -199,6 +209,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     // as global is only global: the console's binding of it is for the live
     // console.
     let mut windowing = false;
+    let agent = shown_agent(state);
     if area == Area::Console
         && state.console.reading
         && let Some(reader) = probe.reader
@@ -208,7 +219,12 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
             || route::app_key(&key)
             || state.chrome.keymap.resolve(&[Context::Global], &[], &key) != Step::Nothing
             || repeated(state, &[Context::Global], repeat.as_ref(), &key).is_some();
-        if !windowing {
+        // The agent's own bindings hold in its console read as live; they
+        // are looked up below with the console's.
+        let agent_binds = agent.is_some_and(|a| {
+            state.chrome.keymap.resolve(&[Context::Agent(a)], &[], &key) != Step::Nothing
+        });
+        if !windowing && !agent_binds {
             // A console that takes every key has no prompt to write in: the
             // keys that would write one go back to it live instead.
             let session = matches!(state.content.active(), Some(Tab::Session(_, _)));
@@ -217,7 +233,12 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
                 Some(Exit::Live) => return leave_reading(&mut state.console),
                 Some(Exit::Prompt) if passes => return leave_reading(&mut state.console),
                 Some(Exit::Prompt) => {}
-                None => return read(&mut state.console, key, reader, probe.scrolls_itself),
+                // Held with Ctrl, Enter is what it is without: it was meant
+                // for the prompt, where it sends.
+                None => {
+                    let key = route::plain_enter(key);
+                    return read(&mut state.console, key, reader, probe.scrolls_itself);
+                }
             }
         }
     }
@@ -226,16 +247,19 @@ pub(crate) fn press(state: &mut ViewState, key: Key, probe: Probe) -> Vec<Effect
     // its answer; a shell takes every key but those.
     let pane = pane || (probe.pane && area == Area::Prompt);
     let passing = pane && route::passes(area, session, waits(state));
-    let contexts = route::filing(
-        route::contexts(
+    let contexts = route::for_agent(
+        route::filing(
+            route::contexts(
+                area,
+                state.content.active(),
+                passing,
+                windowing,
+                probe.inserting,
+            ),
             area,
-            state.content.active(),
-            passing,
-            windowing,
-            probe.inserting,
+            matches!(state.tree.selected, Some(nav::Item::File { .. })),
         ),
-        area,
-        matches!(state.tree.selected, Some(nav::Item::File { .. })),
+        agent,
     );
     let seq = std::mem::take(&mut state.console.pending);
     if seq.is_empty()

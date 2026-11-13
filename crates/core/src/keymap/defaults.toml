@@ -170,6 +170,7 @@
 
 [console]
 "Enter" = "console.send"
+"Ctrl+Enter" = "console.send Enter"
 "ArrowUp" = "prompt.history_prev"
 "ArrowDown" = "prompt.history_next"
 "ArrowLeft" = "console.send"
@@ -196,6 +197,9 @@
 "o" = "prompt.write"
 "O" = "prompt.write"
 "X" = "session.stop"
+
+[console.claude]
+"Tab" = "prompt.write"
 
 [prompt]
 "Mod+i" = "prompt.images"

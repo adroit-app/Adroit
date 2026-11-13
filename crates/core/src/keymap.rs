@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use adroit_model::Key;
+use adroit_model::{Agent, Key};
 
 use crate::actions::Action;
 
@@ -42,10 +42,13 @@ pub enum Context {
     /// Files and directories: the tree's, with a file or a directory
     /// selected, before its own bindings, and the picker's.
     Filer,
+    /// The console while it shows a session of this agent, live or read,
+    /// before the console's own bindings.
+    Agent(Agent),
 }
 
 impl Context {
-    pub const ALL: [Context; 8] = [
+    pub const ALL: [Context; 12] = [
         Context::Global,
         Context::Tree,
         Context::Filer,
@@ -54,6 +57,10 @@ impl Context {
         Context::Prompt,
         Context::Draft,
         Context::Viewer,
+        Context::Agent(Agent::Claude),
+        Context::Agent(Agent::Codex),
+        Context::Agent(Agent::Pi),
+        Context::Agent(Agent::OpenCode),
     ];
 
     pub fn name(self) -> &'static str {
@@ -66,6 +73,10 @@ impl Context {
             Context::Draft => "draft",
             Context::Viewer => "viewer",
             Context::Filer => "filer",
+            Context::Agent(Agent::Claude) => "console.claude",
+            Context::Agent(Agent::Codex) => "console.codex",
+            Context::Agent(Agent::Pi) => "console.pi",
+            Context::Agent(Agent::OpenCode) => "console.opencode",
         }
     }
     /// What the Settings window heads the area's bindings with.
@@ -79,6 +90,10 @@ impl Context {
             Context::Draft => "New session",
             Context::Viewer => "Viewer",
             Context::Filer => "Files",
+            Context::Agent(Agent::Claude) => "Console of Claude Code",
+            Context::Agent(Agent::Codex) => "Console of Codex",
+            Context::Agent(Agent::Pi) => "Console of Pi",
+            Context::Agent(Agent::OpenCode) => "Console of OpenCode",
         }
     }
 
@@ -95,8 +110,36 @@ impl Context {
             Context::Filer => {
                 "The tree's files and directories, before the tree's bindings, and the picker's directories."
             }
+            Context::Agent(_) => {
+                "The console while it shows a session of this agent, live or read, before the console's bindings."
+            }
         }
     }
+}
+
+/// The tables of keys in `table`, each by its area's name: one nested in
+/// another, as `[console.claude]` is in `[console]`, named by both.
+fn areas(table: toml::Table) -> Result<Vec<(String, toml::Table)>, Error> {
+    fn walk(name: String, table: toml::Table, out: &mut Vec<(String, toml::Table)>) {
+        let mut keys = toml::Table::new();
+        for (k, v) in table {
+            match v {
+                toml::Value::Table(inner) => walk(format!("{name}.{k}"), inner, out),
+                other => {
+                    keys.insert(k, other);
+                }
+            }
+        }
+        out.push((name, keys));
+    }
+    let mut out = Vec::new();
+    for (area, entries) in table {
+        let toml::Value::Table(entries) = entries else {
+            return Err(Error(format!("[{area}] is not a table of keys")));
+        };
+        walk(area, entries, &mut out);
+    }
+    Ok(out)
 }
 
 /// Names earlier versions gave an area or an action, read as the names they
@@ -163,15 +206,12 @@ impl Keymap {
 
     fn overlay(&mut self, text: &str) -> Result<(), Error> {
         let table: toml::Table = text.parse().map_err(|e| Error(format!("{e}")))?;
-        for (area, entries) in table {
+        for (area, entries) in areas(table)? {
             let ctx = Context::ALL
                 .into_iter()
                 .find(|c| c.name() == renamed(&area))
                 .ok_or_else(|| Error(format!("{area:?} is not an area of the window")))?;
-            let entries = entries
-                .as_table()
-                .ok_or_else(|| Error(format!("[{area}] is not a table of keys")))?;
-            for (keys, action) in entries {
+            for (keys, action) in &entries {
                 let seq = parse_sequence(keys)?;
                 let name = action
                     .as_str()

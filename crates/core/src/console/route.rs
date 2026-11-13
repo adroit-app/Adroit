@@ -1,7 +1,7 @@
 //! Where a key, a text typed or a paste goes, by the area that has the keys
 //! and what the console shows there, and what the footer says of it.
 
-use adroit_model::Key;
+use adroit_model::{Agent, Key};
 
 use crate::content::{Area, Tab};
 use crate::keymap::{Chord, Context};
@@ -88,6 +88,31 @@ pub fn filing(mut here: Vec<Context>, area: Area, on_file: bool) -> Vec<Context>
         here.insert(at, Context::Filer);
     }
     here
+}
+
+/// `here` with the bindings of `agent`'s console just before the console's,
+/// where the console's are looked up.
+pub fn for_agent(mut here: Vec<Context>, agent: Option<Agent>) -> Vec<Context> {
+    if let Some(agent) = agent
+        && let Some(at) = here.iter().position(|c| *c == Context::Console)
+    {
+        here.insert(at, Context::Agent(agent));
+    }
+    here
+}
+
+/// `key` as the reader takes it: Enter held with Ctrl is Enter.
+pub fn plain_enter(key: Key) -> Key {
+    match key {
+        Key {
+            ctrl: true,
+            alt: false,
+            meta: false,
+            shift: false,
+            ..
+        } if key.key == "Enter" => Key::new("Enter"),
+        other => other,
+    }
 }
 
 /// The areas whose bindings the keys help shows for `area`, nearest first.

@@ -601,6 +601,67 @@ fn bound(text: &str) -> Scenario {
     window().send(Msg::KeysRead(crate::config::testing::keys_file(text)))
 }
 
+/// A window showing the session `c` of `agent`, its console having the
+/// keys, with `keys` the user's own bindings.
+fn agent_window(agent: adroit_model::Agent, keys: &str) -> Scenario {
+    Scenario::new()
+        .send(Msg::KeysRead(crate::config::testing::keys_file(keys)))
+        .event(snapshot().listed(listing([session("c").agent(agent)])))
+        .send(Msg::ShowSession(here(), "c".into()))
+        .send(Msg::Focus(Area::Console))
+}
+
+#[test]
+fn an_agent_s_own_bindings_come_before_the_console_s_live_and_read() {
+    use adroit_model::Agent;
+
+    let tab = Key::new("Tab");
+    // (agent, the user's bindings, reading, what Tab runs)
+    let cases = [
+        (Agent::Claude, "", false, Action::PromptWrite),
+        (Agent::Claude, "", true, Action::PromptWrite),
+        (Agent::Codex, "", false, Action::ConsoleSend(None)),
+        (
+            Agent::Claude,
+            "[\"console.claude\"]\nTab = \"console.send\"\n",
+            false,
+            Action::ConsoleSend(None),
+        ),
+    ];
+    for (agent, keys, read, want) in cases {
+        let mut run = agent_window(agent, keys);
+        let probe = if read {
+            run = run.send(Msg::ReadingStarted);
+            reading(true, 5, false)
+        } else {
+            with_pane()
+        };
+        let run = run.send(press(tab.clone(), probe));
+        assert_eq!(
+            run.last_effects(),
+            [Effect::PerformKey(want, tab.clone())],
+            "{agent:?} {keys:?} {read}"
+        );
+    }
+}
+
+#[test]
+fn ctrl_enter_in_the_console_is_enter_live_and_read() {
+    let ctrl_enter = Key::new("Enter").ctrl();
+    let live = window().send(press(ctrl_enter.clone(), with_pane()));
+    assert_eq!(
+        live.last_effects(),
+        [Effect::PerformKey(
+            Action::ConsoleSend(Some(crate::keymap::Chord::parse("Enter").unwrap())),
+            ctrl_enter.clone()
+        )]
+    );
+    let read = window()
+        .send(Msg::ReadingStarted)
+        .send(press(ctrl_enter, reading(true, 5, false)));
+    assert_eq!(read.last_effects(), [Effect::ReaderKey(Key::new("Enter"))]);
+}
+
 fn performed(run: &Scenario) -> Vec<Action> {
     run.effects()
         .iter()

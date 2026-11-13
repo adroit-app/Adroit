@@ -109,6 +109,9 @@ is fixed.
 
 [console]
 "Ctrl+c" = "console.send Ctrl+c"
+
+[console.claude]
+"Tab" = "console.send"
 ```
 
 Each table is an area of the window, and each entry binds a sequence of keys
@@ -124,9 +127,15 @@ takes the keys away, so they do nothing there.
 | `filer` | a file tree: the tree's, before its own while a file or a directory is selected, and the picker's |
 | `details` | the details panel |
 | `console` | the console while it shows a session |
+| `console.claude`, `console.codex`, `console.pi`, `console.opencode` | the console while it shows a session of that agent, live or read, before the console's own |
 | `prompt` | the prompt, before Neovim |
 | `draft` | before the area's bindings while a new session is shown, including the prompt in insert mode |
 | `viewer` | a viewer in the focused window |
+
+Adroit binds keys in an agent's area where that agent takes a key otherwise
+than the prompt beside it would: Tab in Claude Code's console writes in the
+prompt, where it takes the suggested prompt. `Ctrl+Enter`, which sends the
+prompt, is `Enter` in the console, live or read.
 
 A key that reaches a program in the console is sent as the program asked,
 as felis sends it: with the Kitty keyboard protocol once it asks for it, as

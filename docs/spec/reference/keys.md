@@ -134,7 +134,7 @@ changes them ([keys](../keys.md)).
 | `viewer.back` |  | in a viewer, seek a movie back | `viewer`: `h` |
 | `viewer.forward` |  | in a viewer, seek a movie forward | `viewer`: `l` |
 | `viewer.copy_path` |  | in a viewer, copy the path of the file it shows | `viewer`: `y` |
-| `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`) |
+| `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `Ctrl+Enter` (`console.send Enter`), `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`) |
 | `tab.go <n>` |  | show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are | `global`: `Ctrl+q 1` (`tab.go 1`), `Ctrl+q 2` (`tab.go 2`), `Ctrl+q 3` (`tab.go 3`), `Ctrl+q 4` (`tab.go 4`), `Ctrl+q 5` (`tab.go 5`), `Ctrl+q 6` (`tab.go 6`), `Ctrl+q 7` (`tab.go 7`), `Ctrl+q 8` (`tab.go 8`), `Ctrl+q 9` (`tab.go 9`), `Mod+1` (`tab.go 1`), `Mod+2` (`tab.go 2`), `Mod+3` (`tab.go 3`), `Mod+4` (`tab.go 4`), `Mod+5` (`tab.go 5`), `Mod+6` (`tab.go 6`), `Mod+7` (`tab.go 7`), `Mod+8` (`tab.go 8`), `Mod+9` (`tab.go 9`) |
 | `tab.merge <n>` |  | merge the content's tab shown into the tab numbered `n`, as `tab.merge_last` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are | `global`: `Ctrl+q m 1` (`tab.merge 1`), `Ctrl+q m 2` (`tab.merge 2`), `Ctrl+q m 3` (`tab.merge 3`), `Ctrl+q m 4` (`tab.merge 4`), `Ctrl+q m 5` (`tab.merge 5`), `Ctrl+q m 6` (`tab.merge 6`), `Ctrl+q m 7` (`tab.merge 7`), `Ctrl+q m 8` (`tab.merge 8`), `Ctrl+q m 9` (`tab.merge 9`) |
 
@@ -313,6 +313,7 @@ changes them ([keys](../keys.md)).
 
 [console]
 "Enter" = "console.send"
+"Ctrl+Enter" = "console.send Enter"
 "ArrowUp" = "prompt.history_prev"
 "ArrowDown" = "prompt.history_next"
 "ArrowLeft" = "console.send"
@@ -339,6 +340,9 @@ changes them ([keys](../keys.md)).
 "o" = "prompt.write"
 "O" = "prompt.write"
 "X" = "session.stop"
+
+[console.claude]
+"Tab" = "prompt.write"
 
 [prompt]
 "Mod+i" = "prompt.images"

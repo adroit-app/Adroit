@@ -7,11 +7,26 @@ use crate::keymap::{Chord, Context, Keymap};
 
 pub type Error = toml_edit::TomlError;
 
-fn area_table<'a>(doc: &'a mut DocumentMut, area: &str) -> &'a mut Table {
-    if !doc.contains_table(area) {
-        doc[area] = Item::Table(Table::new());
+/// The table of `area`, made when `make` and missing: an area named with a
+/// dot, as `console.claude` is, is a table inside another.
+fn area_table<'a>(doc: &'a mut DocumentMut, area: &str, make: bool) -> Option<&'a mut Table> {
+    let mut table = doc.as_table_mut();
+    for part in area.split('.') {
+        if make && !table.contains_table(part) {
+            let mut inner = Table::new();
+            // A table only holding another one is not written itself.
+            inner.set_implicit(true);
+            table.insert(part, Item::Table(inner));
+        }
+        table = table.get_mut(part)?.as_table_mut()?;
     }
-    doc[area].as_table_mut().expect("an area is a table")
+    Some(table)
+}
+
+/// The table of `area` in a file read.
+fn area_of<'a>(table: &'a toml::Table, area: &str) -> Option<&'a toml::Table> {
+    area.split('.')
+        .try_fold(table, |t, part| t.get(part).and_then(toml::Value::as_table))
 }
 
 fn chords(keys: &str) -> Option<Vec<Chord>> {
@@ -41,7 +56,7 @@ fn spellings(table: &Table, keys: &str) -> Vec<String> {
 /// file already has for them.
 pub fn bind(text: &str, area: &str, keys: &str, action: &str) -> Result<String, Error> {
     let mut doc: DocumentMut = text.parse()?;
-    let table = area_table(&mut doc, area);
+    let table = area_table(&mut doc, area, true).expect("an area is a table");
     let mut found = spellings(table, keys).into_iter();
     let kept = found.next().unwrap_or_else(|| keys.to_string());
     for other in found {
@@ -64,7 +79,7 @@ pub fn unbind(text: &str, area: &str, keys: &str) -> Result<String, Error> {
 /// any, is in force again.
 pub fn reset(text: &str, area: &str, keys: &str) -> Result<String, Error> {
     let mut doc: DocumentMut = text.parse()?;
-    if let Some(t) = doc.get_mut(area).and_then(Item::as_table_mut) {
+    if let Some(t) = area_table(&mut doc, area, false) {
         for k in spellings(t, keys) {
             t.remove(&k);
         }
@@ -77,8 +92,10 @@ pub fn reset_all(text: &str) -> Result<String, Error> {
     let mut doc: DocumentMut = text.parse()?;
     // The tables are emptied, not removed: a comment over one is kept with it.
     for ctx in Context::ALL {
-        if let Some(t) = doc.get_mut(ctx.name()).and_then(Item::as_table_mut) {
-            t.clear();
+        if let Some(t) = area_table(&mut doc, ctx.name(), false) {
+            // Only the keys: an agent's console's table stays in the
+            // console's, to be emptied in turn.
+            t.retain(|_, item| item.is_table());
         }
     }
     Ok(doc.to_string())
@@ -132,11 +149,7 @@ pub fn removed(text: &str) -> Vec<(&'static str, String)> {
     Context::ALL
         .into_iter()
         .flat_map(|ctx| {
-            let entries = table
-                .get(ctx.name())
-                .and_then(|t| t.as_table())
-                .cloned()
-                .unwrap_or_default();
+            let entries = area_of(&table, ctx.name()).cloned().unwrap_or_default();
             entries
                 .into_iter()
                 .filter(|(_, a)| a.as_str() == Some("none"))
@@ -241,6 +254,25 @@ mod tests {
         assert_eq!(
             rebind("", "tree", None, "K", "cursor.up").unwrap(),
             bind("", "tree", "K", "cursor.up").unwrap()
+        );
+    }
+
+    #[test]
+    fn an_agent_s_console_is_written_as_a_table_inside_the_console_s() {
+        let claude = Context::Agent(adroit_model::Agent::Claude);
+        let out = unbind("", claude.name(), "Tab").unwrap();
+        assert_eq!(out, "[console.claude]\nTab = \"none\"\n");
+        assert_eq!(removed(&out), vec![("console.claude", "Tab".to_string())]);
+        let mine = "[console]\nx = \"tab.close\"\n\n[console.claude]\n# mine\nTab = \"none\"\n";
+        let out = bind(mine, claude.name(), "Tab", "console.send").unwrap();
+        assert!(out.contains("# mine\nTab = \"console.send\""), "{out}");
+        assert!(out.contains("x = \"tab.close\""), "{out}");
+        let out = reset(&out, claude.name(), "Tab").unwrap();
+        assert_eq!(
+            Keymap::with_user(&out)
+                .unwrap()
+                .keys_for(claude, &"prompt.write".parse().unwrap()),
+            Some("Tab".into())
         );
     }
 
