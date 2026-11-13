@@ -218,6 +218,88 @@ pub(crate) fn add(path: &Path, name: &str, target: Target) -> Result<Environment
     Ok(added)
 }
 
+/// Which environment of a work host an environment added works in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Joining {
+    /// One of its own, made on the work host.
+    New,
+    /// One the work host serves already: `None` for the host's own.
+    Served(Option<String>),
+}
+
+/// Whether `kept` works in the environment `scope` of the work host `target`
+/// reaches. This computer's environments are served by the default
+/// instance's work host.
+fn works_in(kept: &Environment, target: &Target, scope: &Option<String>) -> bool {
+    let same_host = match (&kept.target, target) {
+        (Target::Native { server: kept, .. }, Target::Native { server, .. }) => kept == server,
+        (Target::Local, Target::Local) => {
+            kept.work_instance
+                .as_deref()
+                .or(kept.legacy_client.as_deref())
+                .unwrap_or("default")
+                == "default"
+        }
+        _ => false,
+    };
+    same_host && kept.scope == *scope
+}
+
+/// The environment `catalog` keeps working in the environment `scope` of the
+/// work host `target` reaches, one listed before one archived.
+pub(crate) fn of_served<'a>(
+    catalog: &'a Catalog,
+    target: &Target,
+    scope: &Option<String>,
+) -> Option<&'a Environment> {
+    let mut kept = catalog
+        .environments
+        .iter()
+        .filter(|e| works_in(e, target, scope));
+    let first = kept.clone().find(|e| !e.archived);
+    first.or_else(|| kept.next())
+}
+
+/// Keep an environment named `name` for `target`, working where `joining`
+/// says, in the catalog at `path`, refusing to when another window saved it
+/// since it was read: the one kept working there already, restored when
+/// archived, or else a new one.
+pub(crate) fn join(
+    path: &Path,
+    name: &str,
+    target: Target,
+    joining: Joining,
+) -> Result<Environment, String> {
+    let mut catalog = Catalog::load(path)?;
+    let revision = catalog.revision;
+    let known = match &joining {
+        Joining::Served(scope) => of_served(&catalog, &target, scope).map(|e| e.id.clone()),
+        Joining::New => None,
+    };
+    let added = match catalog
+        .environments
+        .iter_mut()
+        .find(|e| Some(&e.id) == known.as_ref())
+    {
+        Some(kept) => {
+            kept.archived = false;
+            kept.name = name.trim().into();
+            kept.target = target;
+            kept.clone()
+        }
+        None => {
+            let mut new = Environment::new(name, target);
+            if let Joining::Served(scope) = joining {
+                new.scope = scope;
+            }
+            catalog.environments.push(new.clone());
+            new
+        }
+    };
+    catalog.save(path, revision)?;
+    Ok(added)
+}
+
 /// Archive `environment` in the catalog at `path`, refusing to when another
 /// window saved it since it was read.
 pub(crate) fn archive(path: &Path, environment: &EnvironmentId) -> Result<(), String> {
@@ -390,6 +472,98 @@ mod tests {
         assert_eq!(added.name, "Box");
         assert_eq!(added.target, moved);
         assert_eq!(Catalog::load(&path).unwrap().environments, [added]);
+    }
+
+    fn box_at(address: &str) -> Target {
+        Target::Native {
+            address: address.into(),
+            server: "ab".repeat(32),
+        }
+    }
+
+    #[test]
+    fn joining_an_environment_a_work_machine_serves_keeps_one_working_in_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        let target = box_at("box.local:47130");
+        let own = join(&path, "Box", target.clone(), Joining::Served(None)).unwrap();
+        let work = join(
+            &path,
+            "Work",
+            target.clone(),
+            Joining::Served(Some("w".into())),
+        )
+        .unwrap();
+        assert_eq!((own.scope, own.target), (None, target.clone()));
+        assert_eq!(work.scope.as_deref(), Some("w"));
+        assert_eq!(Catalog::load(&path).unwrap().environments.len(), 2);
+    }
+
+    #[test]
+    fn joining_an_environment_kept_before_restores_it_under_the_name_typed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        catalog([Environment {
+            scope: Some("w".into()),
+            ..machine("box", "ab", true)
+        }])
+        .save(&path, 0)
+        .unwrap();
+        let moved = box_at("box.example.com:47130");
+        let joined = join(
+            &path,
+            "Work",
+            moved.clone(),
+            Joining::Served(Some("w".into())),
+        )
+        .unwrap();
+        assert_eq!(joined.id, "box");
+        assert!(!joined.archived);
+        assert_eq!((joined.name.as_str(), &joined.target), ("Work", &moved));
+        assert_eq!(Catalog::load(&path).unwrap().environments, [joined]);
+    }
+
+    #[test]
+    fn a_new_environment_is_kept_on_its_machine_beside_those_kept_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("environments.toml");
+        let target = box_at("box.local:47130");
+        let first = join(&path, "Box", target.clone(), Joining::New).unwrap();
+        let second = join(&path, "Box 2", target, Joining::New).unwrap();
+        assert_ne!(first.scope, second.scope);
+        assert!(first.scope.is_some());
+        assert_eq!(Catalog::load(&path).unwrap().environments, [first, second]);
+    }
+
+    #[test]
+    fn an_environment_served_is_found_kept_on_its_machine_in_its_scope_the_listed_one_first() {
+        let kept = catalog([
+            Environment {
+                scope: None,
+                legacy_client: Some("preview".into()),
+                ..environment("preview", false)
+            },
+            Environment {
+                scope: None,
+                legacy_client: Some("default".into()),
+                ..environment("personal", false)
+            },
+            Environment {
+                scope: Some("w".into()),
+                ..machine("old", "ab", true)
+            },
+            Environment {
+                scope: Some("w".into()),
+                ..machine("box", "ab", false)
+            },
+        ]);
+        let found = |target: &Target, scope: Option<&str>| {
+            of_served(&kept, target, &scope.map(String::from)).map(|e| e.id.as_str())
+        };
+        assert_eq!(found(&Target::Local, None), Some("personal"));
+        assert_eq!(found(&box_at("10.0.0.2:47130"), Some("w")), Some("box"));
+        assert_eq!(found(&box_at("10.0.0.2:47130"), None), None);
+        assert_eq!(found(&Target::Local, Some("w")), None);
     }
 
     /// `ids` linked where each environment of the same id was.

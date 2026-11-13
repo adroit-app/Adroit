@@ -98,6 +98,30 @@ pub async fn ask_stop(socket: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The environments the work host at `socket` serves, which a window may
+/// join.
+pub async fn environments(socket: &Path) -> std::io::Result<Vec<crate::ServedEnvironment>> {
+    let (read, mut write) = connect(adroit_sys::local::address(socket)).await?;
+    write.write_all(b"{\"op\":\"environments\"}\n").await?;
+    let mut lines = Frames::new(BufReader::new(read));
+    tokio::time::timeout(HELLO * 5, async {
+        while let Some(line) = lines.next().await? {
+            #[derive(serde::Deserialize)]
+            struct Listed {
+                environments: Vec<crate::ServedEnvironment>,
+            }
+            if let Ok(listed) = serde_json::from_str::<Listed>(&line) {
+                return Ok(listed.environments);
+            }
+        }
+        Err(std::io::Error::other(
+            "the work host does not list its environments",
+        ))
+    })
+    .await
+    .map_err(|_| std::io::Error::other("the work host did not list its environments"))?
+}
+
 /// A connection to a work host, its hello read: the events it tells, and
 /// the requests sent to it, to be used apart.
 pub struct Connection {

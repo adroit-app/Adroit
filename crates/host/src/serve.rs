@@ -90,6 +90,7 @@ pub struct Served {
 enum Op {
     Stop,
     Environment { id: String },
+    Environments,
 }
 
 impl Served {
@@ -227,12 +228,25 @@ impl Served {
                         }
                         continue;
                     }
+                    Op::Environments => {
+                        let served = served_environments().await;
+                        let _ =
+                            out.send(format!("{}\n", serde_json::json!({"environments": served})));
+                        continue;
+                    }
                 }
             }
             let Ok(request) = decode::<Request>(&line) else {
                 continue;
             };
             match request {
+                Request::Call { name } => {
+                    let id = active.environment.as_ref().map(|e| e.id.as_str());
+                    let state = adroit_model::paths::instance_state();
+                    if let Err(error) = crate::environment::call(&state, id, &name) {
+                        eprintln!("adroit: cannot keep the environment's name: {error}");
+                    }
+                }
                 Request::Ask { asked, ask } => {
                     let permit = match &pending {
                         Some(pending) => match pending.clone().try_acquire_owned() {
@@ -370,6 +384,19 @@ impl Served {
             let _ = writer.await;
         }
     }
+}
+
+/// The environments this host serves, each with the sessions running in it;
+/// none counted where the terminal host does not answer.
+async fn served_environments() -> Vec<adroit_protocol::ServedEnvironment> {
+    let mut running = std::collections::BTreeMap::new();
+    if let Ok(sessions) = crate::daemon::daemon().sessions().await {
+        for session in sessions.into_iter().filter(|s| !s.exited) {
+            let id = adroit_term::tags::value(&session.tags, crate::environment::TAG);
+            *running.entry(id).or_insert(0) += 1;
+        }
+    }
+    crate::environment::served(&adroit_model::paths::instance_state(), &running)
 }
 
 fn lock_windows(windows: &Windows) -> MutexGuard<'_, HashMap<WindowId, Out>> {

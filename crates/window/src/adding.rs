@@ -1,16 +1,18 @@
 //! The sheet adding an environment over the main window: where it works,
-//! pairing with a work machine not paired yet, and its name.
+//! pairing with a work machine not paired yet, which of the environments its
+//! work host serves it joins, and its name.
 
 use adroit_connect::environments::{Catalog, Environment};
 use adroit_connect::{Heard, PairingStep, Target};
 use adroit_core::msg::Msg;
 use adroit_model::EnvironmentId;
+use adroit_protocol::ServedEnvironment;
 use dioxus::core::{Runtime, ScopeId, Task, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
 use crate::components::Button;
-use crate::environments::{fresh_name, machine_name, of_machine, retarget};
+use crate::environments::{Joining, fresh_name, machine_name, of_machine, of_served, retarget};
 use crate::icons::{Icon, IconView};
 use crate::keys;
 
@@ -24,12 +26,20 @@ enum Step {
         address: String,
         name: String,
     },
-    /// Naming the environment for `target`; `paired` names the work machine
-    /// paired with on the way.
+    /// Choosing which environment the work host `target` reaches serves to
+    /// join, or a new one, named `name` until another name is typed;
+    /// `paired` names the work machine paired with on the way.
+    Join {
+        target: Target,
+        name: String,
+        paired: Option<String>,
+    },
+    /// Naming the environment for `target`, working where `joining` says.
     Name {
         target: Target,
         name: String,
         paired: Option<String>,
+        joining: Joining,
     },
 }
 
@@ -42,8 +52,8 @@ enum Next {
     Move(Environment),
 }
 
-/// Where the work machine `heard` on the network leads: its environment
-/// when one is listed, its name when it was paired before, or else pairing.
+/// Where the work machine `heard` on the network leads: to what it serves
+/// when an environment is kept for it, or else to pairing.
 fn heard(catalog: &Catalog, heard: &Heard) -> Next {
     machine(
         catalog,
@@ -70,50 +80,73 @@ fn typed(catalog: &Catalog, address: &str) -> Next {
 }
 
 /// Where pairing with the work machine `target` reaches, called `name`,
-/// leads: its environment when one is listed, moved to `target` when it was
-/// reached another way, or else naming one.
+/// leads: its environment moved to `target` when it was reached another way,
+/// or else to what it serves.
 fn paired(catalog: &Catalog, target: Target, name: &str) -> Next {
-    let named = |name: String| {
-        Next::Step(Step::Name {
+    let joined = |name: &str| {
+        Next::Step(Step::Join {
             target: target.clone(),
-            name,
+            name: fresh_name(catalog, name),
             paired: Some(name_of(&target)),
         })
     };
     match &target {
         Target::Native { server, .. } => match of_machine(catalog, |_, kept| kept == server) {
-            Some(kept) if !kept.archived && kept.target == target => Next::Select(kept.clone()),
-            Some(kept) if !kept.archived => Next::Move(Environment {
+            Some(kept) if !kept.archived && kept.target != target => Next::Move(Environment {
                 target: target.clone(),
                 ..kept.clone()
             }),
-            Some(kept) => named(fresh_name(catalog, &kept.name)),
-            None => named(fresh_name(catalog, name)),
+            Some(kept) => joined(&kept.name),
+            None => joined(name),
         },
-        Target::Local => named(fresh_name(catalog, name)),
+        Target::Local => joined(name),
     }
 }
 
-/// Naming another environment on this computer.
+/// What this computer's work host serves.
 fn this_computer(catalog: &Catalog) -> Next {
-    Next::Step(Step::Name {
+    Next::Step(Step::Join {
         target: Target::Local,
         name: fresh_name(catalog, "This computer"),
         paired: None,
     })
 }
 
-/// A work machine `kept` already, or else `pairing`.
+/// What the work machine `kept` already serves, or else `pairing`.
 fn machine(catalog: &Catalog, kept: Option<&Environment>, pairing: Step) -> Next {
     match kept {
-        Some(kept) if !kept.archived => Next::Select(kept.clone()),
-        Some(kept) => Next::Step(Step::Name {
+        Some(kept) => Next::Step(Step::Join {
             target: kept.target.clone(),
             name: fresh_name(catalog, &kept.name),
             paired: None,
         }),
         None => Next::Step(pairing),
     }
+}
+
+/// Where choosing `served`, of the work host `target` reaches, leads: the
+/// environment kept working in it, or else naming one after what it was
+/// called, here or by a window elsewhere, or after its machine.
+fn chosen(
+    catalog: &Catalog,
+    target: &Target,
+    paired: Option<&str>,
+    served: &ServedEnvironment,
+) -> Next {
+    let kept = of_served(catalog, target, &served.id);
+    if let Some(kept) = kept.filter(|kept| !kept.archived) {
+        return Next::Select(kept.clone());
+    }
+    let name = kept
+        .map(|kept| kept.name.clone())
+        .or_else(|| served.name.clone())
+        .unwrap_or_else(|| name_of(target));
+    Next::Step(Step::Name {
+        target: target.clone(),
+        name: fresh_name(catalog, &name),
+        paired: paired.map(String::from),
+        joining: Joining::Served(served.id.clone()),
+    })
 }
 
 fn name_of(target: &Target) -> String {
@@ -207,12 +240,18 @@ impl Adding {
                         self.catalog.set(catalog.clone());
                         match catalog {
                             Ok(catalog) => {
-                                let next = paired(&catalog, target, &name);
-                                // Its link, refused while this computer was
-                                // not paired, waits to be asked again.
-                                if let Next::Select(environment) = &next {
-                                    self.app.retry_remote(&EnvironmentId::new(&environment.id));
+                                // Their links, refused while this computer
+                                // was not paired, wait to be asked again.
+                                if let Target::Native { server, .. } = &target {
+                                    let on_it = |e: &&Environment| {
+                                        !e.archived
+                                            && matches!(&e.target, Target::Native { server: kept, .. } if kept == server)
+                                    };
+                                    for kept in catalog.environments.iter().filter(on_it) {
+                                        self.app.retry_remote(&EnvironmentId::new(&kept.id));
+                                    }
                                 }
+                                let next = paired(&catalog, target, &name);
                                 self.go(next)
                             }
                             Err(why) => self.error.set(Some(why)),
@@ -240,12 +279,12 @@ impl Adding {
         self.step.set(Step::Where);
     }
 
-    fn add(mut self, name: &str, target: Target) {
+    fn add(mut self, name: &str, target: Target, joining: Joining) {
         if name.trim().is_empty() {
             self.error.set(Some("Give the environment a name".into()));
             return;
         }
-        match crate::environments::add(&Catalog::path(), name, target) {
+        match crate::environments::join(&Catalog::path(), name, target, joining) {
             Ok(environment) => self.go(Next::Select(environment)),
             Err(why) => self.error.set(Some(why)),
         }
@@ -274,7 +313,8 @@ fn Sheet() -> Element {
     let (title, at) = match &step {
         Step::Where => ("Add environment".to_string(), 0),
         Step::Pair { name, .. } => (format!("Pair with {name}"), 1),
-        Step::Name { .. } => ("Name it".to_string(), 2),
+        Step::Join { .. } => ("Join or start one".to_string(), 2),
+        Step::Name { .. } => ("Name it".to_string(), 3),
     };
     let error = adding.error.read().clone();
     rsx! {
@@ -295,7 +335,7 @@ fn Sheet() -> Element {
                 div { class: "adding-head",
                     h3 { "{title}" }
                     div { class: "adding-steps",
-                        for (i , label) in ["Where", "Pair", "Name"].into_iter().enumerate() {
+                        for (i , label) in ["Where", "Pair", "Join", "Name"].into_iter().enumerate() {
                             span { class: if i == at { "on" } else { "" }, "{label}" }
                         }
                     }
@@ -304,7 +344,8 @@ fn Sheet() -> Element {
                     match step {
                         Step::Where => rsx! { Where { adding } },
                         Step::Pair { name, .. } => rsx! { Pair { adding, name } },
-                        Step::Name { target, name, paired } => rsx! { Name { adding, target, name, paired } },
+                        Step::Join { target, name, paired } => rsx! { Join { adding, target, name, paired } },
+                        Step::Name { target, name, paired, joining } => rsx! { Name { adding, target, name, paired, joining } },
                     }
                     if let Some(why) = error {
                         p { class: "adding-error", role: "alert", "{why}" }
@@ -387,6 +428,7 @@ fn Where(adding: Adding) -> Element {
                         match next {
                             Next::Select(_) | Next::Move(_) => "Already added",
                             Next::Step(Step::Pair { .. }) => "Pair →",
+                            Next::Step(Step::Join { .. }) => "Paired · Next →",
                             Next::Step(_) => "Next →",
                         }
                     }
@@ -428,8 +470,8 @@ fn Where(adding: Adding) -> Element {
                 onclick: move |_| adding.go(this_computer(&adding.catalog.peek().clone().unwrap_or_default())),
                 IconView { icon: Icon::DeviceDesktop, size: 16 }
                 span { class: "adding-option-text",
-                    "Another environment on this computer"
-                    small { "Separate agents and settings, same machine" }
+                    "This computer"
+                    small { "Join an environment it serves, or start another" }
                 }
                 span { class: "adding-option-go", "Next →" }
             }
@@ -477,10 +519,115 @@ fn Pair(adding: Adding, name: String) -> Element {
 }
 
 #[component]
-fn Name(adding: Adding, target: Target, name: String, paired: Option<String>) -> Element {
+fn Join(adding: Adding, target: Target, name: String, paired: Option<String>) -> Element {
+    let mut listed = use_signal(|| None::<Result<Vec<ServedEnvironment>, String>>);
+    use_hook({
+        let target = target.clone();
+        move || {
+            spawn(async move {
+                listed.set(Some(
+                    crate::link::served(&target, crate::bridge::work_host).await,
+                ));
+            });
+        }
+    });
+    let catalog = adding.catalog.read().clone().unwrap_or_default();
+    let choices: Vec<(ServedEnvironment, Next)> = match &*listed.read() {
+        Some(Ok(served)) => served
+            .iter()
+            .map(|s| (s.clone(), chosen(&catalog, &target, paired.as_deref(), s)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let new = Next::Step(Step::Name {
+        target: target.clone(),
+        name,
+        paired: paired.clone(),
+        joining: Joining::New,
+    });
+    let machine = name_of(&target);
+    rsx! {
+        if let Some(machine) = &paired {
+            p { class: "adding-note adding-paired", IconView { icon: Icon::Check, size: 14 } "Paired with {machine}" }
+        }
+        div { class: "adding-label", "Running on {machine}" }
+        div { class: "adding-options", role: "list", aria_busy: listed.read().is_none(),
+            for (served , next) in choices {
+                button {
+                    key: "{served.id:?}",
+                    r#type: "button",
+                    role: "listitem",
+                    class: "adding-option",
+                    onclick: {
+                        let next = next.clone();
+                        move |_| adding.go(next.clone())
+                    },
+                    IconView { icon: Icon::Server, size: 16 }
+                    span { class: "adding-option-text",
+                        match (&served.name, &served.id) {
+                            (Some(name), _) => rsx! { "{name}" },
+                            (None, None) => rsx! { "{machine}'s own environment" },
+                            (None, Some(_)) => rsx! { "An environment not named yet" },
+                        }
+                        small {
+                            match served.running {
+                                0 => "No sessions running".to_string(),
+                                1 => "1 session running".to_string(),
+                                n => format!("{n} sessions running"),
+                            }
+                        }
+                    }
+                    span { class: "adding-option-go",
+                        match next {
+                            Next::Select(_) => "Already added",
+                            _ => "Join →",
+                        }
+                    }
+                }
+            }
+            match &*listed.read() {
+                None => rsx! {
+                    p { class: "adding-note adding-waiting", span { class: "adding-spinner" } "Asking {machine} what it serves…" }
+                },
+                Some(Err(why)) => rsx! {
+                    p { class: "adding-note", "Cannot list what {machine} serves: {why}" }
+                },
+                Some(Ok(_)) => rsx! {},
+            }
+        }
+        div { class: "adding-label", "Or" }
+        div { class: "adding-options",
+            button {
+                r#type: "button",
+                class: "adding-option",
+                onclick: move |_| adding.go(new.clone()),
+                IconView { icon: Icon::Plus, size: 16 }
+                span { class: "adding-option-text",
+                    "New environment"
+                    small { "Its own agents, settings and sessions, on the same machine" }
+                }
+                span { class: "adding-option-go", "Next →" }
+            }
+        }
+        div { class: "dialog-actions",
+            Button { onclick: move |_| adding.back(), "Back" }
+            Button { onclick: move |_| adding.close(), "Cancel" }
+        }
+    }
+}
+
+#[component]
+fn Name(
+    adding: Adding,
+    target: Target,
+    name: String,
+    paired: Option<String>,
+    joining: Joining,
+) -> Element {
     let mut typed = use_signal(|| name.clone());
     let target = use_signal(|| target.clone());
-    let add = move || adding.add(&typed.peek(), target.peek().clone());
+    let joining = use_signal(|| joining.clone());
+    let add = move || adding.add(&typed.peek(), target.peek().clone(), joining.peek().clone());
     rsx! {
         if let Some(machine) = paired {
             p { class: "adding-note adding-paired", IconView { icon: Icon::Check, size: 14 } "Paired with {machine}" }
@@ -516,6 +663,7 @@ fn Name(adding: Adding, target: Target, name: String, paired: Option<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adroit_protocol::ServedEnvironment;
 
     fn kept(id: &str, name: &str, address: &str, archived: bool) -> Environment {
         Environment {
@@ -548,13 +696,25 @@ mod tests {
         }
     }
 
+    fn served(id: Option<&str>, name: Option<&str>) -> ServedEnvironment {
+        ServedEnvironment {
+            id: id.map(String::from),
+            name: name.map(String::from),
+            running: 0,
+        }
+    }
+
     #[test]
-    fn a_machine_heard_with_an_environment_listed_selects_it_and_one_unknown_is_paired() {
+    fn a_machine_heard_with_an_environment_kept_lists_what_it_serves_and_one_unknown_is_paired() {
         let listed = kept("aa", "Box", "box.local:47130", false);
         let catalog = catalog([listed.clone()]);
         assert_eq!(
             heard(&catalog, &found("box", "10.0.0.2:47130", "aa")),
-            Next::Select(listed)
+            Next::Step(Step::Join {
+                target: listed.target,
+                name: "Box 2".into(),
+                paired: None
+            })
         );
         assert_eq!(
             heard(&catalog, &found("gpu", "gpu.local:47130", "bb")),
@@ -566,14 +726,14 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_whose_environment_was_removed_is_named_again_without_pairing() {
+    fn a_machine_whose_environment_was_removed_lists_what_it_serves_without_pairing() {
         let removed = kept("aa", "Box", "box.local:47130", true);
         assert_eq!(
             heard(
                 &catalog([removed.clone()]),
                 &found("box", "box.local:47130", "aa")
             ),
-            Next::Step(Step::Name {
+            Next::Step(Step::Join {
                 target: removed.target,
                 name: "Box".into(),
                 paired: None
@@ -582,10 +742,13 @@ mod tests {
     }
 
     #[test]
-    fn an_address_typed_is_paired_named_after_its_host_unless_its_environment_is_listed() {
+    fn an_address_typed_is_paired_named_after_its_host_unless_an_environment_is_kept_for_it() {
         let listed = kept("aa", "Box", "box.local:47130", false);
         let catalog = catalog([listed.clone()]);
-        assert_eq!(typed(&catalog, " box.local:47130 "), Next::Select(listed));
+        assert!(matches!(
+            typed(&catalog, " box.local:47130 "),
+            Next::Step(Step::Join { .. })
+        ));
         assert_eq!(
             typed(&catalog, "gpu.example.com:47130"),
             Next::Step(Step::Pair {
@@ -596,25 +759,25 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_paired_is_named_unless_an_environment_for_it_is_listed() {
+    fn a_machine_paired_lists_what_it_serves() {
         let listed = kept("aa", "Box", "box.local:47130", false);
         let catalog = catalog([listed.clone()]);
-        assert_eq!(
-            paired(&catalog, listed.target.clone(), "box"),
-            Next::Select(listed)
-        );
         let new = Target::Native {
             address: "gpu.local:47130".into(),
             server: format!("{:0<64}", "bb"),
         };
         assert_eq!(
             paired(&catalog, new.clone(), "Box"),
-            Next::Step(Step::Name {
+            Next::Step(Step::Join {
                 target: new,
                 name: "Box 2".into(),
                 paired: Some("gpu.local".into())
             })
         );
+        assert!(matches!(
+            paired(&catalog, listed.target.clone(), "box"),
+            Next::Step(Step::Join { .. })
+        ));
     }
 
     #[test]
@@ -634,15 +797,79 @@ mod tests {
     }
 
     #[test]
-    fn another_environment_on_this_computer_is_named_after_it() {
+    fn this_computer_lists_what_its_work_host_serves() {
         let catalog = catalog([Environment::new("This computer", Target::Local)]);
         assert_eq!(
             this_computer(&catalog),
-            Next::Step(Step::Name {
+            Next::Step(Step::Join {
                 target: Target::Local,
                 name: "This computer 2".into(),
                 paired: None
             })
         );
+    }
+
+    #[test]
+    fn an_environment_served_and_kept_is_selected() {
+        let listed = Environment {
+            scope: Some("w".into()),
+            ..kept("aa", "Work", "box.local:47130", false)
+        };
+        let catalog = catalog([listed.clone()]);
+        assert_eq!(
+            chosen(
+                &catalog,
+                &listed.target,
+                None,
+                &served(Some("w"), Some("Work"))
+            ),
+            Next::Select(listed)
+        );
+    }
+
+    #[test]
+    fn an_environment_served_and_not_kept_is_named_after_what_a_window_called_it() {
+        let target = Target::Local;
+        assert_eq!(
+            chosen(&catalog([]), &target, None, &served(None, Some("Personal"))),
+            Next::Step(Step::Name {
+                target: target.clone(),
+                name: "Personal".into(),
+                paired: None,
+                joining: Joining::Served(None),
+            })
+        );
+        let removed = Environment {
+            scope: Some("w".into()),
+            ..kept("aa", "Old", "box.local:47130", true)
+        };
+        assert_eq!(
+            chosen(
+                &catalog([removed.clone()]),
+                &removed.target,
+                Some("box.local"),
+                &served(Some("w"), None)
+            ),
+            Next::Step(Step::Name {
+                target: removed.target.clone(),
+                name: "Old".into(),
+                paired: Some("box.local".into()),
+                joining: Joining::Served(Some("w".into())),
+            })
+        );
+    }
+
+    #[test]
+    fn an_environment_served_that_no_window_named_is_named_after_its_machine() {
+        let target = Target::Native {
+            address: "box.local:47130".into(),
+            server: "ab".repeat(32),
+        };
+        let Next::Step(Step::Name { name, .. }) =
+            chosen(&catalog([]), &target, None, &served(Some("w"), None))
+        else {
+            panic!("not named");
+        };
+        assert_eq!(name, "box.local");
     }
 }

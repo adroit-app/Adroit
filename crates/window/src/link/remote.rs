@@ -139,6 +139,7 @@ impl Sender {
                 | Request::Snapshot
                 | Request::Relist
                 | Request::ReadAgain
+                | Request::Call { .. }
         );
         let unsupported = matches!(&request, Request::Ask { ask, .. } if matches!(ask.as_ref(), Ask::Apply { .. } | Ask::RestartTerminalHost | Ask::OpenLogin { .. } | Ask::KeepImageFile { .. }));
         let reason = if unsupported {
@@ -249,6 +250,7 @@ pub(super) fn open(
         asked: Arc::default(),
         waiting: waiting.clone(),
         daemon,
+        called: Arc::default(),
     };
     match remote {
         Err(text) => {

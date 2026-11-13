@@ -33,10 +33,17 @@ An environment uses this computer or a work machine this computer paired with
 environment, from below the tree, asks where it works: this computer, a work
 machine heard on the local network, or one at an address typed. A work machine
 not paired yet is paired then: the window shows the code to type on the work
-machine. The environment is named after its work machine unless another name
-is typed, and the tree lists it at once. Adding a work machine that already
-has an environment selects that environment instead, and one whose environment
-was removed lists that environment again. An environment's work machine is
+machine. Adding then lists the environments that machine's work host already
+serves: its own, and each one made there from any computer, under the name a
+window last called it, with how many of its sessions run. Joining one lists
+it in the tree with its sessions and work settings, so work started from one
+computer goes on from another, and every window that joined it sees and drives
+the same sessions. A new environment can be made there instead. An
+environment already listed is selected rather than joined again, and one that
+was removed is listed again. The environment is named as the machine serves it,
+or after its work machine, unless another name is typed, and the tree lists it
+at once. Each computer keeps its own name for an environment; the last one a
+window used is what the machine offers whoever joins it next. An environment's work machine is
 paired with again from its heading's menu or its details, such as when it no
 longer accepts this computer; pairing with a work machine at another address than its environment keeps
 moves that environment there. Pairing from the command line
@@ -94,8 +101,9 @@ and `[[environments]]` entries:
 - `id`: a stable instance-safe identifier, independent of its display name.
 - `name`: a nonempty display name, at most 256 bytes.
 - `target`: a table in the [execution target format](remote-execution.md#execution-configuration).
-- `scope`: the work environment identifier; omitted for a migrated legacy
-  environment. It follows the instance-name rules.
+- `scope`: the work environment identifier; omitted for the work host's own
+  environment, which a migrated legacy environment works in. It follows the
+  instance-name rules.
 - `archived`: whether the registration was removed, defaulting to false.
 - `legacy_client`: the original client instance, when imported from an existing
   installation; otherwise omitted.

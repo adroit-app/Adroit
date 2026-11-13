@@ -63,6 +63,8 @@ pub(crate) struct Link {
     asked: Arc<AtomicU64>,
     waiting: Waiting,
     daemon: adroit_term::Daemon,
+    /// The name the environment was last called through the link.
+    called: Arc<Mutex<Option<String>>>,
 }
 
 impl Link {
@@ -191,6 +193,7 @@ impl Link {
             asked: Arc::default(),
             waiting,
             daemon: adroit_term::Daemon::new(terminal),
+            called: Arc::default(),
         };
         (link, Events::Local(events), first)
     }
@@ -203,6 +206,16 @@ impl Link {
                 let _ = sender.send(request);
             }
             Sending::Remote(sender) => sender.send(request, &self.waiting),
+        }
+    }
+
+    /// Tell the host the environment is called `name`, unless the link
+    /// already told it so.
+    pub(crate) fn call(&self, name: &str) {
+        let mut called = lock(&self.called);
+        if called.as_deref() != Some(name) {
+            *called = Some(name.into());
+            self.send(Request::Call { name: name.into() });
         }
     }
 
@@ -258,11 +271,13 @@ pub(crate) fn refusal(answer: Answer) -> String {
 }
 
 /// What the link says again to a host it connects to after the first: what
-/// the window shows and when the user last typed, as it last said them.
+/// the window shows, when the user last typed and what the environment is
+/// called, as it last said them.
 #[derive(Debug, Default)]
 struct Shown {
     watch: Option<Request>,
     typed: Option<Request>,
+    call: Option<Request>,
 }
 
 impl Shown {
@@ -270,12 +285,16 @@ impl Shown {
         match request {
             Request::Watch(_) => self.watch = Some(request.clone()),
             Request::Typed { .. } => self.typed = Some(request.clone()),
+            Request::Call { .. } => self.call = Some(request.clone()),
             _ => {}
         }
     }
 
     fn again(&self) -> impl Iterator<Item = &Request> {
-        self.watch.iter().chain(self.typed.iter())
+        self.watch
+            .iter()
+            .chain(self.typed.iter())
+            .chain(self.call.iter())
     }
 }
 
@@ -402,6 +421,45 @@ enum Served {
     Gone,
     /// The window closed.
     Closed,
+}
+
+/// The environments the work host `target` reaches serves: on this computer
+/// the default instance's, reached as `local` says for the socket it listens
+/// at, its terminal host's and the instance, and started when none answers.
+pub(crate) async fn served(
+    target: &adroit_connect::Target,
+    local: impl FnOnce(PathBuf, &Path, &str) -> To,
+) -> Result<Vec<adroit_protocol::ServedEnvironment>, String> {
+    let listed = match target {
+        adroit_connect::Target::Local => {
+            let any = adroit_connect::environments::Environment::new("served", target.clone());
+            let route = Route::shown(
+                &any,
+                &adroit_model::paths::instance(),
+                &adroit_model::paths::state_dir(),
+                Toward::own(),
+            )?;
+            let Ok(Toward::Local {
+                host,
+                terminal,
+                work,
+            }) = route.toward
+            else {
+                return Err("this computer's work host cannot be reached".into());
+            };
+            let to = local(host, &terminal, &work);
+            ensure(&to)
+                .await
+                .map_err(|e| format!("cannot start the work host: {e}"))?;
+            adroit_protocol::client::environments(&to.socket).await
+        }
+        target => {
+            let remote = adroit_connect::Remote::new(target)?;
+            let _tunnel = remote.connect(None).await?;
+            adroit_protocol::client::environments(&remote.work_socket()).await
+        }
+    };
+    listed.map_err(|e| e.to_string())
 }
 
 /// Make sure a work host of this build answers as `to` says: start one where
@@ -687,6 +745,26 @@ mod tests {
         let snapshot = Event::from(snapshot());
         again.tell(&snapshot).await;
         assert_eq!(told(&mut events).await, snapshot);
+    }
+
+    #[tokio::test]
+    async fn a_host_replaced_is_told_again_the_name_the_window_last_called_its_environment() {
+        let dir = short_dir();
+        let socket = dir.path().join("h.sock");
+        let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
+        let (link, _events, _) = Link::open(to(&socket), dir.path().join("felis.sock"), None);
+        let mut host = Accepted::from(&listener).await;
+        host.asked().await;
+        let call = |name: &str| Request::Call { name: name.into() };
+        link.send(call("Work"));
+        link.send(call("Work box"));
+        for _ in 0..2 {
+            host.asked().await;
+        }
+        drop(host);
+        let mut again = Accepted::from(&listener).await;
+        assert!(matches!(again.asked().await, Request::Hello { .. }));
+        assert_eq!(again.asked().await, call("Work box"));
     }
 
     #[tokio::test]

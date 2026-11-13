@@ -307,6 +307,8 @@ impl Host {
                 self.ask_relist();
                 Vec::new()
             }
+            // The connection keeps the name, knowing its environment.
+            Request::Call { .. } => Vec::new(),
             job @ (Request::Stop { .. }
             | Request::Kill { .. }
             | Request::Rename { .. }

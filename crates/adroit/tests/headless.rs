@@ -1552,3 +1552,77 @@ fn a_session_the_terminal_host_took_with_it_comes_back_resuming_its_conversation
     let after = runs_of(&runs, 2);
     assert_eq!(after.len(), 2, "{after:?}");
 }
+
+#[test]
+fn a_work_host_lists_its_environments_with_the_names_windows_called_them_and_the_sessions_in_each()
+{
+    use adroit_protocol::{Request, SPOKEN, ServedEnvironment};
+    let hosts = Hosts::new();
+    let _terminal = Service::start(&hosts, "daemon");
+    let _work = Service::start(&hosts, "host");
+    let info = remote_info(&hosts);
+    let socket = PathBuf::from(info["work"]["socket"].as_str().unwrap());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let daemon = adroit_term::Daemon::new(info["terminal"]["socket"].as_str().unwrap());
+        daemon
+            .spawn(adroit_term::Spawn {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "read answer".into()],
+                cwd: hosts.0.path().into(),
+                tags: adroit_term::tags::tagged(adroit_host::environment::TAG, "work"),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        for (scope, name) in [(None, "Personal"), (Some("work"), "Work box")] {
+            let mut link = adroit_protocol::client::Connection::open_in(&socket, scope)
+                .await
+                .unwrap();
+            link.requests
+                .send(&Request::Hello {
+                    versions: SPOKEN.to_vec(),
+                })
+                .await
+                .unwrap();
+            link.requests
+                .send(&Request::Call { name: name.into() })
+                .await
+                .unwrap();
+            // A request answered after it means the host took the name.
+            link.requests.send(&Request::Snapshot).await.unwrap();
+            link.events.next().await.unwrap();
+        }
+        let listed = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let listed = adroit_protocol::client::environments(&socket)
+                    .await
+                    .unwrap();
+                if listed.iter().all(|e| e.name.is_some()) {
+                    break listed;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            listed,
+            [
+                ServedEnvironment {
+                    id: None,
+                    name: Some("Personal".into()),
+                    running: 0,
+                },
+                ServedEnvironment {
+                    id: Some("work".into()),
+                    name: Some("Work box".into()),
+                    running: 1,
+                },
+            ]
+        );
+    });
+}

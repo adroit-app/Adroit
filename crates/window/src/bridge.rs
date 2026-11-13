@@ -363,9 +363,12 @@ impl AppCtx {
                 self.links.peek().shows(&id) && self.hosts.peek().name(&id) != environment.name;
             if renamed {
                 self.dispatch(Msg::EnvironmentOpened {
-                    environment: id,
+                    environment: id.clone(),
                     name: environment.name.clone(),
                 });
+            }
+            if let Some(link) = self.links.peek().get(&id) {
+                link.call(&environment.name);
             }
         }
     }
@@ -1000,7 +1003,7 @@ pub(crate) fn run_detached(
 /// named rather than inherited: the window process carries none, as it
 /// shows several environments. It is named the work instance as its own, as
 /// a routing apart from the instance a process belongs to is set aside.
-fn work_host(socket: std::path::PathBuf, terminal: &std::path::Path, work: &str) -> To {
+pub(crate) fn work_host(socket: std::path::PathBuf, terminal: &std::path::Path, work: &str) -> To {
     let env = vec![
         ("ADROIT_ENVIRONMENT".into(), None),
         ("ADROIT_REMOTE".into(), None),

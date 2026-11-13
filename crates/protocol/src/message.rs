@@ -96,6 +96,19 @@ pub enum Request {
     /// Keep the workspace `root` in the tree no more; it is listed again
     /// while anything runs there.
     DropWorkspace { root: PathBuf },
+    /// The window calls the environment it works in `name`, which the host
+    /// offers whoever joins the environment from another window.
+    Call { name: String },
+}
+
+/// An environment a work host serves, as it is offered to a window that
+/// joins one: `id` none for the host's own, the name a window last called it
+/// and how many of its sessions run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServedEnvironment {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub running: usize,
 }
 
 /// What the work host tells a window.

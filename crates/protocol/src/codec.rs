@@ -100,6 +100,9 @@ mod tests {
             terminals: BTreeSet::from([u128::MAX, 7]),
         })));
         round_trips(Request::Relist);
+        round_trips(Request::Call {
+            name: "作業".into(),
+        });
         round_trips(Request::Typed {
             inputs: BTreeMap::from([(u128::MAX, 1_700_000_000_000)]),
         });

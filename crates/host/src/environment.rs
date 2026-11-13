@@ -91,6 +91,75 @@ pub fn tags() -> Vec<String> {
     current().map_or_else(Vec::new, |c| adroit_term::tags::tagged(TAG, &c.id))
 }
 
+/// The longest name an environment is called, in bytes.
+const LONGEST_NAME: usize = 256;
+
+/// Where the name the environment `id`, none for the host's own, was last
+/// called is kept in the host's `state`.
+fn name_file(state: &Path, id: Option<&str>) -> PathBuf {
+    match id {
+        Some(id) => state.join("environments").join(id).join("name"),
+        None => state.join("environment-name"),
+    }
+}
+
+/// Call the environment `id` of the host whose state is `state`, none for
+/// the host's own, `name`.
+pub fn call(state: &Path, id: Option<&str>, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > LONGEST_NAME {
+        return Err("An environment's name is nonempty and at most 256 bytes".into());
+    }
+    if id.is_some_and(|id| !adroit_model::paths::is_instance(id)) {
+        return Err("Invalid work environment".into());
+    }
+    let file = name_file(state, id);
+    if std::fs::read_to_string(&file).is_ok_and(|kept| kept == name) {
+        return Ok(());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let partial = file.with_extension("partial");
+    std::fs::write(&partial, name)
+        .and_then(|()| std::fs::rename(&partial, &file))
+        .map_err(|e| e.to_string())
+}
+
+/// The environments the host whose state is `state` serves, its own first,
+/// with the sessions `running` in each, by the environment they run in.
+pub fn served(
+    state: &Path,
+    running: &std::collections::BTreeMap<Option<String>, usize>,
+) -> Vec<adroit_protocol::ServedEnvironment> {
+    let mut ids: std::collections::BTreeSet<String> = std::fs::read_dir(state.join("environments"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    ids.extend(running.keys().flatten().cloned());
+    std::iter::once(None)
+        .chain(
+            ids.into_iter()
+                .filter(|id| adroit_model::paths::is_instance(id))
+                .map(Some),
+        )
+        .map(|id| {
+            let name = std::fs::read_to_string(name_file(state, id.as_deref()))
+                .ok()
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty() && name.len() <= LONGEST_NAME);
+            adroit_protocol::ServedEnvironment {
+                running: running.get(&id).copied().unwrap_or(0),
+                id,
+                name,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +212,70 @@ mod tests {
         })
         .await;
         assert!(Environment::at("../escape", dir.path()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod served_tests {
+    use super::*;
+    use adroit_protocol::ServedEnvironment;
+    use std::collections::BTreeMap;
+
+    fn served_in(state: &Path, running: &[(Option<&str>, usize)]) -> Vec<ServedEnvironment> {
+        let running = running
+            .iter()
+            .map(|(id, n)| (id.map(String::from), *n))
+            .collect::<BTreeMap<_, _>>();
+        served(state, &running)
+    }
+
+    #[test]
+    fn the_hosts_own_environment_is_served_first_and_each_one_made_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        Environment::at("play", dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("environments/not an id")).unwrap();
+        let ids: Vec<_> = served_in(dir.path(), &[])
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        assert_eq!(ids, [None, Some("play".into()), Some("work".into())]);
+    }
+
+    #[test]
+    fn each_environment_is_served_with_the_sessions_running_in_it() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        let served = served_in(dir.path(), &[(None, 2), (Some("work"), 1)]);
+        assert_eq!(served.iter().map(|e| e.running).collect::<Vec<_>>(), [2, 1]);
+    }
+
+    #[test]
+    fn an_environment_is_served_under_the_name_a_window_last_called_it() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        call(dir.path(), None, "Personal").unwrap();
+        call(dir.path(), Some("work"), " Work box ").unwrap();
+        call(dir.path(), Some("work"), "仕事").unwrap();
+        let names: Vec<_> = served_in(dir.path(), &[])
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, [Some("Personal".into()), Some("仕事".into())]);
+    }
+
+    #[test]
+    fn an_environment_no_window_named_is_served_without_a_name() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(served_in(dir.path(), &[])[0].name, None);
+    }
+
+    #[test]
+    fn a_name_that_is_empty_or_too_long_or_for_no_valid_environment_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(call(dir.path(), None, "  ").is_err());
+        assert!(call(dir.path(), None, &"x".repeat(257)).is_err());
+        assert!(call(dir.path(), Some("../escape"), "Escape").is_err());
     }
 }
 
