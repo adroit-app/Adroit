@@ -528,11 +528,14 @@ mod tests {
     #[test]
     fn a_caller_lives_in_the_terminal_host_whose_socket_its_session_names() {
         let socket = Path::new("/s/adroit/felis/daemon.sock");
-        assert!(lives_in(Some(socket.as_os_str()), socket));
+        // felis names the address it listens at, a pipe on Windows.
+        let named = |path: &str| adroit_sys::local::address(path).into_os_string();
+        assert!(lives_in(
+            Some(&named("/s/adroit/felis/daemon.sock")),
+            socket
+        ));
         assert!(!lives_in(
-            Some(std::ffi::OsStr::new(
-                "/s/adroit/instances/probe/felis/daemon.sock"
-            )),
+            Some(&named("/s/adroit/instances/probe/felis/daemon.sock")),
             socket
         ));
         assert!(!lives_in(None, socket));
