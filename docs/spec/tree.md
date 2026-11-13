@@ -128,7 +128,7 @@ window waits to, pairs with its work machine again, and removes it.
 lists every session next, each with where it runs and how it stands, and then
 the directories to start a new session in:
 
-- the directories sessions run in now;
+- the directories the tree lists;
 - the directories Claude Code has been used in, the most recent first;
 - the repositories `ghq list` names, when ghq is installed and the settings
   do not turn it off;
@@ -168,6 +168,16 @@ list does not offer. It shows the directories under the home directory of the wo
 browses, under each ghq root and under each folder the settings list, side by side, and
 choosing one with the filer's open key starts a session there. `Ctrl+f` goes back to the list and
 `Escape` closes the picker.
+
+Instead of choosing a row, in the list or the file tree, `Ctrl+s` opens a
+shell and `Ctrl+e` Neovim in its directory: a directory's own, the worktree a
+session runs in, the scratch folder for the scratch row. `Ctrl+t` adds the
+directory's workspace to the tree with nothing started there.
+
+Add to Tree, in the Session menu, on an environment's heading or `A` in the
+tree, opens the picker on the directories alone, of the environment it was
+opened in: choosing one, from the list or the file tree, adds its workspace
+to the tree, and `Ctrl+s` and `Ctrl+e` still open a shell and Neovim there.
 
 `n` on a row starts a session in that row's worktree or directory without the
 picker. `Ctrl+q }` and `Ctrl+q {` open a session of the next and the

@@ -4,15 +4,16 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::{EnvironmentId, Key};
-use adroit_protocol::{PastSight, PickSight, WorkSnapshot};
+use adroit_model::{EnvironmentId, Key, TerminalProgram};
+use adroit_protocol::{PastSight, PickSight, Request, WorkSnapshot};
 
 use crate::actions::Action;
-use crate::content;
+use crate::content::{self, Opening, TerminalAsk};
 use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::keymap::{Context, Step};
 use crate::state::ViewState;
+use crate::tree::nav::Place;
 use crate::tree::{self, TreeView};
 
 mod choices;
@@ -146,7 +147,7 @@ fn listed_dirs(work: Option<&WorkSnapshot>, dir: &Path) -> Option<Vec<PathBuf>> 
 
 /// What the picker going to a session lists from every environment
 /// `hosts` holds, best first for what is typed, each session standing as
-/// `tree` shows it.
+/// `tree` shows it; the directories alone while it adds to the tree.
 pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Choice> {
     let mut all_sessions = Vec::new();
     let mut directories = Vec::new();
@@ -170,7 +171,14 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
             &tree.changes,
         ));
     }
-    choices(&all_sessions, &directories, &picker.query, home, PICKS)
+    let rows = choices(&all_sessions, &directories, &picker.query, home, PICKS);
+    match picker.purpose {
+        Purpose::Go => rows,
+        Purpose::Add => rows
+            .into_iter()
+            .filter(|c| matches!(c, Choice::Directory(_)))
+            .collect(),
+    }
 }
 
 /// The rows of [`go_rows`] as drawn: with more than one environment shown,
@@ -190,18 +198,17 @@ pub fn tree_rows(picker: &Picker, work: Option<&WorkSnapshot>) -> Vec<Row> {
         .rows(|dir| listed_dirs(work, dir).unwrap_or_default())
 }
 
-/// Open the picker going to a session on the sessions and the directories
-/// they run in; what else is offered follows once the host lists it. The
+/// Open the picker for `purpose` on the sessions and the directories the
+/// tree lists; what else is offered follows once the host lists it. The
 /// home directory starts open: nearly every pick in the tree begins inside
 /// it.
-pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
+pub(crate) fn open(state: &mut ViewState, purpose: Purpose) -> Vec<Effect> {
     let running = state
         .hosts
         .each()
         .map(|(environment, host)| {
             let running = tree::listed(host.work.as_ref())
                 .worktrees()
-                .filter(|w| !w.sessions.is_empty())
                 .map(|w| w.worktree.path.clone())
                 .collect();
             (environment.clone(), running)
@@ -212,6 +219,7 @@ pub(crate) fn open(state: &mut ViewState) -> Vec<Effect> {
     let home = home_of(state, &environment);
     let mut picker = Picker {
         running,
+        purpose,
         environment,
         home: home.clone(),
         ..Picker::new(Filer::new([home]))
@@ -271,6 +279,14 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     let list = list_key(key);
     if list == Some(ListKey::Close) {
         return close(&mut state.picker);
+    }
+    if let Some(then) = Then::of(key)
+        && matches!(state.picker.open, Some(Picking::Go(_)))
+    {
+        return match under_cursor(state) {
+            Some((environment, dir)) => then_in(state, then, environment, dir),
+            None => Vec::new(),
+        };
     }
     let Some(open) = &mut state.picker.open else {
         return Vec::new();
@@ -430,14 +446,98 @@ fn said_home(state: &ViewState, environment: &EnvironmentId) -> Option<PathBuf> 
 }
 
 /// A directory of `environment` chosen: a new session's draft there, its
-/// first prompt to write.
+/// first prompt to write, or the directory kept in the tree while the picker
+/// adds to it.
 fn start_in_environment(
     state: &mut ViewState,
     environment: EnvironmentId,
     dir: PathBuf,
 ) -> Vec<Effect> {
+    if let Some(Picking::Go(p)) = &state.picker.open
+        && p.purpose == Purpose::Add
+    {
+        return then_in(state, Then::Keep, environment, dir);
+    }
     close(&mut state.picker);
     content::draft(&mut state.content, environment, dir, true)
+}
+
+/// What a row's directory is taken for other than what choosing it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Then {
+    Shell,
+    Neovim,
+    Keep,
+}
+
+impl Then {
+    /// Bound as `Mod+s` and `Mod+e` open a shell and Neovim elsewhere.
+    fn of(key: &Key) -> Option<Self> {
+        if !key.ctrl || key.alt || key.meta || key.shift {
+            return None;
+        }
+        Some(match key.key.as_str() {
+            "s" => Then::Shell,
+            "e" => Then::Neovim,
+            "t" => Then::Keep,
+            _ => return None,
+        })
+    }
+}
+
+/// The directory of `environment` the row under the cursor stands for: in
+/// the list, a directory's own, the worktree a session runs in, or the
+/// scratch folder; in the directory tree, the directory selected.
+fn under_cursor(state: &ViewState) -> Option<(EnvironmentId, PathBuf)> {
+    let Some(Picking::Go(p)) = &state.picker.open else {
+        return None;
+    };
+    if p.mode == Mode::Tree {
+        return Some((p.environment.clone(), p.filer.cursor()?.path.clone()));
+    }
+    match go_rows(p, &state.picker.home, &state.hosts, &state.tree)
+        .into_iter()
+        .nth(p.cursor)?
+    {
+        Choice::Scratch => {
+            let environment = browsed(state);
+            let scratch = scratch_of(state, &environment);
+            Some((environment, scratch))
+        }
+        Choice::Session(s) => {
+            let tree = tree::listed(state.hosts.work(&s.environment));
+            let (worktree, _) = tree::nav::find(tree, &s.id)?;
+            Some((s.environment.clone(), worktree.to_path_buf()))
+        }
+        Choice::Directory(c) => Some((c.environment, c.path)),
+    }
+}
+
+/// `then` done in `dir` of `environment`, the picker closed.
+fn then_in(
+    state: &mut ViewState,
+    then: Then,
+    environment: EnvironmentId,
+    dir: PathBuf,
+) -> Vec<Effect> {
+    close(&mut state.picker);
+    let runs = match then {
+        Then::Shell => TerminalProgram::Shell,
+        Then::Neovim => TerminalProgram::Neovim,
+        Then::Keep => {
+            return vec![Effect::Host {
+                environment,
+                request: Request::KeepWorkspace { dir },
+            }];
+        }
+    };
+    vec![Effect::StartTerminal(TerminalAsk {
+        place: Place::at(&environment, dir),
+        runs,
+        file: None,
+        opening: Opening::Existing,
+        focus: true,
+    })]
 }
 
 /// What each host offered taken into the list, and what the host of the

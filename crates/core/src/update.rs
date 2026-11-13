@@ -187,7 +187,8 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             request: Request::CommandsWanted,
         }],
 
-        Msg::PickerOpen => picker::open(state),
+        Msg::PickerOpen => picker::open(state, picker::Purpose::Go),
+        Msg::PickerAddOpen => picker::open(state, picker::Purpose::Add),
         Msg::ResumeOpen => picker::open_resume(state),
         Msg::InterruptedOpen(environment) => picker::open_interrupted(state, environment),
         Msg::PickerClose => picker::close(&mut state.picker),

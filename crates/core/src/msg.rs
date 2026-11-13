@@ -245,6 +245,8 @@ pub enum Msg {
     // The picker.
     /// Open the picker that goes to a session or starts one.
     PickerOpen,
+    /// Open the picker on the directories alone, to add one to the tree.
+    PickerAddOpen,
     /// Open the list of past conversations on where the focused window
     /// works.
     ResumeOpen,

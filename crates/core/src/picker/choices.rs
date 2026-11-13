@@ -67,8 +67,8 @@ impl Choice {
 /// Where a candidate came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
-    /// A session runs there now.
-    Running,
+    /// The tree lists it.
+    Tree,
     /// Claude Code has been used there.
     Recent,
     /// `ghq list` names it.
@@ -80,7 +80,7 @@ pub enum Source {
 impl Source {
     pub fn label(self) -> &'static str {
         match self {
-            Source::Running => "running",
+            Source::Tree => "tree",
             Source::Recent => "recent",
             Source::Ghq => "ghq",
             Source::Listed => "listed",
@@ -222,7 +222,7 @@ pub fn candidates(
 ) -> Vec<Candidate> {
     let mut seen = HashSet::new();
     [
-        (running, Source::Running),
+        (running, Source::Tree),
         (recent, Source::Recent),
         (ghq, Source::Ghq),
         (listed, Source::Listed),
@@ -357,17 +357,28 @@ pub enum Mode {
     Tree,
 }
 
+/// What choosing a row does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Purpose {
+    /// Go to the session, or start one in the directory.
+    #[default]
+    Go,
+    /// Add the directory to the tree; only directories are offered.
+    Add,
+}
+
 /// What the picker holds while it is open.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Picker {
     pub query: String,
     pub cursor: usize,
     pub mode: Mode,
+    pub purpose: Purpose,
     pub filer: Filer,
     /// What was typed, where the cursor was and the row it was on when the
     /// rows were last drawn.
     pub(crate) held: Option<(String, usize, Choice)>,
-    /// The directories sessions ran in when the picker opened, by the
+    /// The directories the tree listed when the picker opened, by the
     /// environment they are in.
     pub running: BTreeMap<EnvironmentId, Vec<PathBuf>>,
     /// What each environment's host offered, as the list ranks it; none
@@ -444,8 +455,8 @@ mod tests {
         assert_eq!(
             listed(&cs),
             vec![
-                ("/r2", Source::Running),
-                ("/r1", Source::Running),
+                ("/r2", Source::Tree),
+                ("/r1", Source::Tree),
                 ("/c", Source::Recent),
                 ("/g2", Source::Ghq),
                 ("/g1", Source::Ghq),
@@ -465,7 +476,7 @@ mod tests {
         assert_eq!(
             listed(&cs),
             vec![
-                ("/a", Source::Running),
+                ("/a", Source::Tree),
                 ("/b", Source::Recent),
                 ("/g", Source::Ghq),
             ]
@@ -520,7 +531,7 @@ mod tests {
                 .map(|c| (c.path.to_str().unwrap(), c.source))
                 .collect::<Vec<_>>(),
             vec![
-                ("/a", Source::Running),
+                ("/a", Source::Tree),
                 ("/g", Source::Ghq),
                 ("/l", Source::Listed)
             ]
@@ -538,7 +549,7 @@ mod tests {
         );
         assert_eq!(
             listed(&matching(&cs, "x", 10)),
-            vec![("/b/x", Source::Running), ("/a/x", Source::Recent)]
+            vec![("/b/x", Source::Tree), ("/a/x", Source::Recent)]
         );
     }
 
@@ -974,7 +985,7 @@ mod tests {
 
     #[test]
     fn every_source_is_named_by_its_badge() {
-        assert_eq!(Source::Running.label(), "running");
+        assert_eq!(Source::Tree.label(), "tree");
         assert_eq!(Source::Recent.label(), "recent");
         assert_eq!(Source::Ghq.label(), "ghq");
     }

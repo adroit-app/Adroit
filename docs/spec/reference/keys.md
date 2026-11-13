@@ -85,6 +85,7 @@ changes them ([keys](../keys.md)).
 | `environment.rename` |  | edit the name of the environment selected in the tree in place, on its heading; every window calls it by the name given ([details](../environments.md)) |  |
 | `environment.retry` |  | try at once to reach again the work machine of the environment selected in the tree, or else of the tab shown, while the window waits to try it ([details](../environments.md)) |  |
 | `environment.pair` |  | pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](../environments.md#create-and-configure)) |  |
+| `workspace.add` | Add to Tree… | open the picker on the directories alone, to add the one chosen to the tree with nothing running there ([details](../tree.md#going-to-a-session-or-starting-one)) | `tree`: `A` |
 | `workspace.remove` |  | take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](../tree.md#workspaces-and-worktrees)) |  |
 | `window.close` | Close Window | close the window; the instance's other windows stay open, and its sessions run on | `global`: `Cmd+W` |
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
@@ -255,6 +256,7 @@ changes them ([keys](../keys.md)).
 "r" = "refresh"
 "/" = "filter"
 "w" = "session.pick"
+"A" = "workspace.add"
 "!" = "worktrees.toggle"
 "}" = "workspace.next"
 "{" = "workspace.prev"

@@ -2,7 +2,7 @@
 
 use adroit_core::msg::Msg;
 use adroit_core::picker::fuzzy::Query;
-use adroit_core::picker::{Mark, Mode, Narrowing, Picker, go_lines, short, tree_rows};
+use adroit_core::picker::{Mark, Mode, Narrowing, Picker, Purpose, go_lines, short, tree_rows};
 use dioxus::prelude::*;
 
 use super::{PickerKeys, QueryField};
@@ -38,13 +38,21 @@ pub(super) fn Go(picker: Picker) -> Element {
             .map(|(k, w)| (k.to_string(), w.to_string()))
             .collect()
     };
+    let adding = picker.purpose == Purpose::Add;
+    let (title, choose) = match adding {
+        true => ("Add a directory to the tree", "add"),
+        false => ("Go to a session, or start one", "choose"),
+    };
+    // What a row's directory is taken for besides what choosing it does.
+    let there = fixed(&[("Ctrl+s", "shell"), ("Ctrl+e", "Neovim")])
+        .into_iter()
+        .chain((!adding).then(|| ("Ctrl+t".to_string(), "add to tree".to_string())));
     let keys = match picker.mode {
-        Mode::List => fixed(&[
-            ("Ctrl+n/p", "move"),
-            ("Enter", "choose"),
-            ("Ctrl+f", "file tree"),
-            ("Esc", "close"),
-        ]),
+        Mode::List => fixed(&[("Ctrl+n/p", "move"), ("Enter", choose)])
+            .into_iter()
+            .chain(there)
+            .chain(fixed(&[("Ctrl+f", "file tree"), ("Esc", "close")]))
+            .collect(),
         // The filer's keys, as the keymap binds them.
         Mode::Tree => {
             let km = app.chrome.read().keymap.clone();
@@ -54,17 +62,18 @@ pub(super) fn Go(picker: Picker) -> Element {
                 (Action::FilerInto, "open"),
                 (Action::FilerOut, "close"),
                 (Action::FilerHidden, "hidden"),
-                (Action::FilerOpen, "choose"),
+                (Action::FilerOpen, choose),
             ];
             filer
                 .iter()
                 .filter_map(|(a, w)| km.keys_for(Context::Filer, a).map(|k| (k, w.to_string())))
+                .chain(there)
                 .chain(fixed(&[("Ctrl+f", "list"), ("Esc", "close")]))
                 .collect()
         }
     };
     rsx! {
-        Dialog { kind: "picker-dialog", title: "Go to a session, or start one",
+        Dialog { kind: "picker-dialog", title: "{title}",
             match picker.mode {
                 Mode::List => {
                     let query = Query::new(&Narrowing::new(&picker.query).text);

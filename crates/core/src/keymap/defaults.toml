@@ -118,6 +118,7 @@
 "r" = "refresh"
 "/" = "filter"
 "w" = "session.pick"
+"A" = "workspace.add"
 "!" = "worktrees.toggle"
 "}" = "workspace.next"
 "{" = "workspace.prev"

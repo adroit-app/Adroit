@@ -88,6 +88,7 @@ pub enum Action {
     EnvironmentRename,
     EnvironmentRetry,
     EnvironmentPair,
+    WorkspaceAdd,
     WorkspaceRemove,
     WindowClose,
     WindowOpen,
@@ -364,6 +365,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::EnvironmentPair, "environment.pair", "pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](environments.md#create-and-configure))")
         .icon(Icon::Link)
         .row("Pair again…", Reach),
+    S::new(A::WorkspaceAdd, "workspace.add", "open the picker on the directories alone, to add the one chosen to the tree with nothing running there ([details](tree.md#going-to-a-session-or-starting-one))")
+        .bar("Add to Tree…", Icon::Plus)
+        .row("Add to tree…", Start),
     S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
         .icon(Icon::SquareMinus)
         .row("Remove from tree…", End),
@@ -597,6 +601,7 @@ mod tests {
             EnvironmentRename,
             EnvironmentRetry,
             EnvironmentPair,
+            WorkspaceAdd,
             WorkspaceRemove,
             WindowClose,
             WindowOpen,

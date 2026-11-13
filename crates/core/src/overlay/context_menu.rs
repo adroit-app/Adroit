@@ -106,6 +106,7 @@ pub fn entries(
             let retry = matches!(reach, Reach::Machine { retryable: true });
             here.into_iter()
                 .chain([
+                    offer(Action::WorkspaceAdd),
                     offer(Action::SettingsOpen),
                     offer(Action::EnvironmentRename),
                     fold,
@@ -357,7 +358,12 @@ mod tests {
         .collect()
     }
 
-    const STARTS: [Action; 3] = [Action::SessionNew, Action::ShellOpen, Action::NeovimOpen];
+    const STARTS: [Action; 4] = [
+        Action::SessionNew,
+        Action::ShellOpen,
+        Action::NeovimOpen,
+        Action::WorkspaceAdd,
+    ];
     const CONFIGURES: [Action; 3] = [
         Action::SettingsOpen,
         Action::EnvironmentRename,

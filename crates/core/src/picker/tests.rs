@@ -2,8 +2,8 @@ use crate::testing::here;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use adroit_model::Key;
 use adroit_model::files::Entry;
+use adroit_model::{Key, TerminalProgram};
 use adroit_protocol::{Offers, PickChange, PickSight, Request, TreeChange};
 
 use super::*;
@@ -312,6 +312,106 @@ fn a_directory_clicked_in_the_tree_starts_a_draft_there() {
     let run = in_tree().send(Msg::PickerDir("/Users/me/src".into()));
     assert_eq!(run.state().picker.open, None);
     assert!(run.last_effects().contains(&Effect::StartWriting));
+}
+
+/// The terminal `run` last asked to start, by where and what it runs.
+fn started(run: &Scenario) -> Option<(PathBuf, TerminalProgram)> {
+    run.last_effects().iter().find_map(|e| match e {
+        Effect::StartTerminal(ask) => Some((ask.place.worktree.clone(), ask.runs)),
+        _ => None,
+    })
+}
+
+/// The directory `run` last asked the host to keep in the tree.
+fn kept(run: &Scenario) -> Option<PathBuf> {
+    run.last_effects().iter().find_map(|e| match e {
+        Effect::Host {
+            request: Request::KeepWorkspace { dir },
+            ..
+        } => Some(dir.clone()),
+        _ => None,
+    })
+}
+
+fn on_row(run: Scenario, at: usize) -> Scenario {
+    run.send_all(std::iter::repeat_n(key("ArrowDown"), at))
+}
+
+#[test]
+fn ctrl_s_and_ctrl_e_open_a_shell_and_neovim_where_the_row_works() {
+    let with_scratch = || {
+        picking().send(Msg::ContentOpened {
+            kept: Default::default(),
+            scratch: "/scratch".into(),
+        })
+    };
+    // (row, key, where it starts, what it runs)
+    let cases = [
+        (0, "s", "/scratch", TerminalProgram::Shell),
+        (1, "e", "/r/a", TerminalProgram::Neovim),
+        (2, "s", "/r/a", TerminalProgram::Shell),
+        (2, "e", "/r/a", TerminalProgram::Neovim),
+    ];
+    for (at, k, dir, runs) in cases {
+        let run = on_row(with_scratch(), at).send(ctrl(k));
+        assert_eq!(run.state().picker.open, None, "{at} {k}");
+        assert_eq!(started(&run), Some((dir.into(), runs)), "{at} {k}");
+    }
+}
+
+#[test]
+fn ctrl_t_keeps_the_row_s_directory_in_the_tree() {
+    let run = on_row(picking(), 2).send(ctrl("t"));
+    assert_eq!(run.state().picker.open, None);
+    assert_eq!(kept(&run), Some("/r/a".into()));
+    assert_eq!(started(&run), None);
+}
+
+#[test]
+fn the_tree_s_directory_under_the_cursor_takes_the_same_keys() {
+    let run = in_tree().send(ctrl("e"));
+    assert_eq!(
+        started(&run),
+        Some(("/Users/me/docs".into(), TerminalProgram::Neovim))
+    );
+    let run = in_tree().send(ctrl("t"));
+    assert_eq!(kept(&run), Some("/Users/me/docs".into()));
+}
+
+/// The picker open to add a directory to the tree.
+fn adding() -> Scenario {
+    picking().send(Msg::PickerClose).send(Msg::PickerAddOpen)
+}
+
+#[test]
+fn the_picker_adding_to_the_tree_lists_only_directories() {
+    assert_eq!(names(&adding()), ["/r/a"]);
+    assert_eq!(picker(&adding()).purpose, Purpose::Add);
+}
+
+#[test]
+fn choosing_a_directory_to_add_keeps_it_in_the_tree_and_starts_nothing() {
+    for (run, want) in [
+        (adding().send(key("Enter")), "/r/a"),
+        (
+            adding()
+                .send(ctrl("f"))
+                .tell(dirs(HOME, &["src"]))
+                .send(key("Enter")),
+            "/Users/me/src",
+        ),
+        (
+            adding().send(Msg::PickerDir("/Users/me/src".into())),
+            "/Users/me/src",
+        ),
+    ] {
+        assert_eq!(run.state().picker.open, None, "{want}");
+        assert_eq!(kept(&run), Some(want.into()), "{want}");
+        assert!(
+            !run.last_effects().contains(&Effect::StartWriting),
+            "{want}"
+        );
+    }
 }
 
 #[test]
