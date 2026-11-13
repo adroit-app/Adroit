@@ -44,7 +44,7 @@ local function apply(chan)
   -- start recording. They are the buffer's alone, not global, so that the
   -- buffers plugins open over it keep the user's own mappings; they are set
   -- after its filetype plugins', which would otherwise win over them.
-  local function deny_all()
+  local function own_keys()
     local function deny(lhs, rhs)
       vim.keymap.set({ "n", "x" }, lhs, rhs, { buffer = b })
     end
@@ -54,12 +54,23 @@ local function apply(chan)
     deny("<C-w>", function()
       vim.fn.getcharstr()
     end)
+    -- Neovim's own `gx` reads `<cfile>`, which takes the text written up
+    -- against a URL into it, and the console's lines often hold Japanese
+    -- that does. What is not a URL is left to it.
+    vim.keymap.set("n", "gx", function()
+      local found = require("adroit.url").under_cursor()
+      if found then
+        vim.ui.open(found)
+      else
+        vim.ui.open(vim.fn.expand("<cfile>"))
+      end
+    end, { buffer = b, desc = "Open the URL under the cursor" })
   end
-  deny_all()
+  own_keys()
   vim.api.nvim_create_autocmd("FileType", {
     buffer = b,
     callback = function()
-      vim.schedule(deny_all)
+      vim.schedule(own_keys)
     end,
   })
   require("adroit.config").watch()

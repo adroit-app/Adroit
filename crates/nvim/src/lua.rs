@@ -20,6 +20,7 @@ const MODULES: &[(&str, &str)] = &[
         "adroit.prompt_defaults",
         include_str!("../lua/adroit/prompt_defaults.lua"),
     ),
+    ("adroit.url", include_str!("../lua/adroit/url.lua")),
     ("adroit.reader", include_str!("../lua/adroit/reader.lua")),
     (
         "adroit.reader_defaults",
