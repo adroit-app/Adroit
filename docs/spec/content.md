@@ -30,14 +30,15 @@ nest. Windows are resized by keys or by dragging the border between them,
 moved to a side of their tab, exchanged, rotated and moved to a tab of their
 own ([keys](reference/keys.md#actions)).
 
-A window is moved into another tab, named by its number or as the tab shown
-before, beside the window focused there; it takes the focus, and the keys that
-move a window within its tab then place it. The tab it leaves closes when it
-held nothing else. With the mouse, a window's strip is dragged onto a side of a
-window, in its own tab or another, or onto a tab, and the window goes there;
-while dragging, holding it over a tab shows that tab. A tab dragged onto a
-side of a window moves its focused window there. Dropped anywhere else,
-nothing moves.
+The tab shown is merged into another, named by its number or as the tab shown
+before, or else the tab beside it: every window of it, split as it was, comes
+right of the windows there, the window focused in it keeping the focus, and
+the tab merged closes. With the mouse, a window's strip is dragged onto a side
+of a window, in its own tab or another, or onto a tab, and that window alone
+goes there; while dragging, holding it over a tab shows that tab. A tab
+dragged onto a side of a window puts every window of it there; the tab shown,
+dragged onto a window of its own, goes to that side of every window of the
+tab it would be merged into. Dragged onto another tab, a tab takes its place. Dropped anywhere else, nothing moves.
 
 The same thing may stand in any number of windows and tabs. A program shown in
 several windows runs at one size, the focused window's when it is one of them.

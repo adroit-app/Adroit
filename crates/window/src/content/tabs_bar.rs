@@ -84,6 +84,24 @@ pub(super) fn TabsBar(
         .filter(|m| m.dragging)
         .map_or((None, None), |m| (Some(m.over), m.tab));
     let dragging = dropping.is_some();
+    // A tab dragged among the tabs is drawn where it would land, the others
+    // making room, so the order it leaves is seen before it is let go.
+    let rows = tabs();
+    let ordinary = rows.iter().filter(|r| !r.5).count();
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    let ghost = match (dropping, from) {
+        (Some(Some(DropAt::Place(to))), Some(from)) if from < ordinary && to < ordinary => {
+            let tab = order.remove(from);
+            order.insert(to, tab);
+            Some(from)
+        }
+        _ => None,
+    };
+    let laid: Vec<_> = order
+        .into_iter()
+        .enumerate()
+        .map(|(place, at)| (place, at, rows[at].clone()))
+        .collect();
     let hosts = app.hosts.read();
     rsx! {
         div { class: "tabs",
@@ -94,7 +112,7 @@ pub(super) fn TabsBar(
                     "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                 }
             }
-            for (at , (tab , name , state , mark , count , preview , focused)) in tabs().into_iter().enumerate() {
+            for (place , at , (tab , name , state , mark , count , preview , focused)) in laid {
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
@@ -110,15 +128,7 @@ pub(super) fn TabsBar(
                         shell.is_some().then_some("shell"),
                         preview.then_some("preview"),
                         (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
-                        match (dropping, from) {
-                            (Some(Some(DropAt::Place(to))), Some(from)) if to == at && from > at => {
-                                Some("place-before")
-                            }
-                            (Some(Some(DropAt::Place(to))), Some(from)) if to == at && from < at => {
-                                Some("place-after")
-                            }
-                            _ => None,
-                        },
+                        (ghost == Some(at)).then_some("ghost"),
                     ]
                     .into_iter()
                     .flatten()
@@ -128,7 +138,7 @@ pub(super) fn TabsBar(
                     let target = Target::Tab(tab.clone());
                     let closing = Target::Tab(tab.clone());
                     let has_draft = drafted.read().contains(&tab);
-                    let number = at + 1;
+                    let number = place + 1;
                     let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
                     // The preview is no tab of its own yet: unnumbered, after
                     // a rule, and named as what it only shows.
@@ -140,7 +150,7 @@ pub(super) fn TabsBar(
                                 title: "Preview: what is looked at next takes its place; open it to keep it",
                                 onclick: move |_| app.dispatch(Msg::TabShow(at)),
                                 onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
-                                onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
+                                onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
                                 oncontextmenu: menu_opener(app, target),
                                 IconView { icon: Icon::Eye, size: 13 }
                                 span { class: "tab-preview-label", "Preview" }
@@ -168,7 +178,7 @@ pub(super) fn TabsBar(
                             class: "{class}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
                             onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
-                            onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
+                            onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
                             oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }
                             if let Some((g, icon, tip)) = glyph_class {
@@ -220,8 +230,8 @@ fn press(app: AppCtx, e: Event<MouseData>, tab: usize, window: WindowId) {
     });
 }
 
-/// The pointer moved over the tab at `at`, into which a window `dragging`
-/// would go.
+/// The pointer moved over the tab drawn at `at` among the tabs, into which
+/// a window `dragging` would go, or whose place a tab dragged would take.
 fn hover(app: AppCtx, e: Event<MouseData>, at: usize, dragging: bool) {
     if !dragging {
         return;

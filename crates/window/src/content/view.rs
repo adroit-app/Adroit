@@ -13,7 +13,7 @@ use super::tabs_bar::TabsBar;
 use super::window::{ContentWindow, WindowBorder, WindowDrop, window_strip};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
-use crate::content::{DropAt, Tab, WindowId, thing_name};
+use crate::content::{Dir, DropAt, Tab, WindowId, thing_name};
 use crate::pictures::Gallery;
 use crate::viewers;
 use adroit_core::overlay::context_menu::Target;
@@ -50,6 +50,25 @@ pub(crate) fn ContentPanel(
         )
     };
     let focused_window = windows.focused_window();
+    // What is dragged, by its name, beside the pointer: a tab by what its
+    // focused window shows and how many windows go with it.
+    let ghost = moving.as_ref().filter(|m| m.dragging).and_then(|m| {
+        let shows = windows.shows(m.window)?;
+        let hosts = app.hosts.read();
+        let work = hosts.work(shows.environment());
+        let name = thing_name(tree_view::listed(work), tree_view::terminals(work), shows);
+        let more = m
+            .tab
+            .and_then(|at| windows.tabs().get(at))
+            .map_or(0, |t| t.windows().len().saturating_sub(1));
+        let label = if more > 0 {
+            format!("{name} +{more}")
+        } else {
+            name
+        };
+        let style = format!("left:{}px;top:{}px", m.at.0 + 14.0, m.at.1 + 10.0);
+        Some((label, style))
+    });
     let windows_el: Vec<Element> = match windows.current() {
         None => vec![rsx! { FocusedBody {} }],
         Some(tab) => {
@@ -116,13 +135,24 @@ pub(crate) fn ContentPanel(
                 });
             }
             if let Some(moving) = moving.filter(|m| m.dragging) {
+                // The tab shown, dragged onto a window of its own, goes to
+                // that side of the whole tab it would merge into.
+                let whole = moving.tab == Some(windows.current_index());
                 for (id, r) in tab.rects() {
                     let over = match moving.over {
-                        Some(DropAt::Side(w, side)) if w == id => Some(side),
+                        Some(DropAt::Side(w, side)) if w == id && !whole => Some(side),
                         _ => None,
                     };
                     out.push(rsx! {
                         WindowDrop { key: "drop-{id}", id, r, drawn, over }
+                    });
+                }
+                if let (true, Some(DropAt::Side(_, side))) = (whole, moving.over) {
+                    let class = format!("win-drop-side {}", side_class(side));
+                    out.push(rsx! {
+                        div { key: "drop-whole-{side_class(side)}", class: "win-drop-whole",
+                            div { class }
+                        }
                     });
                 }
             }
@@ -142,6 +172,19 @@ pub(crate) fn ContentPanel(
                 },
                 for w in windows_el { {w} }
             }
+            if let Some((label, style)) = ghost {
+                div { class: "drag-ghost", style: "{style}", "{label}" }
+            }
         }
+    }
+}
+
+/// The class naming the side a window would drop onto.
+pub(super) fn side_class(side: Dir) -> &'static str {
+    match side {
+        Dir::Left => "left",
+        Dir::Right => "right",
+        Dir::Up => "up",
+        Dir::Down => "down",
     }
 }

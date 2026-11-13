@@ -42,7 +42,7 @@ pub enum Action {
     WindowMaximizeHeight,
     WindowMaximizeWidth,
     WindowToTab,
-    WindowIntoLastTab,
+    TabMergeLast,
     TabNext,
     TabPrev,
     TabLast,
@@ -142,7 +142,7 @@ pub enum Action {
     TabGo(u8),
     /// Move the focused window into the content's tab of this number,
     /// counted from 1.
-    WindowIntoTab(u8),
+    TabMerge(u8),
 }
 
 /// Which of a right-click menu's groups an entry is drawn in.
@@ -284,7 +284,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .bar("Tallest", Icon::ArrowAutofitHeight),
     S::new(A::WindowMaximizeWidth, "window.maximize_width", "make the focused window as wide as the others allow").bar("Widest", Icon::ArrowAutofitWidth),
     S::new(A::WindowToTab, "window.to_tab", "move the focused window to a new tab, unless it is the only one of its tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
-    S::new(A::WindowIntoLastTab, "window.into_last_tab", "move the focused window into the content's tab shown before the one shown now, split beside that tab's focused window, right of it, and focused there; its own tab closes when it held nothing else ([content](content.md))").says("Move window into the tab before"),
+    S::new(A::TabMergeLast, "tab.merge_last", "merge the content's tab shown into the tab shown before it, or else the tab beside it: every window of it, as it is split, right of every window there, the focused one keeping the focus ([content](content.md))").says("Merge the tab into the tab before"),
     S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(Steps::Tabs),
     S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(Steps::Tabs),
     S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
@@ -428,7 +428,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::ViewerCopyPath, "viewer.copy_path", "in a viewer, copy the path of the file it shows").says("Copy the path"),
     S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
     S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are").says("Go to tab"),
-    S::new(A::WindowIntoTab(1), "window.into_tab", "move the focused window into the content's tab numbered `n`, as `window.into_last_tab` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are").says("Move window into tab"),
+    S::new(A::TabMerge(1), "tab.merge", "merge the content's tab shown into the tab numbered `n`, as `tab.merge_last` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are").says("Merge the tab into tab"),
 ];
 
 impl Action {
@@ -453,7 +453,7 @@ impl Action {
     /// The tab's number an action that takes one names.
     pub fn number(&self) -> Option<u8> {
         match self {
-            Action::TabGo(n) | Action::WindowIntoTab(n) => Some(*n),
+            Action::TabGo(n) | Action::TabMerge(n) => Some(*n),
             _ => None,
         }
     }
@@ -463,7 +463,7 @@ impl Action {
     pub fn numbered(&self, n: u8) -> Action {
         match self {
             Action::TabGo(_) => Action::TabGo(n),
-            Action::WindowIntoTab(_) => Action::WindowIntoTab(n),
+            Action::TabMerge(_) => Action::TabMerge(n),
             a => a.clone(),
         }
     }
@@ -549,11 +549,11 @@ mod tests {
         ($($variant:ident),* $(,)?) => {{
             fn _listed(a: &Action) {
                 match a {
-                    Action::ConsoleSend(_) | Action::TabGo(_) | Action::WindowIntoTab(_) => {}
+                    Action::ConsoleSend(_) | Action::TabGo(_) | Action::TabMerge(_) => {}
                     $(Action::$variant => {})*
                 }
             }
-            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1), Action::WindowIntoTab(1)]
+            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1), Action::TabMerge(1)]
         }};
     }
 
@@ -588,7 +588,7 @@ mod tests {
             WindowMaximizeHeight,
             WindowMaximizeWidth,
             WindowToTab,
-            WindowIntoLastTab,
+            TabMergeLast,
             TabNext,
             TabPrev,
             TabLast,
@@ -759,7 +759,7 @@ mod tests {
         assert!(names.contains(&"console.send"));
         assert!(!names.contains(&"none"));
         assert!(!names.contains(&"tab.go"));
-        assert!(!names.contains(&"window.into_tab"));
+        assert!(!names.contains(&"tab.merge"));
         for n in names {
             assert!(n.parse::<Action>().is_ok(), "{n}");
         }
@@ -780,11 +780,8 @@ mod tests {
         assert!("tab.go".parse::<Action>().is_err());
         assert!("tab.go 0".parse::<Action>().is_err());
         assert_eq!("tab.go 9".parse::<Action>(), Ok(Action::TabGo(9)));
-        assert!("window.into_tab".parse::<Action>().is_err());
-        assert_eq!(
-            "window.into_tab 2".parse::<Action>(),
-            Ok(Action::WindowIntoTab(2))
-        );
+        assert!("tab.merge".parse::<Action>().is_err());
+        assert_eq!("tab.merge 2".parse::<Action>(), Ok(Action::TabMerge(2)));
         assert_eq!("none".parse::<Action>(), Ok(Action::None));
     }
 

@@ -100,8 +100,8 @@ pub(crate) fn perform(
         | Action::WindowMaximizeWidth
         | Action::WindowMaximizeHeight
         | Action::WindowToTab
-        | Action::WindowIntoTab(_)
-        | Action::WindowIntoLastTab
+        | Action::TabMerge(_)
+        | Action::TabMergeLast
         | Action::TabGo(_)
         | Action::TabLast
         | Action::TabMovePrev

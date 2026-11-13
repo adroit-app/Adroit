@@ -55,9 +55,9 @@ pub(crate) fn Footer() -> Element {
             Action::WindowRight,
         ],
     );
-    // Moving a window between tabs has no Neovim key to remember it by.
+    // Moving windows between tabs has no Neovim key to remember it by.
     let k_to_tab = km.keys_for(Context::Global, &Action::WindowToTab);
-    let k_into_tab = km.keys_for(Context::Global, &Action::WindowIntoLastTab);
+    let k_merge = km.keys_for(Context::Global, &Action::TabMergeLast);
     // The footer names the keys that work where the keys are now.
     let k_waiting_next = km.keys_in(route::footer_contexts(area), &Action::WaitingNext);
     let k_write = km.keys_for(Context::Console, &Action::PromptWrite);
@@ -79,8 +79,8 @@ pub(crate) fn Footer() -> Element {
             if let Some(k) = k_to_tab {
                 KeyHint { keys: k, does: "to new tab" }
             }
-            if let Some(k) = k_into_tab {
-                KeyHint { keys: k, does: "into tab before" }
+            if let Some(k) = k_merge {
+                KeyHint { keys: k, does: "merge into tab before" }
             }
             if let Some(k) = k_waiting_next {
                 KeyHint { keys: k, does: "next waiting" }

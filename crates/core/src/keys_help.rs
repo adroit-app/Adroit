@@ -87,7 +87,7 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
 }
 
 /// The actions that take a tab's number, each standing for every number.
-const NUMBERED: &[Action] = &[Action::TabGo(1), Action::WindowIntoTab(1)];
+const NUMBERED: &[Action] = &[Action::TabGo(1), Action::TabMerge(1)];
 
 /// The tab's number `action` names, when it is of the same kind as `kind`.
 fn number_of(action: &Action, kind: &Action) -> Option<u8> {
@@ -321,12 +321,12 @@ mod tests {
     #[test]
     fn every_action_taking_a_tab_s_number_folds_its_numbers_into_a_row_of_its_own() {
         let groups = groups(&Keymap::defaults(), &[]);
-        let into = format!("{}–9", Action::WindowIntoTab(1).label());
+        let into = format!("{}–9", Action::TabMerge(1).label());
         let into = row(&groups, Context::Global, &into).unwrap();
         assert_eq!(into.keys.len(), 1, "{:?}", into.keys);
         let go = format!("{}–9", Action::TabGo(1).label());
         assert!(row(&groups, Context::Global, &go).is_some());
-        assert!(row(&groups, Context::Global, &Action::WindowIntoTab(3).label()).is_none());
+        assert!(row(&groups, Context::Global, &Action::TabMerge(3).label()).is_none());
     }
 
     #[test]

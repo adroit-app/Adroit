@@ -37,12 +37,14 @@
 /* A window being dragged: each window takes the pointer over it, shading the side it would drop onto. */
 .app-body.moving, .app-body.moving * { cursor: grabbing !important; user-select: none; }
 .win-drop { position: absolute; z-index: 3; }
+.win-drop-whole { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .win-drop-side { position: absolute; background: var(--select); border: 1px solid var(--focus-border); border-radius: 8px; opacity: 0.6; pointer-events: none; }
 .win-drop-side.left { left: 0; top: 0; bottom: 0; width: 50%; }
 .win-drop-side.right { right: 0; top: 0; bottom: 0; width: 50%; }
 .win-drop-side.up { left: 0; right: 0; top: 0; height: 50%; }
 .win-drop-side.down { left: 0; right: 0; bottom: 0; height: 50%; }
 .tab.drop { outline: 1px solid var(--focus-border); }
-/* A tab dragged among the tabs: a bar on the side of the tab whose place it would take. */
-.tab.place-before { box-shadow: inset 2px 0 0 var(--focus-border); }
-.tab.place-after { box-shadow: inset -2px 0 0 var(--focus-border); }
+/* A tab dragged among the tabs stands where it would land, faded and outlined, the others making room. */
+.tab.ghost { opacity: 0.55; outline: 1px dashed var(--focus-border); outline-offset: -1px; }
+/* What is dragged, by its name, following the pointer. */
+.drag-ghost { position: fixed; z-index: 50; pointer-events: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--focus-border); border-radius: 7px; background: var(--raised); color: var(--text); font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); opacity: 0.92; }

@@ -33,6 +33,8 @@ pub struct WindowMove {
     pub tab: Option<usize>,
     /// Where the pointer pressed it, in pixels.
     from: (f64, f64),
+    /// Where the pointer is, in pixels.
+    pub at: (f64, f64),
     /// Whether the pointer moved far enough from the press to drag it.
     pub dragging: bool,
     pub over: Option<DropAt>,
@@ -44,6 +46,7 @@ impl WindowMove {
             window,
             tab,
             from,
+            at: from,
             dragging: false,
             over: None,
         }
@@ -52,6 +55,7 @@ impl WindowMove {
     /// The pointer at `at`, over `over`; a tab dragged over a tab would
     /// take its place.
     pub fn point(&mut self, at: (f64, f64), over: Option<DropAt>) {
+        self.at = at;
         let (dx, dy) = (at.0 - self.from.0, at.1 - self.from.1);
         if !self.dragging && dx.hypot(dy) >= THRESHOLD {
             self.dragging = true;
@@ -85,7 +89,8 @@ impl<T: Clone + PartialEq> Content<T> {
     /// Move what `moving` drags where it would go, if anywhere: the window
     /// as [`Content::place`] moves it, into a tab beside its focused window,
     /// right of it, and never into the tab it is in; the tab it was pressed
-    /// by to another place.
+    /// by, every window of it, to a side of a window as
+    /// [`Content::place_tab`] puts it, or to another place among the tabs.
     pub fn drop_moved(&mut self, moving: &WindowMove) {
         let (id, Some(to)) = (moving.window, moving.over.filter(|_| moving.dragging)) else {
             return;
@@ -96,7 +101,10 @@ impl<T: Clone + PartialEq> Content<T> {
                     self.move_tab(from, at);
                 }
             }
-            DropAt::Side(beside, side) => self.place(id, beside, side),
+            DropAt::Side(beside, side) => match moving.tab {
+                Some(from) => self.place_tab(from, beside, side),
+                None => self.place(id, beside, side),
+            },
             DropAt::Tab(at) => {
                 let Some(tab) = self.tabs().get(at) else {
                     return;
@@ -221,6 +229,25 @@ mod tests {
             .map(|w| w.shows)
             .collect();
         assert_eq!(shown, ["a", "b"]);
+    }
+
+    #[test]
+    fn a_tab_dropped_onto_a_side_of_a_window_puts_every_window_of_it_there() {
+        let mut c = C::default();
+        c.open("a");
+        c.open_tab("b");
+        c.split(Axis::Row, "c");
+        let (a, c_id) = (id_of(&c, "a"), id_of(&c, "c"));
+        c.drop_moved(&dragged(c_id, Some(1), DropAt::Side(a, Dir::Down)));
+        assert_eq!(c.tabs().len(), 1);
+        let shown: Vec<&str> = c
+            .current()
+            .unwrap()
+            .windows()
+            .iter()
+            .map(|w| w.shows)
+            .collect();
+        assert_eq!(shown, ["a", "b", "c"]);
     }
 
     #[test]

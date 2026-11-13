@@ -1307,14 +1307,14 @@ mod tests {
             }
             assert_eq!(
                 step(&map, &areas, &["Ctrl+q"], "M"),
-                Step::Run(Action::WindowIntoLastTab),
+                Step::Run(Action::TabMergeLast),
                 "{}",
                 ctx.name()
             );
             for (key, action) in [
-                ("m", Action::WindowIntoLastTab),
-                ("1", Action::WindowIntoTab(1)),
-                ("9", Action::WindowIntoTab(9)),
+                ("m", Action::TabMergeLast),
+                ("1", Action::TabMerge(1)),
+                ("9", Action::TabMerge(9)),
             ] {
                 assert_eq!(
                     step(&map, &areas, &["Ctrl+q", "m"], key),

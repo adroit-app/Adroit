@@ -190,12 +190,7 @@ pub(super) fn WindowDrop(
         r.width * 100.0,
         r.height * 100.0
     );
-    let side = over.map(|d| match d {
-        Dir::Left => "win-drop-side left",
-        Dir::Right => "win-drop-side right",
-        Dir::Up => "win-drop-side up",
-        Dir::Down => "win-drop-side down",
-    });
+    let side = over.map(|d| format!("win-drop-side {}", super::view::side_class(d)));
     rsx! {
         div {
             class: "win-drop",
