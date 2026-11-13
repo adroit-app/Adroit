@@ -46,6 +46,15 @@ pub(crate) fn Body() -> Element {
     ) {
         (_, Some(Axis::Column)) => "app-body dragging rows",
         (true, _) | (_, Some(Axis::Row)) => "app-body dragging",
+        _ if app
+            .content
+            .read()
+            .moving
+            .as_ref()
+            .is_some_and(|m| m.dragging) =>
+        {
+            "app-body moving"
+        }
         _ => "app-body",
     };
     rsx! {
@@ -62,17 +71,29 @@ pub(crate) fn Body() -> Element {
                     let pos = if axis == Axis::Row { at.x } else { at.y };
                     app.dispatch(Msg::WindowDragMove(pos));
                 }
+                // Over nothing a dragged window drops onto: what does stops
+                // the event first.
+                if app.content.peek().moving.is_some() {
+                    let at = e.client_coordinates();
+                    app.dispatch(Msg::WindowMoveOver { x: at.x, y: at.y, over: None });
+                }
                 panels::pointer_moved(app, e.client_coordinates().x);
             },
             onmouseup: move |_| {
                 if app.content.peek().drag.is_some() {
                     app.dispatch(Msg::WindowDragEnd);
                 }
+                if app.content.peek().moving.is_some() {
+                    app.dispatch(Msg::WindowMoveEnd);
+                }
                 panels::pointer_released(app);
             },
             onmouseleave: move |_| {
                 if app.content.peek().drag.is_some() {
                     app.dispatch(Msg::WindowDragEnd);
+                }
+                if app.content.peek().moving.is_some() {
+                    app.dispatch(Msg::WindowMoveEnd);
                 }
                 panels::pointer_released(app);
             },

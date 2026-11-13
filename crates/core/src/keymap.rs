@@ -1297,6 +1297,24 @@ mod tests {
                 "{}",
                 ctx.name()
             );
+            assert_eq!(
+                step(&map, &areas, &["Ctrl+q"], "M"),
+                Step::Run(Action::WindowIntoLastTab),
+                "{}",
+                ctx.name()
+            );
+            for (key, action) in [
+                ("m", Action::WindowIntoLastTab),
+                ("1", Action::WindowIntoTab(1)),
+                ("9", Action::WindowIntoTab(9)),
+            ] {
+                assert_eq!(
+                    step(&map, &areas, &["Ctrl+q", "m"], key),
+                    Step::Run(action),
+                    "{} m {key}",
+                    ctx.name()
+                );
+            }
         }
     }
 

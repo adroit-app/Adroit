@@ -1,6 +1,8 @@
 //! What the keys help lists: every binding in force, area by area, the areas
 //! the keys are in first, and what a key does while it is shown.
 
+use std::mem::discriminant;
+
 use adroit_model::Key;
 
 use crate::actions::Action;
@@ -58,7 +60,15 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
                     None => bound.push((action, vec![keys.clone()])),
                 }
             }
-            let rows: Vec<Row> = fold_numbers(bound)
+            let labelled = bound
+                .into_iter()
+                .map(|(action, seqs)| {
+                    let label = action.label();
+                    (action, label, seqs)
+                })
+                .collect();
+            let folded = NUMBERED.iter().fold(labelled, fold_numbers);
+            let rows: Vec<Row> = folded
                 .into_iter()
                 .map(|(action, label, seqs)| Row {
                     keys: share_leads(&seqs),
@@ -76,19 +86,32 @@ pub fn groups(keymap: &Keymap, here: &[Context]) -> Vec<Group> {
         .collect()
 }
 
-/// The rows of `bound`, labelled, with the sequences of [`Action::TabGo`]
-/// that differ only in a run of numbers ending them folded into one row,
-/// `Ctrl+q 1–9`, where the first of those numbers stood.
-fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(Action, String, Vec<String>)> {
+/// The actions that take a tab's number, each standing for every number.
+const NUMBERED: &[Action] = &[Action::TabGo(1), Action::WindowIntoTab(1)];
+
+/// The tab's number `action` names, when it is of the same kind as `kind`.
+fn number_of(action: &Action, kind: &Action) -> Option<u8> {
+    action
+        .number()
+        .filter(|_| discriminant(action) == discriminant(kind))
+}
+
+/// `bound` with the sequences of the actions of `kind` that differ only in a
+/// run of numbers ending them folded into one row, `Ctrl+q 1–9`, where the
+/// first of those numbers stood.
+fn fold_numbers(
+    bound: Vec<(Action, String, Vec<String>)>,
+    kind: &Action,
+) -> Vec<(Action, String, Vec<String>)> {
     let mut heads: Vec<(&str, Vec<u8>)> = Vec::new();
-    for (action, seqs) in &bound {
-        let Action::TabGo(n) = action else {
+    for (action, _, seqs) in &bound {
+        let Some(n) = number_of(action, kind) else {
             continue;
         };
-        for head in seqs.iter().filter_map(|s| before_number(s, *n)) {
+        for head in seqs.iter().filter_map(|s| before_number(s, n)) {
             match heads.iter_mut().find(|(h, _)| *h == head) {
-                Some((_, ns)) => ns.push(*n),
-                None => heads.push((head, vec![*n])),
+                Some((_, ns)) => ns.push(n),
+                None => heads.push((head, vec![n])),
             }
         }
     }
@@ -107,15 +130,15 @@ fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(Action, String, Vec<S
     }
     let mut runs = Some(runs).filter(|r| !r.is_empty());
     let mut rows = Vec::new();
-    for (action, seqs) in bound {
-        let Action::TabGo(n) = action else {
-            rows.push((action.clone(), action.label(), seqs));
+    for (action, label, seqs) in bound {
+        let Some(n) = number_of(&action, kind) else {
+            rows.push((action, label, seqs));
             continue;
         };
         if let Some(runs) = runs.take() {
             rows.push((
                 action.clone(),
-                format!("{}–{hi}", Action::TabGo(lo).label()),
+                format!("{}–{hi}", kind.numbered(lo).label()),
                 runs,
             ));
         }
@@ -124,7 +147,7 @@ fn fold_numbers(bound: Vec<(Action, Vec<String>)>) -> Vec<(Action, String, Vec<S
             .filter(|s| !before_number(s, n).is_some_and(|h| taken.contains(&(h.to_string(), n))))
             .collect();
         if !seqs.is_empty() {
-            rows.push((action.clone(), action.label(), seqs));
+            rows.push((action, label, seqs));
         }
     }
     rows
@@ -293,6 +316,17 @@ mod tests {
         assert!(!split.repeats);
         let numbered = format!("{}–9", Action::TabGo(1).label());
         assert!(!row(&groups, Context::Global, &numbered).unwrap().repeats);
+    }
+
+    #[test]
+    fn every_action_taking_a_tab_s_number_folds_its_numbers_into_a_row_of_its_own() {
+        let groups = groups(&Keymap::defaults(), &[]);
+        let into = format!("{}–9", Action::WindowIntoTab(1).label());
+        let into = row(&groups, Context::Global, &into).unwrap();
+        assert_eq!(into.keys.len(), 1, "{:?}", into.keys);
+        let go = format!("{}–9", Action::TabGo(1).label());
+        assert!(row(&groups, Context::Global, &go).is_some());
+        assert!(row(&groups, Context::Global, &Action::WindowIntoTab(3).label()).is_none());
     }
 
     #[test]

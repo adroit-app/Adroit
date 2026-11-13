@@ -374,11 +374,26 @@ impl<T: Clone + PartialEq> ContentTab<T> {
     }
 
     fn insert_beside(&mut self, axis: Axis, window: Window<T>) {
-        let path = self.root.path(self.focus).expect("the focus is in the tab");
+        let side = match axis {
+            Axis::Row => Dir::Right,
+            Axis::Column => Dir::Down,
+        };
+        self.insert_at(self.focus, side, window);
+    }
+
+    /// Split the window `beside` toward `side`, `window` taking that half
+    /// and the focus.
+    fn insert_at(&mut self, beside: WindowId, side: Dir, window: Window<T>) {
+        let path = self.root.path(beside).expect("the window is in the tab");
+        let axis = Axis::of(side);
         let leaf = self.root.at_mut(&path);
         let old = std::mem::replace(leaf, Node::Split(axis, Vec::new()));
         let id = window.id;
-        *leaf = Node::Split(axis, vec![(0.5, old), (0.5, Node::Window(window))]);
+        let mut parts = vec![(0.5, old), (0.5, Node::Window(window))];
+        if matches!(side, Dir::Left | Dir::Up) {
+            parts.reverse();
+        }
+        *leaf = Node::Split(axis, parts);
         self.normalize();
         self.focus_on(id);
     }
@@ -835,6 +850,82 @@ impl<T: Clone + PartialEq> Content<T> {
         let at = (self.current + 1).min(self.ordinary());
         self.tabs.insert(at, ContentTab::single(tab_id, w, false));
         self.set_current(at);
+    }
+
+    /// Move the window `id`, from any tab, to the `side` of the window
+    /// `beside`, in whichever tab that is, focusing it and showing its tab.
+    /// The tab it leaves closes when it held nothing else; the tab it goes
+    /// to is kept when it was the preview.
+    pub fn place(&mut self, id: WindowId, beside: WindowId, side: Dir) {
+        if id == beside {
+            return;
+        }
+        let (Some(from), Some(to)) = (
+            self.tabs.iter().position(|t| t.has(id)),
+            self.tabs.iter().find(|t| t.has(beside)).map(|t| t.id),
+        ) else {
+            return;
+        };
+        let shown = self.current().map(|t| t.id);
+        let window = if self.tabs[from].windows().len() == 1 {
+            let tab = self.tabs.remove(from);
+            match tab.root {
+                Node::Window(w) => w,
+                Node::Split(..) => unreachable!("a tab of one window"),
+            }
+        } else {
+            self.tabs[from]
+                .remove(id)
+                .expect("the window is in the tab")
+        };
+        let at = self
+            .tabs
+            .iter()
+            .position(|t| t.id == to)
+            .expect("the tab placed into stays");
+        let tab = &mut self.tabs[at];
+        tab.insert_at(beside, side, window);
+        tab.preview = false;
+        if shown != Some(to) {
+            self.last = shown;
+        }
+        self.current = at;
+        self.keep_last();
+    }
+
+    /// Move the focused window into the tab numbered `n` from 1, or the last
+    /// when there are fewer, 9 being the last however many there are: beside
+    /// that tab's focused window, right of it. Nothing moves into its own
+    /// tab.
+    pub fn move_into_numbered_tab(&mut self, n: u8) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let last = self.ordinary().max(1) - 1;
+        let at = match n {
+            9 => last,
+            n => usize::from(n).saturating_sub(1).min(last),
+        };
+        self.move_into_tab(at);
+    }
+
+    /// Move the focused window into the tab shown before the one shown now,
+    /// as [`Content::move_into_numbered_tab`] moves it.
+    pub fn move_into_last_tab(&mut self) {
+        if let Some(at) = self.tabs.iter().position(|t| Some(t.id) == self.last) {
+            self.move_into_tab(at);
+        }
+    }
+
+    fn move_into_tab(&mut self, at: usize) {
+        if at == self.current {
+            return;
+        }
+        let (Some(from), Some(to)) = (self.current(), self.tabs.get(at)) else {
+            return;
+        };
+        let (id, beside) = (from.focus, to.focus);
+        self.place(id, beside, Dir::Right);
     }
 
     /// Show the tab `delta` after the shown one, going round at the ends.
@@ -1647,6 +1738,137 @@ mod tests {
         let mut c = one("a");
         c.to_new_tab();
         assert_eq!(c.tabs().len(), 1);
+    }
+
+    /// The id of the window showing `thing` in any tab.
+    fn id_of(c: &C, thing: &str) -> WindowId {
+        c.tabs()
+            .iter()
+            .flat_map(|t| t.windows())
+            .find(|w| w.shows == thing)
+            .map(|w| w.id)
+            .expect("a window shows it")
+    }
+
+    #[test]
+    fn a_window_moved_into_a_numbered_tab_is_split_beside_its_focused_window_and_focused() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.split(Axis::Column, "c");
+        c.focus(id_of(&c, "b"));
+        c.open_tab("d");
+        c.move_into_numbered_tab(2);
+        assert_eq!(c.tabs().len(), 2);
+        assert_eq!(c.current_index(), 1);
+        assert_eq!(drawn(&c), "((b | d) / c)");
+        assert_eq!(c.focused(), Some(&"d"));
+    }
+
+    #[test]
+    fn a_tab_left_with_a_window_keeps_it_when_another_is_moved_out() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.split(Axis::Row, "c");
+        c.move_into_numbered_tab(1);
+        assert_eq!(drawn(&c), "(a | c)");
+        c.go_to_tab(1);
+        assert_eq!(drawn(&c), "b");
+    }
+
+    #[test]
+    fn a_window_is_not_moved_into_its_own_tab() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.move_into_numbered_tab(1);
+        assert_eq!(drawn(&c), "(a | b)");
+        assert_eq!(c.tabs().len(), 2);
+    }
+
+    #[test]
+    fn a_number_past_the_last_tab_moves_the_window_into_the_last() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.move_into_numbered_tab(8);
+        assert_eq!(drawn(&c), "(c | a)");
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.move_into_numbered_tab(9);
+        assert_eq!(drawn(&c), "(c | a)");
+    }
+
+    #[test]
+    fn a_window_moved_into_the_last_tab_goes_to_the_tab_shown_before() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.go_to_tab(2);
+        c.move_into_last_tab();
+        assert_eq!(drawn(&c), "(a | c)");
+        assert_eq!(c.tabs().len(), 2);
+    }
+
+    #[test]
+    fn with_no_tab_shown_before_nothing_moves_into_the_last_tab() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.move_into_last_tab();
+        assert_eq!(drawn(&c), "(a | b)");
+    }
+
+    #[test]
+    fn a_window_moved_out_of_the_preview_closes_it_and_one_moved_into_it_keeps_it() {
+        let mut c = one("a");
+        c.look("p");
+        c.move_into_numbered_tab(1);
+        assert_eq!(c.tabs().len(), 1);
+        assert_eq!(drawn(&c), "(a | p)");
+        let mut c = one("a");
+        c.look("p");
+        c.go_to_tab(0);
+        c.move_into_last_tab();
+        assert_eq!(drawn(&c), "(p | a)");
+        assert!(!c.current().unwrap().is_preview());
+    }
+
+    #[test]
+    fn a_window_placed_on_a_side_of_another_goes_there_in_that_tab() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.split(Axis::Row, "c");
+        let (b, a) = (id_of(&c, "b"), id_of(&c, "a"));
+        c.place(b, a, Dir::Up);
+        assert_eq!(drawn(&c), "(b / a)");
+        assert_eq!(c.focused(), Some(&"b"));
+        let c_id = id_of(&c, "c");
+        c.place(c_id, a, Dir::Left);
+        assert_eq!(drawn(&c), "(b / (c | a))");
+        assert_eq!(c.tabs().len(), 1);
+    }
+
+    #[test]
+    fn a_window_placed_on_a_side_of_another_in_its_own_tab_moves_there() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        c.split(Axis::Row, "c");
+        let (a, c_id) = (id_of(&c, "a"), id_of(&c, "c"));
+        c.place(a, c_id, Dir::Down);
+        assert_eq!(drawn(&c), "(b | (c / a))");
+    }
+
+    #[test]
+    fn a_window_placed_on_itself_stays() {
+        let mut c = one("a");
+        c.split(Axis::Row, "b");
+        let a = id_of(&c, "a");
+        c.place(a, a, Dir::Left);
+        assert_eq!(drawn(&c), "(a | b)");
     }
 
     #[test]

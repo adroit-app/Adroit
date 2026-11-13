@@ -7,6 +7,7 @@ use adroit_core::completion::Completions;
 use adroit_core::msg::Msg;
 use adroit_core::tree as tree_view;
 use adroit_model::AgentPermissions;
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
 use super::short;
@@ -14,7 +15,7 @@ use crate::bridge::AppCtx;
 use crate::components::{
     DraftMark, PlaceMark, SessionMark, StateGlyph, TerminalMark, glyph, runs_of, session_mark,
 };
-use crate::content::{Tab, thing_name};
+use crate::content::{DropAt, Tab, WindowId, thing_name};
 use crate::icons::{Icon, IconView};
 use crate::nav;
 use crate::rename::{Place as RenamePlace, SessionName};
@@ -66,12 +67,22 @@ pub(super) fn TabsBar(
                     mark,
                     tab.windows().len(),
                     tab.is_preview(),
+                    tab.focused().id,
                 )
             })
             .collect::<Vec<_>>()
     });
     let current = app.content.read().described().cloned();
     let shown_at = app.content.read().windows.current_index();
+    // While a window is dragged, the tab it would go into, if any.
+    let dropping = app
+        .content
+        .read()
+        .moving
+        .as_ref()
+        .filter(|m| m.dragging)
+        .map(|m| m.over);
+    let dragging = dropping.is_some();
     let hosts = app.hosts.read();
     rsx! {
         div { class: "tabs",
@@ -82,7 +93,7 @@ pub(super) fn TabsBar(
                     "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                 }
             }
-            for (at , (tab , name , state , mark , count , preview)) in tabs().into_iter().enumerate() {
+            for (at , (tab , name , state , mark , count , preview , focused)) in tabs().into_iter().enumerate() {
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
@@ -97,6 +108,7 @@ pub(super) fn TabsBar(
                         is_active.then_some("active"),
                         shell.is_some().then_some("shell"),
                         preview.then_some("preview"),
+                        (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
                     ]
                     .into_iter()
                     .flatten()
@@ -117,6 +129,8 @@ pub(super) fn TabsBar(
                                 class: "{class}",
                                 title: "Preview: what is looked at next takes its place; open it to keep it",
                                 onclick: move |_| app.dispatch(Msg::TabShow(at)),
+                                onmousedown: move |e: Event<MouseData>| press(app, e, focused),
+                                onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
                                 oncontextmenu: menu_opener(app, target),
                                 IconView { icon: Icon::Eye, size: 13 }
                                 span { class: "tab-preview-label", "Preview" }
@@ -143,6 +157,8 @@ pub(super) fn TabsBar(
                             key: "{at}",
                             class: "{class}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
+                            onmousedown: move |e: Event<MouseData>| press(app, e, focused),
+                            onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
                             oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }
                             if let Some((g, icon, tip)) = glyph_class {
@@ -176,4 +192,33 @@ pub(super) fn TabsBar(
             }
         }
     }
+}
+
+/// The pointer pressed a tab, to drag its focused window `window`.
+fn press(app: AppCtx, e: Event<MouseData>, window: WindowId) {
+    if e.trigger_button() != Some(MouseButton::Primary) {
+        return;
+    }
+    e.prevent_default();
+    let at = e.client_coordinates();
+    app.dispatch(Msg::WindowMoveStart {
+        window,
+        x: at.x,
+        y: at.y,
+    });
+}
+
+/// The pointer moved over the tab at `at`, into which a window `dragging`
+/// would go.
+fn hover(app: AppCtx, e: Event<MouseData>, at: usize, dragging: bool) {
+    if !dragging {
+        return;
+    }
+    e.stop_propagation();
+    let pos = e.client_coordinates();
+    app.dispatch(Msg::WindowMoveOver {
+        x: pos.x,
+        y: pos.y,
+        over: Some(DropAt::Tab(at)),
+    });
 }

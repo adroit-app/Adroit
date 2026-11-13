@@ -99,6 +99,7 @@ fn default_bindings() -> Vec<(&'static str, String, String)> {
 fn usage(spec: &ActionSpec) -> &'static str {
     match spec.action {
         Action::TabGo(_) => "tab.go <n>",
+        Action::WindowIntoTab(_) => "window.into_tab <n>",
         Action::ConsoleSend(_) => "console.send [<key>]",
         _ => spec.name,
     }

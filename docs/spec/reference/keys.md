@@ -39,6 +39,7 @@ changes them ([keys](../keys.md)).
 | `window.maximize_height` | Tallest | make the focused window as tall as the others allow | `global`: `Ctrl+q _` |
 | `window.maximize_width` | Widest | make the focused window as wide as the others allow | `global`: `Ctrl+q \|` |
 | `window.to_tab` | Move Window to a New Tab | move the focused window to a new tab, unless it is the only one of its tab | `global`: `Ctrl+q T` |
+| `window.into_last_tab` |  | move the focused window into the content's tab shown before the one shown now, split beside that tab's focused window, right of it, and focused there; its own tab closes when it held nothing else ([content](../content.md)) | `global`: `Ctrl+q M`, `Ctrl+q m m` |
 | `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
 | `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
 | `tab.last` | Tab Before | show the content's tab shown before the one shown now | `global`: `Ctrl+q g Tab` |
@@ -132,6 +133,7 @@ changes them ([keys](../keys.md)).
 | `viewer.copy_path` |  | in a viewer, copy the path of the file it shows | `viewer`: `y` |
 | `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`) |
 | `tab.go <n>` |  | show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are | `global`: `Ctrl+q 1` (`tab.go 1`), `Ctrl+q 2` (`tab.go 2`), `Ctrl+q 3` (`tab.go 3`), `Ctrl+q 4` (`tab.go 4`), `Ctrl+q 5` (`tab.go 5`), `Ctrl+q 6` (`tab.go 6`), `Ctrl+q 7` (`tab.go 7`), `Ctrl+q 8` (`tab.go 8`), `Ctrl+q 9` (`tab.go 9`), `Mod+1` (`tab.go 1`), `Mod+2` (`tab.go 2`), `Mod+3` (`tab.go 3`), `Mod+4` (`tab.go 4`), `Mod+5` (`tab.go 5`), `Mod+6` (`tab.go 6`), `Mod+7` (`tab.go 7`), `Mod+8` (`tab.go 8`), `Mod+9` (`tab.go 9`) |
+| `window.into_tab <n>` |  | move the focused window into the content's tab numbered `n`, as `window.into_last_tab` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are | `global`: `Ctrl+q m 1` (`window.into_tab 1`), `Ctrl+q m 2` (`window.into_tab 2`), `Ctrl+q m 3` (`window.into_tab 3`), `Ctrl+q m 4` (`window.into_tab 4`), `Ctrl+q m 5` (`window.into_tab 5`), `Ctrl+q m 6` (`window.into_tab 6`), `Ctrl+q m 7` (`window.into_tab 7`), `Ctrl+q m 8` (`window.into_tab 8`), `Ctrl+q m 9` (`window.into_tab 9`) |
 
 ## Default bindings
 
@@ -169,6 +171,17 @@ changes them ([keys](../keys.md)).
 "Ctrl+q _" = "window.maximize_height"
 "Ctrl+q |" = "window.maximize_width"
 "Ctrl+q T" = "window.to_tab"
+"Ctrl+q m 1" = "window.into_tab 1"
+"Ctrl+q m 2" = "window.into_tab 2"
+"Ctrl+q m 3" = "window.into_tab 3"
+"Ctrl+q m 4" = "window.into_tab 4"
+"Ctrl+q m 5" = "window.into_tab 5"
+"Ctrl+q m 6" = "window.into_tab 6"
+"Ctrl+q m 7" = "window.into_tab 7"
+"Ctrl+q m 8" = "window.into_tab 8"
+"Ctrl+q m 9" = "window.into_tab 9"
+"Ctrl+q M" = "window.into_last_tab"
+"Ctrl+q m m" = "window.into_last_tab"
 "Ctrl+q [" = "console.read"
 "Ctrl+Tab" = "tab.next"
 "Ctrl+Shift+Tab" = "tab.prev"

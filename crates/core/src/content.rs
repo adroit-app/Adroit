@@ -6,6 +6,7 @@ pub mod draft;
 mod focus;
 mod layout;
 mod listing;
+mod moving;
 mod naming;
 mod tab;
 mod windows;
@@ -25,6 +26,7 @@ pub use focus::*;
 pub use layout::*;
 pub(crate) use listing::{listed, tell_live};
 pub use listing::{newly_waiting, waits_to_come_back};
+pub use moving::*;
 pub use naming::*;
 pub use tab::*;
 pub(crate) use windows::*;
@@ -44,6 +46,8 @@ pub struct ContentView {
     pub last_shown: HashMap<PathBuf, String>,
     /// A border between windows being dragged.
     pub drag: Option<WindowDrag>,
+    /// A window being dragged with the mouse, to move it.
+    pub moving: Option<WindowMove>,
     pub drafts: Drafts,
     /// Where a session started with nothing open runs.
     scratch: PathBuf,
@@ -85,6 +89,7 @@ impl Default for ContentView {
             came_from: None,
             last_shown: HashMap::new(),
             drag: None,
+            moving: None,
             drafts: Drafts::default(),
             scratch: PathBuf::new(),
             spot: Spot::SIDEBAR,
@@ -471,6 +476,46 @@ pub(crate) fn drag_move(view: &mut ContentView, pos: f64) -> Vec<Effect> {
     Vec::new()
 }
 
+/// The pointer pressed the window `window` at `at`, to drag it.
+pub(crate) fn move_start(view: &mut ContentView, window: WindowId, at: (f64, f64)) -> Vec<Effect> {
+    view.moving = Some(WindowMove::new(window, at));
+    Vec::new()
+}
+
+/// The pointer, pressing a window, moved to `at`, over `over`; held over a
+/// tab while dragging, it shows that tab.
+pub(crate) fn move_over(
+    view: &mut ContentView,
+    at: (f64, f64),
+    over: Option<DropAt>,
+) -> Vec<Effect> {
+    let Some(moving) = view.moving.as_mut() else {
+        return Vec::new();
+    };
+    moving.point(at, over);
+    if let Some(DropAt::Tab(tab)) = moving.over
+        && tab != view.windows.current_index()
+    {
+        view.windows.go_to_tab(tab);
+    }
+    Vec::new()
+}
+
+/// The pointer let a window go, or left the window: it moves where it was
+/// dropped, if anywhere.
+pub(crate) fn move_end(view: &mut ContentView) -> Vec<Effect> {
+    if let Some(WindowMove {
+        window,
+        dragging: true,
+        over: Some(to),
+        ..
+    }) = view.moving.take()
+    {
+        view.windows.drop_window(window, to);
+    }
+    Vec::new()
+}
+
 pub(crate) fn drag_end(view: &mut ContentView) -> Vec<Effect> {
     view.drag = None;
     Vec::new()
@@ -581,10 +626,10 @@ pub(crate) fn forget_drafts(view: &mut ContentView) {
 }
 
 /// The content is kept for the next run as it changes, once the content kept
-/// from the last run had its chance to come back. A border being dragged is
-/// kept where it is dropped, not at every step on the way.
+/// from the last run had its chance to come back. A border or a window being
+/// dragged is kept where it is dropped, not at every step on the way.
 pub(crate) fn keep_content(view: &mut ContentView) -> Vec<Effect> {
-    if !view.restored || view.drag.is_some() {
+    if !view.restored || view.drag.is_some() || view.moving.is_some() {
         return Vec::new();
     }
     let now = match view

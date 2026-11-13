@@ -767,6 +767,116 @@ fn dragging_a_border_resizes_the_windows_beside_it() {
     assert_eq!(dropped.state().content.drag, None);
 }
 
+fn window_showing(run: &Scenario, name: &str) -> WindowId {
+    let thing = Tab::Session(here(), name.into());
+    run.state()
+        .content
+        .windows
+        .tabs()
+        .iter()
+        .flat_map(|t| t.windows())
+        .find(|w| w.shows == thing)
+        .map(|w| w.id)
+        .unwrap()
+}
+
+#[test]
+fn a_window_dragged_onto_a_side_of_another_moves_there_once_let_go() {
+    let run = Scenario::new()
+        .send(opened(None))
+        .send(show(session_tab("a")))
+        .event(listing([session("a").cwd("/r"), session("b").cwd("/r")]))
+        .send(Msg::Show {
+            thing: Tab::Session(here(), "b".into()),
+            place: place("/r"),
+            how: Some(Opening::Tab),
+        });
+    let (a, b) = (window_showing(&run, "a"), window_showing(&run, "b"));
+    let dragging = run
+        .send(Msg::WindowMoveStart {
+            window: b,
+            x: 10.0,
+            y: 10.0,
+        })
+        .send(Msg::WindowMoveOver {
+            x: 300.0,
+            y: 10.0,
+            over: Some(DropAt::Side(a, Dir::Left)),
+        });
+    assert_eq!(
+        dragging.state().content.windows.tabs().len(),
+        2,
+        "moved once let go"
+    );
+    assert!(kept_content(&dragging).is_empty(), "kept once dropped");
+    let dropped = dragging.send(Msg::WindowMoveEnd);
+    let windows = &dropped.state().content.windows;
+    assert_eq!(windows.tabs().len(), 1);
+    assert_eq!(windows.focused(), Some(&Tab::Session(here(), "b".into())));
+    assert_eq!(dropped.state().content.moving, None);
+    assert_eq!(
+        kept_content(&dropped),
+        [dropped.state().content.windows.kept(kept_name)]
+    );
+}
+
+#[test]
+fn a_window_dragged_over_a_tab_shows_it_and_let_go_elsewhere_stays() {
+    let run = Scenario::new()
+        .send(show(session_tab("a")))
+        .send(Msg::Show {
+            thing: Tab::Session(here(), "b".into()),
+            place: place("/w"),
+            how: Some(Opening::Tab),
+        });
+    let b = window_showing(&run, "b");
+    let over_tab = run
+        .send(Msg::WindowMoveStart {
+            window: b,
+            x: 10.0,
+            y: 10.0,
+        })
+        .send(Msg::WindowMoveOver {
+            x: 50.0,
+            y: 10.0,
+            over: Some(DropAt::Tab(0)),
+        });
+    assert_eq!(over_tab.state().content.windows.current_index(), 0);
+    let away = over_tab
+        .send(Msg::WindowMoveOver {
+            x: 400.0,
+            y: 400.0,
+            over: None,
+        })
+        .send(Msg::WindowMoveEnd);
+    assert_eq!(away.state().content.windows.tabs().len(), 2);
+}
+
+#[test]
+fn a_window_pressed_and_let_go_without_moving_stays() {
+    let run = Scenario::new()
+        .send(show(session_tab("a")))
+        .send(Msg::Window(Action::WindowVsplit));
+    let id = run.state().content.windows.focused_window().unwrap();
+    let a = run.state().content.windows.current().unwrap().windows()[0].id;
+    let clicked = run
+        .send(Msg::WindowMoveStart {
+            window: id,
+            x: 10.0,
+            y: 10.0,
+        })
+        .send(Msg::WindowMoveOver {
+            x: 11.0,
+            y: 10.0,
+            over: Some(DropAt::Side(a, Dir::Left)),
+        })
+        .send(Msg::WindowMoveEnd);
+    assert_eq!(
+        clicked.state().content.windows.current().unwrap().windows()[1].id,
+        id
+    );
+}
+
 #[test]
 fn the_details_describe_the_focused_window_s_worktree_and_nothing_while_nothing_is_open() {
     let run = Scenario::new().send(Msg::Show {

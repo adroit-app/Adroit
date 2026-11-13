@@ -42,6 +42,7 @@ pub enum Action {
     WindowMaximizeHeight,
     WindowMaximizeWidth,
     WindowToTab,
+    WindowIntoLastTab,
     TabNext,
     TabPrev,
     TabLast,
@@ -137,6 +138,9 @@ pub enum Action {
     ConsoleSend(Option<Chord>),
     /// Show the content's tab of this number, counted from 1.
     TabGo(u8),
+    /// Move the focused window into the content's tab of this number,
+    /// counted from 1.
+    WindowIntoTab(u8),
 }
 
 /// Which of a right-click menu's groups an entry is drawn in.
@@ -277,6 +281,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .bar("Tallest", Icon::ArrowAutofitHeight),
     S::new(A::WindowMaximizeWidth, "window.maximize_width", "make the focused window as wide as the others allow").bar("Widest", Icon::ArrowAutofitWidth),
     S::new(A::WindowToTab, "window.to_tab", "move the focused window to a new tab, unless it is the only one of its tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
+    S::new(A::WindowIntoLastTab, "window.into_last_tab", "move the focused window into the content's tab shown before the one shown now, split beside that tab's focused window, right of it, and focused there; its own tab closes when it held nothing else ([content](content.md))").says("Move window into the tab before"),
     S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(Steps::Tabs),
     S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(Steps::Tabs),
     S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
@@ -418,6 +423,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::ViewerCopyPath, "viewer.copy_path", "in a viewer, copy the path of the file it shows").says("Copy the path"),
     S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
     S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are").says("Go to tab"),
+    S::new(A::WindowIntoTab(1), "window.into_tab", "move the focused window into the content's tab numbered `n`, as `window.into_last_tab` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are").says("Move window into tab"),
 ];
 
 impl Action {
@@ -432,8 +438,28 @@ impl Action {
             .unwrap_or_default();
         match self {
             Action::ConsoleSend(Some(c)) => format!("Send {c} to the console"),
-            Action::TabGo(n) => format!("{label} {n}"),
-            _ => label.to_string(),
+            _ => match self.number() {
+                Some(n) => format!("{label} {n}"),
+                None => label.to_string(),
+            },
+        }
+    }
+
+    /// The tab's number an action that takes one names.
+    pub fn number(&self) -> Option<u8> {
+        match self {
+            Action::TabGo(n) | Action::WindowIntoTab(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// The same action naming the tab numbered `n`; one that takes no
+    /// number stays as it is.
+    pub fn numbered(&self, n: u8) -> Action {
+        match self {
+            Action::TabGo(_) => Action::TabGo(n),
+            Action::WindowIntoTab(_) => Action::WindowIntoTab(n),
+            a => a.clone(),
         }
     }
 
@@ -457,11 +483,11 @@ impl Action {
     }
 
     /// Every action's name that a binding can name alone, as the Settings
-    /// window offers them: not `none`, nor `tab.go`, which needs a number.
+    /// window offers them: not `none`, nor those that need a tab's number.
     pub fn names() -> impl Iterator<Item = &'static str> {
         ACTIONS
             .iter()
-            .filter(|s| !matches!(s.action, Action::None | Action::TabGo(_)))
+            .filter(|s| s.action != Action::None && s.action.number().is_none())
             .map(|s| s.name)
     }
 }
@@ -481,11 +507,11 @@ impl FromStr for Action {
             .ok_or_else(unknown)?;
         Ok(match (&spec.action, arg) {
             (Action::ConsoleSend(_), Some(k)) => Action::ConsoleSend(Some(Chord::parse(k)?)),
-            (Action::TabGo(_), Some(n)) => match n.parse::<u8>() {
-                Ok(n @ 1..=9) => Action::TabGo(n),
+            (a, Some(n)) if a.number().is_some() => match n.parse::<u8>() {
+                Ok(n @ 1..=9) => a.numbered(n),
                 _ => return Err(Error(format!("{text:?} names no tab from 1 to 9"))),
             },
-            (Action::TabGo(_), None) => return Err(unknown()),
+            (a, None) if a.number().is_some() => return Err(unknown()),
             (Action::ConsoleSend(_), None) => Action::ConsoleSend(None),
             (action, None) => action.clone(),
             (_, Some(_)) => return Err(unknown()),
@@ -498,8 +524,10 @@ impl fmt::Display for Action {
         let name = self.spec().name;
         match self {
             Action::ConsoleSend(Some(c)) => write!(f, "{name} {c}"),
-            Action::TabGo(n) => write!(f, "{name} {n}"),
-            _ => f.write_str(name),
+            _ => match self.number() {
+                Some(n) => write!(f, "{name} {n}"),
+                None => f.write_str(name),
+            },
         }
     }
 }
@@ -516,11 +544,11 @@ mod tests {
         ($($variant:ident),* $(,)?) => {{
             fn _listed(a: &Action) {
                 match a {
-                    Action::ConsoleSend(_) | Action::TabGo(_) => {}
+                    Action::ConsoleSend(_) | Action::TabGo(_) | Action::WindowIntoTab(_) => {}
                     $(Action::$variant => {})*
                 }
             }
-            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1)]
+            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1), Action::WindowIntoTab(1)]
         }};
     }
 
@@ -555,6 +583,7 @@ mod tests {
             WindowMaximizeHeight,
             WindowMaximizeWidth,
             WindowToTab,
+            WindowIntoLastTab,
             TabNext,
             TabPrev,
             TabLast,
@@ -672,10 +701,7 @@ mod tests {
     #[test]
     fn every_action_reads_from_the_name_its_row_gives_and_back() {
         for spec in ACTIONS {
-            let action = match spec.action {
-                Action::TabGo(_) => Action::TabGo(3),
-                ref a => a.clone(),
-            };
+            let action = spec.action.numbered(3);
             assert_eq!(action.to_string().parse::<Action>(), Ok(action.clone()));
             assert!(action.to_string().starts_with(spec.name), "{}", spec.name);
         }
@@ -726,6 +752,7 @@ mod tests {
         assert!(names.contains(&"console.send"));
         assert!(!names.contains(&"none"));
         assert!(!names.contains(&"tab.go"));
+        assert!(!names.contains(&"window.into_tab"));
         for n in names {
             assert!(n.parse::<Action>().is_ok(), "{n}");
         }
@@ -746,6 +773,11 @@ mod tests {
         assert!("tab.go".parse::<Action>().is_err());
         assert!("tab.go 0".parse::<Action>().is_err());
         assert_eq!("tab.go 9".parse::<Action>(), Ok(Action::TabGo(9)));
+        assert!("window.into_tab".parse::<Action>().is_err());
+        assert_eq!(
+            "window.into_tab 2".parse::<Action>(),
+            Ok(Action::WindowIntoTab(2))
+        );
         assert_eq!("none".parse::<Action>(), Ok(Action::None));
     }
 

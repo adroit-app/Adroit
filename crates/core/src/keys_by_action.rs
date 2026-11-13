@@ -95,7 +95,7 @@ pub fn sections(text: &str) -> Result<Vec<Section>, Error> {
     let defaults = Keymap::defaults().listed();
     let mut actions: Vec<String> = ACTIONS
         .iter()
-        .filter(|s| !matches!(s.action, Action::None | Action::TabGo(_)))
+        .filter(|s| s.action != Action::None && s.action.number().is_none())
         .map(|s| s.name.to_string())
         .collect();
     for (_, _, action) in defaults.iter().chain(&now) {

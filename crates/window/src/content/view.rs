@@ -10,10 +10,10 @@ use dioxus::prelude::*;
 
 use super::bodies::{DrawnWindow, FocusedBody, UnfocusedBody, ViewerWindow};
 use super::tabs_bar::TabsBar;
-use super::window::{ContentWindow, WindowBorder, window_strip};
+use super::window::{ContentWindow, WindowBorder, WindowDrop, window_strip};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
-use crate::content::{Tab, WindowId, thing_name};
+use crate::content::{DropAt, Tab, WindowId, thing_name};
 use crate::pictures::Gallery;
 use crate::viewers;
 use adroit_core::overlay::context_menu::Target;
@@ -41,9 +41,13 @@ pub(crate) fn ContentPanel(
     // How large the content's windows are drawn, which a border's drag is
     // measured against.
     let mut drawn = use_signal(|| (0.0f64, 0.0f64));
-    let (windows, marked_window) = {
+    let (windows, marked_window, moving) = {
         let content = app.content.read();
-        (content.windows.clone(), content.marked_window())
+        (
+            content.windows.clone(),
+            content.marked_window(),
+            content.moving.clone(),
+        )
     };
     let focused_window = windows.focused_window();
     let windows_el: Vec<Element> = match windows.current() {
@@ -110,6 +114,17 @@ pub(crate) fn ContentPanel(
                 out.push(rsx! {
                     WindowBorder { key: "{key}", border: b, drawn }
                 });
+            }
+            if let Some(moving) = moving.filter(|m| m.dragging) {
+                for (id, r) in tab.rects() {
+                    let over = match moving.over {
+                        Some(DropAt::Side(w, side)) if w == id => Some(side),
+                        _ => None,
+                    };
+                    out.push(rsx! {
+                        WindowDrop { key: "drop-{id}", id, r, drawn, over }
+                    });
+                }
             }
             out
         }

@@ -118,6 +118,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::WindowDragMove(pos) => content::drag_move(&mut state.content, pos),
         Msg::WindowDragEnd => content::drag_end(&mut state.content),
+        Msg::WindowMoveStart { window, x, y } => {
+            content::move_start(&mut state.content, window, (x, y))
+        }
+        Msg::WindowMoveOver { x, y, over } => content::move_over(&mut state.content, (x, y), over),
+        Msg::WindowMoveEnd => content::move_end(&mut state.content),
         Msg::OpenLogin {
             environment,
             profile,

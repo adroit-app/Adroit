@@ -11,7 +11,7 @@ use dioxus::prelude::*;
 use super::short;
 use crate::bridge::AppCtx;
 use crate::components::{AgentBadge, FileGlyph, Spacer, StateGlyph, TerminalMark, glyph, runs_of};
-use crate::content::{Axis, Border, Rect, Tab, WindowId, thing_name};
+use crate::content::{Axis, Border, Dir, DropAt, Rect, Tab, WindowId, side_at, thing_name};
 use crate::file_icons;
 use crate::icons::{Icon, IconView};
 use crate::nav;
@@ -93,6 +93,12 @@ fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
     let shell = matches!(strip.mark, StripMark::Terminal(_));
     rsx! {
         div { class: if shell { "win-bar shell" } else { "win-bar" },
+            title: "Drag onto a side of a window, or onto a tab, to move the window there",
+            onmousedown: move |e: Event<MouseData>| {
+                e.prevent_default();
+                let at = e.client_coordinates();
+                app.dispatch(Msg::WindowMoveStart { window: id, x: at.x, y: at.y });
+            },
             match strip.mark {
                 StripMark::Terminal(runs) => rsx! { TerminalMark { runs } },
                 StripMark::File(glyph, colour) => rsx! { FileGlyph { glyph, style: colour } },
@@ -162,6 +168,55 @@ pub(super) fn ContentWindow(
             onmousedown: move |_| app.dispatch(Msg::WindowFocus(id)),
             WindowStrip { id, strip, preview }
             {body}
+        }
+    }
+}
+
+/// Where a window being dragged would drop onto the window `id`, drawn over
+/// it at its share `r` of the content, `drawn` being how large the content's
+/// windows are drawn; `over` is the side it would drop onto now, if any.
+#[component]
+pub(super) fn WindowDrop(
+    id: WindowId,
+    r: Rect,
+    drawn: ReadSignal<(f64, f64)>,
+    over: Option<Dir>,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    let style = format!(
+        "left:{}%;top:{}%;width:{}%;height:{}%",
+        r.left * 100.0,
+        r.top * 100.0,
+        r.width * 100.0,
+        r.height * 100.0
+    );
+    let side = over.map(|d| match d {
+        Dir::Left => "win-drop-side left",
+        Dir::Right => "win-drop-side right",
+        Dir::Up => "win-drop-side up",
+        Dir::Down => "win-drop-side down",
+    });
+    rsx! {
+        div {
+            class: "win-drop",
+            style: "{style}",
+            onmousemove: move |e: Event<MouseData>| {
+                e.stop_propagation();
+                let (w, h) = *drawn.peek();
+                let inside = e.element_coordinates();
+                let at = e.client_coordinates();
+                let side = (w > 0.0 && h > 0.0)
+                    .then(|| side_at(inside.x / (r.width * w), inside.y / (r.height * h)))
+                    .flatten();
+                app.dispatch(Msg::WindowMoveOver {
+                    x: at.x,
+                    y: at.y,
+                    over: side.map(|d| DropAt::Side(id, d)),
+                });
+            },
+            if let Some(class) = side {
+                div { class }
+            }
         }
     }
 }

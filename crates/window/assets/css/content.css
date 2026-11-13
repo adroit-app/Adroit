@@ -34,3 +34,12 @@
 .win-border.row { width: 6px; margin-left: -3px; cursor: col-resize; }
 .win-border.column { height: 6px; margin-top: -3px; cursor: row-resize; }
 .app-body.dragging.rows, .app-body.dragging.rows * { cursor: row-resize !important; }
+/* A window being dragged: each window takes the pointer over it, shading the side it would drop onto. */
+.app-body.moving, .app-body.moving * { cursor: grabbing !important; user-select: none; }
+.win-drop { position: absolute; z-index: 3; }
+.win-drop-side { position: absolute; background: var(--select); border: 1px solid var(--focus-border); border-radius: 8px; opacity: 0.6; pointer-events: none; }
+.win-drop-side.left { left: 0; top: 0; bottom: 0; width: 50%; }
+.win-drop-side.right { right: 0; top: 0; bottom: 0; width: 50%; }
+.win-drop-side.up { left: 0; right: 0; top: 0; height: 50%; }
+.win-drop-side.down { left: 0; right: 0; bottom: 0; height: 50%; }
+.tab.drop { outline: 1px solid var(--focus-border); }

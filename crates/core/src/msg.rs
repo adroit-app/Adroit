@@ -9,7 +9,7 @@ use adroit_protocol::Event;
 
 use crate::actions::Action;
 use crate::console::Probe;
-use crate::content::{Area, Border, DraftOptions, Opening, Tab, WindowId};
+use crate::content::{Area, Border, DraftOptions, DropAt, Opening, Tab, WindowId};
 use crate::details::{self, Sheet};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
@@ -184,6 +184,22 @@ pub enum Msg {
     WindowDragMove(f64),
     /// The pointer let go, or left the window.
     WindowDragEnd,
+    /// The pointer pressed a window's strip, or a tab for its focused
+    /// window, at `x`, `y`, to drag it.
+    WindowMoveStart {
+        window: WindowId,
+        x: f64,
+        y: f64,
+    },
+    /// The pointer moved to `x`, `y`, over where a window dragged would go,
+    /// if anywhere.
+    WindowMoveOver {
+        x: f64,
+        y: f64,
+        over: Option<DropAt>,
+    },
+    /// The pointer let a window go, or left the window.
+    WindowMoveEnd,
     /// Open a terminal running the CLI's own login where this profile runs
     /// it.
     OpenLogin {
