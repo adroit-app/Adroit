@@ -376,7 +376,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .icon(Icon::Link)
         .row("Pair again…", Reach),
     S::new(A::WorkspaceAdd, "workspace.add", "open the picker on the directories alone, to add the one chosen to the tree with nothing running there ([details](tree.md#going-to-a-session-or-starting-one))")
-        .bar("Add to Tree…", Icon::Plus)
+        .bar("Add to Tree…", Icon::FolderPlus)
         .row("Add to tree…", Start),
     S::new(A::WorkspaceRemove, "workspace.remove", "take the workspace selected in the tree out of it, which lists it while nothing runs there too; where something runs, ask first and end every session and terminal running there. Starting anything there lists it again ([details](tree.md#workspaces-and-worktrees))")
         .icon(Icon::SquareMinus)

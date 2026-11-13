@@ -82,6 +82,7 @@ icons! {
     Folder => "folder",
     FolderDown => "folder-down",
     FolderOpen => "folder-open",
+    FolderPlus => "folder-plus",
     FolderSearch => "folder-search",
     FolderUp => "folder-up",
     GitBranch => "git-branch",
