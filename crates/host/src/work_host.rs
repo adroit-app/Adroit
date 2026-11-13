@@ -493,6 +493,21 @@ mod tests {
         dir
     }
 
+    /// A work host bound at `socket` once what this process let go of there
+    /// is gone. A child another test forks holds this process's sockets and
+    /// locks until it execs, and answers or locks for them meanwhile.
+    async fn bound_once_let_go(socket: &Path) -> WorkHostServer {
+        let until = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match WorkHostServer::bind(socket).await {
+                Err(Error::Taken(_)) if tokio::time::Instant::now() < until => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                bound => return bound.unwrap(),
+            }
+        }
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_private_socket_replaces_what_an_earlier_run_left_and_is_open_to_no_one_else() {
@@ -646,7 +661,7 @@ mod tests {
         ));
         assert!(!socket.exists());
         drop(claim);
-        assert!(WorkHostServer::bind(&socket).await.is_ok());
+        bound_once_let_go(&socket).await;
     }
 
     #[tokio::test]
@@ -670,7 +685,7 @@ mod tests {
         assert!(adroit_sys::local::connect(&socket).await.is_ok());
         drop(owners);
         assert!(!socket.exists());
-        assert!(WorkHostServer::bind(&socket).await.is_ok());
+        bound_once_let_go(&socket).await;
     }
 
     #[cfg(unix)]
@@ -678,9 +693,11 @@ mod tests {
     async fn a_socket_left_by_a_work_host_gone_before_is_taken_over() {
         let dir = short_dir();
         let socket = dir.path().join("h.sock");
-        drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+        // Bound and never listening, as a listener closed here would still
+        // answer from a child another test forks until that child execs.
+        drop(std::os::unix::net::UnixDatagram::bind(&socket).unwrap());
         assert!(socket.exists());
-        assert!(WorkHostServer::bind(&socket).await.is_ok());
+        WorkHostServer::bind(&socket).await.unwrap();
     }
 
     /// One connected to a work host, as a window or a command is.
