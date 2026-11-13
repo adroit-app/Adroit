@@ -773,7 +773,8 @@ fn remote_jobs_cannot_change_another_environments_terminal_by_runtime_id() {
                     if let Some(Event::Answer { asked: 99, answer }) = link.events.next().await.unwrap() { break answer; }
                 }
             }).await.unwrap();
-            assert!(matches!(answer, Answer::Mutation { status: MutationState::Result { answer } } if matches!(*answer, Answer::Failed { ref text } if text == "the session belongs to another working environment")), "job {index} was not refused by ownership");
+            let shown = format!("{answer:?}");
+            assert!(matches!(answer, Answer::Mutation { status: MutationState::Result { answer } } if matches!(*answer, Answer::Failed { ref text } if text == "the session belongs to another working environment")), "job {index} was not refused by ownership: {shown}");
             let listed = daemon.sessions().await.unwrap();
             assert!(listed.iter().any(|s| s.id == id && !s.exited));
             assert!(!listed.iter().any(|s| s.tags.contains(&"adroit.name=foreign".to_string())));
@@ -1625,4 +1626,82 @@ fn a_work_host_lists_its_environments_with_the_names_windows_called_them_and_the
             ]
         );
     });
+}
+
+#[test]
+fn the_hosts_a_window_on_the_work_machine_started_are_the_ones_a_paired_client_reaches() {
+    let hosts = Hosts::new();
+    let started = isolated(hosts.0.path())
+        .args([
+            "terminal",
+            "start",
+            "--program",
+            "command",
+            "--name",
+            "at-the-machine",
+            "--dir",
+            hosts.0.path().to_str().unwrap(),
+            "--json",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf here; read answer",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let info = remote_info(&hosts);
+    assert_eq!(
+        std::fs::read_link(info["terminal"]["socket"].as_str().unwrap()).unwrap(),
+        hosts.0.path().join("term.sock")
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let remote = Path::new(info["work"]["socket"].as_str().unwrap());
+        let listed = adroit_protocol::client::environments(remote).await.unwrap();
+        assert_eq!(listed[0].running, 1);
+        let paired = adroit_protocol::client::Connection::open_unscoped(remote)
+            .await
+            .unwrap();
+        assert!(paired.hello.endpoint.is_some());
+        assert!(paired.hello.mutation_epoch.is_some());
+        let local =
+            adroit_protocol::client::Connection::open_unscoped(&hosts.0.path().join("work.sock"))
+                .await
+                .unwrap();
+        assert!(local.hello.endpoint.is_none());
+        assert!(local.hello.mutation_epoch.is_none());
+    });
+}
+
+#[test]
+fn a_gateway_starts_the_instance_s_hosts_where_none_run_and_leaves_them_running_when_it_stops() {
+    let hosts = Hosts::new();
+    let gateway = Service(
+        isolated(hosts.0.path())
+            .args([
+                "remote",
+                "gateway",
+                "--listen",
+                "127.0.0.1:0",
+                "--no-advertise",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let info = remote_info(&hosts);
+    drop(gateway);
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(remote_info(&hosts)["work"]["pid"], info["work"]["pid"]);
+    assert!(hosts.0.path().join("work.sock").exists());
 }

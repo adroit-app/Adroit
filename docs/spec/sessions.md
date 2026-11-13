@@ -241,7 +241,7 @@ the shown tab's environment.
 The hosts and session commands can be built without the desktop window. That
 build never opens a window, and refuses the window's editor integration. Its
 sessions and terminals have the same lifetime as those started by the desktop
-build. On a work machine the hosts run as services
+build. On a work machine its gateway keeps the hosts running
 ([remote hosts](remote-execution.md)).
 
 A session ends when its program exits or when it is ended from Adroit. Its

@@ -11,20 +11,28 @@ use adroit_protocol::{RemoteEndpoint, RemoteInfo, is_generation};
 
 const LIMIT: u64 = 65536;
 static OURS: OnceLock<RemoteEndpoint> = OnceLock::new();
-static TERMINAL: OnceLock<RemoteEndpoint> = OnceLock::new();
 
+/// Whether what is being done was asked by a paired client.
 pub fn active() -> bool {
-    std::env::var("ADROIT_REMOTE").as_deref() == Ok("1")
+    crate::environment::remote()
 }
+
+/// This work host as paired clients reach it, once it published itself.
 pub fn ours() -> Option<&'static RemoteEndpoint> {
     OURS.get()
 }
 
-pub fn terminal() -> Option<&'static RemoteEndpoint> {
-    TERMINAL.get()
+/// The terminal host of this instance as paired clients reach it, while it
+/// runs; read afresh, since it can be replaced while the work host runs.
+pub fn terminal() -> Option<RemoteEndpoint> {
+    let terminal = read_endpoint(&root(), "terminal").ok()?;
+    live(&terminal).ok()?;
+    Some(terminal)
 }
+/// Where the instance keeps what paired clients find its hosts by; one for
+/// every environment it serves.
 pub(crate) fn root() -> PathBuf {
-    adroit_model::paths::remote_dir(&crate::paths::instance_state())
+    adroit_model::paths::remote_dir(&adroit_model::paths::instance_state())
 }
 
 fn invalid(error: impl std::fmt::Display) -> std::io::Error {
@@ -134,49 +142,27 @@ pub fn info() -> std::io::Result<RemoteInfo> {
     Ok(info)
 }
 
-/// Refresh inherited endpoints after a work host was replaced. Called
-/// before any runtime or agent-owned login is started.
-pub fn refresh_client() -> std::io::Result<()> {
-    if !active() {
-        return Ok(());
-    }
-    let info = info()?;
-    // SAFETY: the executable calls this before creating threads.
-    unsafe {
-        std::env::set_var("ADROIT_HOST", &info.work.socket);
-        std::env::set_var("ADROIT_DAEMON", &info.terminal.socket);
-    }
-    Ok(())
-}
-
-/// How long a work host waits for its terminal host to publish itself, as
-/// it may when both start with the machine.
-const TERMINAL_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// The live terminal host of this instance, once it has published itself.
-fn terminal_published(dir: &Path) -> std::io::Result<RemoteEndpoint> {
-    let until = std::time::Instant::now() + TERMINAL_WAIT;
-    loop {
-        let found = read_endpoint(dir, "terminal").and_then(|terminal| {
-            live(&terminal)?;
-            Ok(terminal)
-        });
-        match found {
-            Ok(terminal) => return Ok(terminal),
-            Err(error) if std::time::Instant::now() >= until => return Err(error),
-            Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
-        }
-    }
-}
-
-struct Publication {
+/// What a host published of itself for paired clients to find it by, taken
+/// back when the host ends.
+pub struct Publication {
     endpoint: RemoteEndpoint,
     record: PathBuf,
     _claim: File,
 }
 
 impl Publication {
-    fn create(role: &str) -> std::io::Result<Self> {
+    /// Where paired clients reach the host.
+    pub fn socket(&self) -> &Path {
+        &self.endpoint.socket
+    }
+
+    pub fn endpoint(&self) -> &RemoteEndpoint {
+        &self.endpoint
+    }
+
+    /// Publish this process as the instance's host of `role`, reached at
+    /// `socket`, or else at a socket of its own a new generation names.
+    pub fn create(role: &str, socket: Option<&Path>) -> std::io::Result<Self> {
         let dir = root();
         std::fs::create_dir_all(dir.parent().unwrap())?;
         private_dir(&dir, true)?;
@@ -192,29 +178,28 @@ impl Publication {
             .try_lock()
             .map_err(|e| invalid(format!("remote {role} host is already owned: {e}")))?;
         let identity = instance(&dir)?;
-        if role == "work" {
-            let terminal = terminal_published(&dir)?;
-            if terminal.instance != identity {
-                return Err(invalid("terminal host belongs to another instance"));
-            }
-            TERMINAL
-                .set(terminal.clone())
-                .map_err(|_| invalid("terminal identity already set"))?;
-            // SAFETY: the service entry point has not created threads.
-            unsafe {
-                std::env::set_var("ADROIT_DAEMON", terminal.socket);
-            }
-        }
+        let generation = random()?;
         // /tmp keeps Unix socket paths within the platform's small limit.
         let sockets = PathBuf::from(format!("/tmp/adroit-r-{}", adroit_sys::euid()));
         private_dir(&sockets, true)?;
         let sockets = sockets.join(&identity);
         private_dir(&sockets, true)?;
-        let generation = random()?;
-        let socket = sockets.join(format!("{generation}.sock"));
-        if socket.as_os_str().len() > 100 {
+        let generation_socket = sockets.join(format!("{generation}.sock"));
+        if generation_socket.as_os_str().len() > 100 {
             return Err(invalid("remote generation socket path is too long"));
         }
+        // Paired clients know a host by a socket its generation names, so a
+        // host listening where its windows reach it is linked there.
+        if let Some(socket) = socket {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(socket, &generation_socket)?;
+            #[cfg(not(unix))]
+            return Err(invalid(format!(
+                "paired clients cannot reach {} here",
+                socket.display()
+            )));
+        }
+        let socket = generation_socket;
         let protocols = if role == "work" {
             adroit_protocol::SPOKEN.iter().map(|v| v.0).collect()
         } else {
@@ -243,6 +228,11 @@ impl Publication {
             record,
             _claim: claim,
         })
+    }
+
+    /// This work host, published, as the one paired clients reach.
+    pub fn ours(&self) {
+        let _ = OURS.set(self.endpoint.clone());
     }
 }
 
@@ -274,27 +264,9 @@ pub fn cli(operation: RemoteCommand) -> i32 {
             println!("{}", serde_json::to_string(&info()?).map_err(invalid)?);
             return Ok(0);
         }
-        let role = if operation == RemoteCommand::Host {
-            "work"
-        } else {
-            "terminal"
-        };
-        let published = Publication::create(role)?;
-        // SAFETY: this is the executable's synchronous service entry point.
-        unsafe {
-            std::env::set_var("ADROIT_REMOTE", "1");
-            std::env::set_var(
-                if role == "work" {
-                    "ADROIT_HOST"
-                } else {
-                    "ADROIT_DAEMON"
-                },
-                &published.endpoint.socket,
-            );
-        }
-        OURS.set(published.endpoint.clone())
-            .map_err(|_| invalid("remote service identity was already set"))?;
-        Ok(if role == "work" {
+        // The instance's own hosts are the ones paired clients reach; each
+        // publishes itself as it serves.
+        Ok(if operation == RemoteCommand::Host {
             crate::host_cli(HostCommand::Serve)
         } else {
             crate::daemon_cli(DaemonCommand::Serve)

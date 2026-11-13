@@ -1,32 +1,33 @@
 # Remote hosts
 
-The work and terminal hosts can run as independent services on a work machine
-([the hosts](sessions.md#the-hosts)): `adroit remote daemon` and
-`adroit remote host`, with `--instance <name>` selecting their instance, the
-terminal service started before the work service. Each instance has a
-persistent identity, and each host incarnation a new private socket that is
-never reused. `adroit remote info` describes the currently running pair and
-refuses stale discovery. Session commands started in these services discover
-the current work host again, so replacing it does not leave them addressing
-its previous socket. Replacing the work host leaves the terminal host and its
-sessions running; replacing a terminal service ends its sessions, and a
-window never replaces it.
+A work machine serves paired clients from the same work host and terminal
+host its own windows and commands use ([the hosts](sessions.md#the-hosts)), so
+a session started at the machine and one a paired client started are the same
+work, seen and driven from either. Each instance has a persistent identity, and
+each host incarnation publishes itself under a new private socket that is never
+reused. `adroit remote info` describes the currently running pair and refuses
+stale discovery. Replacing the work host leaves the terminal host and its
+sessions running; replacing the terminal host ends its sessions, and a paired
+client never replaces either. What a paired client asks is held to the rules
+of remote changes below; what a window or command at the machine asks is not.
 
-`adroit remote enable` registers an instance's terminal host, work host and
-gateway as the user's services, launchd agents on macOS and systemd user units
-on Linux, so they keep running without a terminal and start again with the
-machine; `--listen` and `--no-advertise` are passed to the gateway. Each runs as a service of its
-own, so restarting the work host or the gateway leaves the terminal host
-running. They start with the PATH the user's login shell had when they were
-enabled. Enabling again restarts the services whose PATH or options changed,
-starts those that stopped, and leaves the others running. On Linux they run without a
+`adroit remote enable` registers an instance's gateway as the user's service,
+a launchd agent on macOS and a systemd user unit on Linux, so it keeps running
+without a terminal and starts again with the machine; `--listen` and
+`--no-advertise` are passed to it. While it runs, the gateway starts the
+instance's hosts whenever none runs, and leaves running ones as they are; the
+hosts keep running when the gateway stops. It starts with the PATH the user's
+login shell had when it was enabled. Enabling again restarts it when its PATH
+or options changed, starts it when it stopped, and otherwise leaves it running.
+Enabling also stops and removes the separate host services an earlier release
+registered, which ends the sessions those held. On Linux it runs without a
 login only when the user has enabled lingering, which `adroit remote enable`
-reports rather than changes. `adroit remote disable` stops and removes them.
-On macOS, enable them with the `adroit` inside Adroit.app and allow Adroit to
+reports rather than changes. `adroit remote disable` stops and removes it.
+On macOS, enable it with the `adroit` inside Adroit.app and allow Adroit to
 find devices on the local network when macOS asks. macOS keeps a bare
 executable started by launchd off the local network: its gateway can still be
 reached at its address, but it cannot announce itself. macOS asks only while
-someone is at the desktop; when it did not ask, enable the services again
+someone is at the desktop; when it did not ask, enable the service again
 from the desktop.
 
 `adroit connect` checks the selected execution target. It discovers both hosts
@@ -115,7 +116,7 @@ flowchart LR
 
 `adroit remote gateway` on the work machine lets paired clients reach the instance's hosts over the
 network, on every interface at port 47130 unless `--listen` names an address.
-It never starts, stops or replaces a host, and it keeps serving across a
+It starts the hosts when none runs but never stops or replaces one, and it keeps serving across a
 replaced work host.
 
 To pair, run `adroit connect pair <address>` on the client. On the work
@@ -123,12 +124,12 @@ machine, run `adroit remote pair` and type the code the client shows once its
 request appears. The client then has an environment for the work machine.
 On the client, adding an environment lists the work machines announced on the
 local network and shows the code; on the work machine, Accept connections in
-Settings turns the services on and off, chooses
+Settings turns the gateway on and off, chooses
 whether the gateway announces itself, allows pairing, takes the code for each
 request, and lists and revokes the paired clients. Turning it on is done once
 the gateway answers; when the gateway does not start, the window says what it
-reported. Turning it off stops what paired clients started there and leaves
-the machine's own work running. Every window manages the same services, those of the default
+reported. Turning it off stops only the gateway: the work paired clients
+started there keeps running as the machine's own. Every window manages the same gateway, that of the default
 instance, since a machine serves one gateway on its port. A machine can pair
 with its own gateway like with any other.
 

@@ -1,5 +1,6 @@
-//! The remote hosts and the gateway registered as the user's services, so
-//! they run without a terminal and start again with the machine.
+//! The gateway registered as the user's service, so it runs without a terminal
+//! and starts again with the machine. The gateway starts the instance's hosts
+//! itself when none runs.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,9 @@ pub enum Role {
 }
 
 impl Role {
-    const ALL: [Role; 3] = [Role::Terminal, Role::Work, Role::Gateway];
+    /// The roles an earlier release ran as services of their own. They are
+    /// still known so that enabling and disabling remove what is left of them.
+    const RETIRED: [Role; 2] = [Role::Terminal, Role::Work];
 
     /// Its `adroit remote` subcommand.
     fn subcommand(self) -> &'static str {
@@ -94,13 +97,23 @@ fn arguments(plan: &Plan, role: Role) -> Vec<String> {
     arguments
 }
 
+fn unit(plan: &Plan, platform: Platform, role: Role) -> Unit {
+    match platform {
+        Platform::Launchd => launchd(plan, role),
+        Platform::Systemd => systemd(plan, role),
+    }
+}
+
 pub fn units(plan: &Plan, platform: Platform) -> Vec<Unit> {
-    Role::ALL
+    vec![unit(plan, platform, Role::Gateway)]
+}
+
+/// The services an earlier release ran for the hosts, by the names and files
+/// it gave them.
+fn retired(plan: &Plan, platform: Platform) -> Vec<Unit> {
+    Role::RETIRED
         .into_iter()
-        .map(|role| match platform {
-            Platform::Launchd => launchd(plan, role),
-            Platform::Systemd => systemd(plan, role),
-        })
+        .map(|role| unit(plan, platform, role))
         .collect()
 }
 
@@ -116,6 +129,12 @@ fn launchd(plan: &Plan, role: Role) -> Unit {
         .map(|argument| format!("\t\t<string>{}</string>\n", escape(argument)))
         .collect();
     let log = plan.logs.join(format!("{}.log", role.subcommand()));
+    // launchd kills the agent's whole process group when it stops, which
+    // would take the hosts the gateway started with it.
+    let abandon = match role {
+        Role::Gateway => "\t<key>AbandonProcessGroup</key>\n\t<true/>\n",
+        _ => "",
+    };
     let text = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
@@ -136,6 +155,7 @@ fn launchd(plan: &Plan, role: Role) -> Unit {
 \t<true/>\n\
 \t<key>KeepAlive</key>\n\
 \t<true/>\n\
+{abandon}\
 \t<key>StandardErrorPath</key>\n\
 \t<string>{log}</string>\n\
 </dict>\n\
@@ -166,13 +186,11 @@ fn systemd_word(text: &str) -> String {
 
 fn systemd(plan: &Plan, role: Role) -> Unit {
     let name = format!("adroit-{}-{}.service", plan.instance, role.subcommand());
-    let after = match role {
-        Role::Terminal => String::new(),
-        _ => format!(
-            "After=adroit-{}-{}.service\n",
-            plan.instance,
-            Role::Terminal.subcommand()
-        ),
+    // systemd kills every process of the unit's control group when it stops,
+    // which would take the hosts the gateway started with it.
+    let kill = match role {
+        Role::Gateway => "KillMode=process\n",
+        _ => "",
     };
     let command = arguments(plan, role)
         .iter()
@@ -182,13 +200,13 @@ fn systemd(plan: &Plan, role: Role) -> Unit {
     let text = format!(
         "[Unit]\n\
 Description=Adroit {describe} ({instance})\n\
-{after}\
 \n\
 [Service]\n\
 ExecStart={command}\n\
 Environment={path}\n\
 Restart=always\n\
 RestartSec=2\n\
+{kill}\
 \n\
 [Install]\n\
 WantedBy=default.target\n",
@@ -240,10 +258,18 @@ fn uid() -> u32 {
     adroit_sys::uid()
 }
 
-/// Writes the services and starts them; returns what the operator should
-/// still know, such as a step only they may take.
+/// Removes the services an earlier release left, writes the services and
+/// starts them; returns what the operator should still know, such as a step
+/// only they may take.
 pub fn enable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result<Vec<String>> {
     std::fs::create_dir_all(&plan.logs)?;
+    // Stopping the retired terminal host ends the sessions it held rather
+    // than leaving it beside the one the gateway starts for the instance.
+    let left: Vec<Unit> = retired(plan, platform)
+        .into_iter()
+        .filter(|unit| unit.file.exists())
+        .collect();
+    stop(&left, platform, run)?;
     let units = units(plan, platform);
     let written = units
         .iter()
@@ -254,11 +280,10 @@ pub fn enable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result
         Platform::Launchd => {
             for (unit, written) in units.iter().zip(written) {
                 let target = format!("gui/{}/{}", uid(), unit.name);
-                // Leaving an unchanged, running agent alone keeps the terminal
-                // host's sessions when only another service changed. One
-                // loaded but stopped is loaded again: launchd does not start
-                // again an agent whose program was missing while the app was
-                // replaced.
+                // Leaving an unchanged, running agent alone keeps the
+                // connections it serves. One loaded but stopped is loaded
+                // again: launchd does not start again an agent whose program
+                // was missing while the app was replaced.
                 if written == Written::Unchanged
                     && run
                         .run("launchctl", &["print".into(), target.clone()])
@@ -312,12 +337,17 @@ pub fn enable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result
     Ok(notes)
 }
 
-/// Stops the services and removes them.
+/// Stops the services, and any an earlier release left, and removes them.
 pub fn disable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result<()> {
-    let units = units(plan, platform);
+    let mut units = units(plan, platform);
+    units.extend(retired(plan, platform));
+    stop(&units, platform, run)
+}
+
+fn stop(units: &[Unit], platform: Platform, run: &dyn Run) -> std::io::Result<()> {
     match platform {
         Platform::Launchd => {
-            for unit in &units {
+            for unit in units {
                 let _ = run.run(
                     "launchctl",
                     &["bootout".into(), format!("gui/{}/{}", uid(), unit.name)],
@@ -479,81 +509,90 @@ mod tests {
     }
 
     #[test]
-    fn launchd_runs_each_service_as_an_agent_of_its_own() {
+    fn launchd_runs_only_the_gateway_as_an_agent() {
         let units = units(&plan(Path::new("/Users/u")), Platform::Launchd);
         let names: Vec<_> = units.iter().map(|u| u.name.as_str()).collect();
+        assert_eq!(names, ["app.adroit.ai.gateway"]);
+        let gateway = &units[0];
+        assert_eq!(gateway.role, Role::Gateway);
         assert_eq!(
-            names,
-            [
-                "app.adroit.ai.daemon",
-                "app.adroit.ai.host",
-                "app.adroit.ai.gateway"
-            ]
+            gateway.file,
+            Path::new("/Users/u/Library/LaunchAgents/app.adroit.ai.gateway.plist")
         );
-        for unit in &units {
-            assert_eq!(
-                unit.file,
-                Path::new("/Users/u/Library/LaunchAgents").join(format!("{}.plist", unit.name))
-            );
-            assert!(
-                unit.text
-                    .contains("<string>/opt/Adroit &amp; Co/bin/adroit</string>")
-            );
-            assert!(
-                unit.text
-                    .contains("<string>--instance</string>\n\t\t<string>ai</string>")
-            );
-            assert!(unit.text.contains("<key>KeepAlive</key>\n\t<true/>"));
-            assert!(
-                unit.text
-                    .contains("<string>/opt/homebrew/bin:/usr/bin:/bin</string>")
-            );
-        }
         assert!(
-            units[2]
+            gateway
+                .text
+                .contains("<string>/opt/Adroit &amp; Co/bin/adroit</string>")
+        );
+        assert!(
+            gateway
+                .text
+                .contains("<string>remote</string>\n\t\t<string>gateway</string>")
+        );
+        assert!(
+            gateway
+                .text
+                .contains("<string>--instance</string>\n\t\t<string>ai</string>")
+        );
+        assert!(gateway.text.contains("<key>KeepAlive</key>\n\t<true/>"));
+        assert!(
+            gateway
+                .text
+                .contains("<string>/opt/homebrew/bin:/usr/bin:/bin</string>")
+        );
+        assert!(
+            gateway
                 .text
                 .contains("<string>--listen</string>\n\t\t<string>10.0.0.2:47130</string>")
         );
-        assert!(!units[1].text.contains("--listen"));
-        assert!(!units[2].text.contains("--no-advertise"));
+        assert!(!gateway.text.contains("--no-advertise"));
         let mut hidden = plan(Path::new("/Users/u"));
         hidden.advertise = false;
         assert!(
-            super::units(&hidden, Platform::Launchd)[2]
+            super::units(&hidden, Platform::Launchd)[0]
                 .text
                 .contains("<string>--no-advertise</string>")
         );
     }
 
     #[test]
-    fn systemd_starts_the_work_host_and_the_gateway_after_the_terminal_host() {
-        let units = units(&plan(Path::new("/home/u")), Platform::Systemd);
-        let names: Vec<_> = units.iter().map(|u| u.name.as_str()).collect();
-        assert_eq!(
-            names,
-            [
-                "adroit-ai-daemon.service",
-                "adroit-ai-host.service",
-                "adroit-ai-gateway.service"
-            ]
-        );
-        assert_eq!(
-            units[0].file,
-            Path::new("/home/u/.config/systemd/user/adroit-ai-daemon.service")
-        );
-        assert!(!units[0].text.contains("After="));
-        for unit in &units[1..] {
-            assert!(unit.text.contains("After=adroit-ai-daemon.service"));
-        }
-        assert!(units[2].text.contains(
-            "ExecStart=\"/opt/Adroit & Co/bin/adroit\" \"remote\" \"gateway\" \"--instance\" \"ai\" \"--listen\" \"10.0.0.2:47130\""
-        ));
+    fn launchd_leaves_the_hosts_the_gateway_started_running_when_it_stops() {
+        let units = units(&plan(Path::new("/Users/u")), Platform::Launchd);
         assert!(
             units[0]
                 .text
+                .contains("<key>AbandonProcessGroup</key>\n\t<true/>")
+        );
+    }
+
+    #[test]
+    fn systemd_runs_only_the_gateway_as_a_unit() {
+        let units = units(&plan(Path::new("/home/u")), Platform::Systemd);
+        let names: Vec<_> = units.iter().map(|u| u.name.as_str()).collect();
+        assert_eq!(names, ["adroit-ai-gateway.service"]);
+        let gateway = &units[0];
+        assert_eq!(gateway.role, Role::Gateway);
+        assert_eq!(
+            gateway.file,
+            Path::new("/home/u/.config/systemd/user/adroit-ai-gateway.service")
+        );
+        assert!(!gateway.text.contains("After="));
+        assert!(gateway.text.contains(
+            "ExecStart=\"/opt/Adroit & Co/bin/adroit\" \"remote\" \"gateway\" \"--instance\" \"ai\" \"--listen\" \"10.0.0.2:47130\""
+        ));
+        assert!(
+            gateway
+                .text
                 .contains("Environment=\"PATH=/opt/homebrew/bin:/usr/bin:/bin\"")
         );
-        assert!(units[0].text.contains("WantedBy=default.target"));
+        assert!(gateway.text.contains("WantedBy=default.target"));
+    }
+
+    #[test]
+    fn systemd_leaves_the_hosts_the_gateway_started_running_when_it_stops() {
+        let units = units(&plan(Path::new("/home/u")), Platform::Systemd);
+        assert!(units[0].text.contains("[Service]\n"));
+        assert!(units[0].text.contains("\nKillMode=process\n"));
     }
 
     #[test]
@@ -569,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_on_linux_writes_the_units_starts_them_and_asks_for_lingering() {
+    fn enabling_on_linux_writes_the_gateway_starts_it_and_asks_for_lingering() {
         let home = tempfile::tempdir().unwrap();
         let plan = plan(home.path());
         let run = Recorded::new("no");
@@ -579,9 +618,9 @@ mod tests {
         }
         let calls = run.calls();
         assert!(calls.contains(&"systemctl --user daemon-reload".to_string()));
-        assert!(calls.contains(
-            &"systemctl --user enable --now adroit-ai-daemon.service adroit-ai-host.service adroit-ai-gateway.service".to_string()
-        ));
+        assert!(
+            calls.contains(&"systemctl --user enable --now adroit-ai-gateway.service".to_string())
+        );
         assert!(
             notes
                 .iter()
@@ -596,22 +635,23 @@ mod tests {
     }
 
     #[test]
-    fn disabling_on_linux_stops_the_units_and_removes_them() {
+    fn disabling_on_linux_stops_the_gateway_and_removes_it() {
         let home = tempfile::tempdir().unwrap();
         let plan = plan(home.path());
         enable(&plan, Platform::Systemd, &Recorded::new("yes")).unwrap();
         let run = Recorded::new("yes");
         disable(&plan, Platform::Systemd, &run).unwrap();
-        assert!(run.calls().contains(
-            &"systemctl --user disable --now adroit-ai-daemon.service adroit-ai-host.service adroit-ai-gateway.service".to_string()
-        ));
+        assert!(
+            run.calls()
+                .contains(&"systemctl --user disable --now adroit-ai-gateway.service".to_string())
+        );
         for unit in units(&plan, Platform::Systemd) {
             assert!(!unit.file.exists());
         }
     }
 
     #[test]
-    fn enabling_again_on_linux_restarts_only_the_services_it_changed() {
+    fn enabling_again_on_linux_restarts_the_gateway_only_when_it_changed() {
         let home = tempfile::tempdir().unwrap();
         let mut plan = plan(home.path());
         enable(&plan, Platform::Systemd, &Recorded::new("yes")).unwrap();
@@ -641,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_again_on_macos_reloads_only_the_agents_it_changed() {
+    fn enabling_again_on_macos_reloads_the_gateway_only_when_it_changed() {
         let home = tempfile::tempdir().unwrap();
         let mut plan = plan(home.path());
         enable(&plan, Platform::Launchd, &Recorded::new("yes")).unwrap();
@@ -676,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn enabling_on_macos_loads_each_agent_and_disabling_unloads_it() {
+    fn enabling_on_macos_loads_the_gateway_and_disabling_unloads_it() {
         let home = tempfile::tempdir().unwrap();
         let plan = plan(home.path());
         let run = Recorded::new("yes");
@@ -698,6 +738,123 @@ mod tests {
                     .contains(&format!("launchctl bootout gui/{uid}/{}", unit.name))
             );
             assert!(!unit.file.exists());
+        }
+    }
+
+    /// The files an earlier release wrote for the terminal host and the work
+    /// host as services of their own.
+    fn leave_retired(home: &Path, platform: Platform) -> Vec<PathBuf> {
+        let files: Vec<PathBuf> = match platform {
+            Platform::Launchd => ["app.adroit.ai.daemon.plist", "app.adroit.ai.host.plist"]
+                .map(|file| home.join("Library/LaunchAgents").join(file))
+                .into(),
+            Platform::Systemd => ["adroit-ai-daemon.service", "adroit-ai-host.service"]
+                .map(|file| home.join(".config/systemd/user").join(file))
+                .into(),
+        };
+        for file in &files {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "left by an earlier release").unwrap();
+        }
+        files
+    }
+
+    fn position(calls: &[String], call: &str) -> usize {
+        calls
+            .iter()
+            .position(|made| made == call)
+            .unwrap_or_else(|| panic!("{call:?} was not run: {calls:#?}"))
+    }
+
+    #[test]
+    fn enabling_on_linux_stops_and_removes_the_hosts_an_earlier_release_ran_first() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        let retired = leave_retired(home.path(), Platform::Systemd);
+        let run = Recorded::new("yes");
+        enable(&plan, Platform::Systemd, &run).unwrap();
+        let calls = run.calls();
+        let stopped = position(
+            &calls,
+            "systemctl --user disable --now adroit-ai-daemon.service adroit-ai-host.service",
+        );
+        assert!(
+            stopped
+                < position(
+                    &calls,
+                    "systemctl --user enable --now adroit-ai-gateway.service"
+                )
+        );
+        for file in &retired {
+            assert!(!file.exists());
+        }
+    }
+
+    #[test]
+    fn enabling_on_linux_without_retired_hosts_disables_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let run = Recorded::new("yes");
+        enable(&plan(home.path()), Platform::Systemd, &run).unwrap();
+        assert!(!run.calls().iter().any(|call| call.contains("disable")));
+    }
+
+    #[test]
+    fn disabling_on_linux_stops_and_removes_the_hosts_an_earlier_release_ran() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        enable(&plan, Platform::Systemd, &Recorded::new("yes")).unwrap();
+        let retired = leave_retired(home.path(), Platform::Systemd);
+        let run = Recorded::new("yes");
+        disable(&plan, Platform::Systemd, &run).unwrap();
+        assert!(run.calls().contains(
+            &"systemctl --user disable --now adroit-ai-gateway.service adroit-ai-daemon.service adroit-ai-host.service".to_string()
+        ));
+        for file in &retired {
+            assert!(!file.exists());
+        }
+    }
+
+    #[test]
+    fn enabling_on_macos_unloads_and_removes_the_hosts_an_earlier_release_ran_first() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        let retired = leave_retired(home.path(), Platform::Launchd);
+        let run = Recorded::new("yes");
+        enable(&plan, Platform::Launchd, &run).unwrap();
+        let uid = adroit_sys::uid();
+        let calls = run.calls();
+        let loaded = position(
+            &calls,
+            &format!(
+                "launchctl bootstrap gui/{uid} {}",
+                units(&plan, Platform::Launchd)[0].file.display()
+            ),
+        );
+        for name in ["app.adroit.ai.daemon", "app.adroit.ai.host"] {
+            assert!(position(&calls, &format!("launchctl bootout gui/{uid}/{name}")) < loaded);
+        }
+        for file in &retired {
+            assert!(!file.exists());
+        }
+    }
+
+    #[test]
+    fn disabling_on_macos_unloads_and_removes_the_hosts_an_earlier_release_ran() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        enable(&plan, Platform::Launchd, &Recorded::new("yes")).unwrap();
+        let retired = leave_retired(home.path(), Platform::Launchd);
+        let run = Recorded::new("yes");
+        disable(&plan, Platform::Launchd, &run).unwrap();
+        let uid = adroit_sys::uid();
+        for name in ["app.adroit.ai.daemon", "app.adroit.ai.host"] {
+            assert!(
+                run.calls()
+                    .contains(&format!("launchctl bootout gui/{uid}/{name}"))
+            );
+        }
+        for file in &retired {
+            assert!(!file.exists());
         }
     }
 }

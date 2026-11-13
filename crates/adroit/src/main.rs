@@ -161,12 +161,6 @@ fn main() {
             unsafe { std::env::remove_var(key) };
         }
     }
-    if !matches!(asked, Some(Command::Remote { .. } | Command::Version))
-        && let Err(e) = adroit_host::remote::refresh_client()
-    {
-        eprintln!("adroit: cannot discover remote hosts: {e}");
-        std::process::exit(1);
-    }
     match asked {
         None => {
             eprintln!("{USAGE}");

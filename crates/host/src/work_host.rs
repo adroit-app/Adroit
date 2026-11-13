@@ -23,13 +23,15 @@ pub fn serve_args() -> Vec<String> {
     vec!["host".into()]
 }
 
-/// What this build says first on every connection.
+/// What this build says first on every connection; to a paired client also
+/// the hosts it reaches, as they are now.
 pub fn hello_of_ours() -> Hello {
+    let remote = crate::remote::active();
     Hello {
         speaks: SPOKEN.to_vec(),
         build: build(),
-        endpoint: crate::remote::ours().cloned(),
-        terminal: crate::remote::terminal().cloned(),
+        endpoint: remote.then(crate::remote::ours).flatten().cloned(),
+        terminal: remote.then(crate::remote::terminal).flatten(),
         mutation_epoch: None,
     }
 }
@@ -53,6 +55,9 @@ pub struct WorkHostServer {
     listener: adroit_sys::local::Listener,
     socket: PathBuf,
     _claim: std::fs::File,
+    /// Where paired clients reach this host through the gateway, once it is
+    /// published for them.
+    remote: Option<(adroit_sys::local::Listener, crate::remote::Publication)>,
 }
 
 impl Drop for WorkHostServer {
@@ -92,19 +97,41 @@ impl WorkHostServer {
             listener,
             socket: socket.to_path_buf(),
             _claim: claim,
+            remote: None,
         })
     }
 
-    /// Say `hello` to everyone who connects and answer them from
-    /// `served`, until one asks this host to stop.
+    /// Publish this host for paired clients, which reach it at a socket of
+    /// their own so that what they ask is known as asked remotely.
+    pub fn publish(&mut self) -> std::io::Result<()> {
+        let published = crate::remote::Publication::create("work", None)?;
+        let listener = bind_private(published.socket())?;
+        published.ours();
+        self.remote = Some((listener, published));
+        Ok(())
+    }
+
+    /// Say `hello` to everyone who connects here and answer them from
+    /// `served`, and so to paired clients with what they are told, until
+    /// one asks this host to stop.
     pub async fn serve(&self, hello: Hello, served: Served) {
         let (stop, mut stopped) = tokio::sync::mpsc::channel::<()>(1);
         let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
+        let remote_accept = || async {
+            match &self.remote {
+                Some((listener, _)) => listener.accept().await,
+                None => std::future::pending().await,
+            }
+        };
         loop {
-            let stream = tokio::select! {
+            let (stream, remote) = tokio::select! {
                 accepted = self.listener.accept() => match accepted {
-                    Ok(stream) => stream,
+                    Ok(stream) => (stream, false),
                     Err(_) => return,
+                },
+                accepted = remote_accept() => match accepted {
+                    Ok(stream) => (stream, true),
+                    Err(_) => continue,
                 },
                 _ = stopped.recv() => return,
             };
@@ -112,10 +139,11 @@ impl WorkHostServer {
             let Ok(permit) = permits.clone().try_acquire_owned() else {
                 continue;
             };
-            crate::environment::spawn(async move {
+            crate::environment::spawn(crate::environment::asked_remotely(remote, async move {
                 let _permit = permit;
+                let hello = if remote { hello_of_ours() } else { hello };
                 served.connection(stream, &hello, stop).await
-            });
+            }));
         }
     }
 }
@@ -378,7 +406,10 @@ async fn delegation() {
 /// from the configuration first and then kept read once the terminal host
 /// the sessions are listed from runs.
 async fn serve(socket: &Path) -> Result<()> {
-    let server = WorkHostServer::bind(socket).await?;
+    let mut server = WorkHostServer::bind(socket).await?;
+    if let Err(e) = server.publish() {
+        eprintln!("adroit: paired clients cannot find this host: {e}");
+    }
     let host = crate::work::Host::new(crate::work::Work::configured(crate::config::read()));
     let judged = std::sync::Arc::new(tokio::sync::watch::Sender::new(None));
     let served = Served::new(host, |watched| crate::asks::asks(watched, judged.clone()));

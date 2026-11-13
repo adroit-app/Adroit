@@ -121,9 +121,14 @@ impl Served {
         }
         let context =
             crate::environment::Environment::at(id, &adroit_model::paths::instance_state())?;
-        let served = crate::environment::run(Some(context), async {
-            crate::work_host::environment_served()
-        })
+        // Served to every window that selects it, so what keeps it read is
+        // not of the connection that happened to select it first.
+        let served = crate::environment::asked_remotely(
+            false,
+            crate::environment::run(Some(context), async {
+                crate::work_host::environment_served()
+            }),
+        )
         .await;
         environments.insert(id.into(), served.clone());
         Ok(served)
@@ -155,7 +160,7 @@ impl Served {
         let mut active = self.clone();
         let window = WindowId(self.next.fetch_add(1, Ordering::Relaxed));
         let (read, mut write) = tokio::io::split(stream);
-        let remote = hello.endpoint.is_some();
+        let remote = crate::remote::active();
         let (out, mut outgoing, mut failure) = Out::new(remote);
         // One who asks without waiting for hello may have hung up already;
         // what it asked is read all the same.

@@ -144,7 +144,7 @@ impl Service {
         else {
             return MutationState::Unknown;
         };
-        if !Self::matches(stamp, work, terminal) {
+        if !Self::matches(stamp, work, &terminal) {
             return MutationState::Unknown;
         }
         self.ledger.lock().unwrap().query(stamp.epoch, &stamp.id)
@@ -165,7 +165,7 @@ impl Service {
                 text: "remote mutation identity is unavailable".into(),
             };
         };
-        if !Self::matches(&stamp, work, terminal) {
+        if !Self::matches(&stamp, work, &terminal) {
             return MutationState::Unknown;
         }
         if !adroit_protocol::is_generation(&stamp.id) || !request.mutates() {

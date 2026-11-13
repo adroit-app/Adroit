@@ -87,6 +87,25 @@ pub async fn start(
     })
 }
 
+/// How often the gateway looks whether the instance's hosts run.
+const LOOK_AGAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Start the instance's work host, which starts its terminal host, whenever
+/// none runs, so that paired clients find them after the machine starts.
+/// One already running is left as it is whatever its build: the windows on
+/// this machine replace it as they need, and it outlives the gateway.
+async fn keep_hosts_up() {
+    use crate::work_host::{adroit_program, serve_args, socket, standing, start};
+    loop {
+        if standing(&socket()).await == adroit_protocol::WorkHost::Absent
+            && let Err(e) = start(&socket(), &adroit_program(), &serve_args()).await
+        {
+            eprintln!("adroit: cannot start the work host: {e}");
+        }
+        tokio::time::sleep(LOOK_AGAIN).await;
+    }
+}
+
 /// The hosts of this instance, found through their discovery files.
 struct Discovered;
 
@@ -171,7 +190,7 @@ async fn serve(
     } else {
         None
     };
-    std::future::pending::<()>().await;
+    keep_hosts_up().await;
     Ok(0)
 }
 

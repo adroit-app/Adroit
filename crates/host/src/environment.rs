@@ -55,14 +55,34 @@ pub async fn run<T>(context: Option<Arc<Environment>>, future: impl Future<Outpu
     ACTIVE.scope(RefCell::new(context), future).await
 }
 
-fn blocking<T>(context: Option<Arc<Environment>>, f: impl FnOnce() -> T) -> T {
-    struct Reset(Option<Arc<Environment>>);
+tokio::task_local! { static REMOTE: bool; }
+thread_local! { static BLOCKING_REMOTE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+/// Whether what is being done was asked by a paired client, through the
+/// gateway, rather than by a window or command on this machine.
+pub fn remote() -> bool {
+    REMOTE
+        .try_with(|remote| *remote)
+        .unwrap_or_else(|_| BLOCKING_REMOTE.with(std::cell::Cell::get))
+}
+
+/// Run `future` as asked by a paired client, if `remote`.
+pub async fn asked_remotely<T>(remote: bool, future: impl Future<Output = T>) -> T {
+    REMOTE.scope(remote, future).await
+}
+
+fn blocking<T>(context: Option<Arc<Environment>>, remote: bool, f: impl FnOnce() -> T) -> T {
+    struct Reset(Option<Arc<Environment>>, bool);
     impl Drop for Reset {
         fn drop(&mut self) {
             BLOCKING.with(|v| *v.borrow_mut() = self.0.take());
+            BLOCKING_REMOTE.with(|v| v.set(self.1));
         }
     }
-    let _reset = Reset(BLOCKING.with(|v| v.replace(context)));
+    let _reset = Reset(
+        BLOCKING.with(|v| v.replace(context)),
+        BLOCKING_REMOTE.with(|v| v.replace(remote)),
+    );
     f()
 }
 
@@ -71,7 +91,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    tokio::spawn(run(current(), future))
+    tokio::spawn(asked_remotely(remote(), run(current(), future)))
 }
 
 pub fn spawn_blocking<F, T>(f: F) -> tokio::task::JoinHandle<T>
@@ -79,8 +99,8 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let context = current();
-    tokio::task::spawn_blocking(move || blocking(context, f))
+    let (context, remote) = (current(), remote());
+    tokio::task::spawn_blocking(move || blocking(context, remote, f))
 }
 
 pub fn owns(tags: &[String]) -> bool {
@@ -212,6 +232,25 @@ mod tests {
         })
         .await;
         assert!(Environment::at("../escape", dir.path()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn what_a_paired_client_asked_stays_asked_remotely_in_the_tasks_it_spawns() {
+        assert!(!remote());
+        asked_remotely(true, async {
+            assert!(spawn(async { remote() }).await.unwrap());
+            assert!(spawn_blocking(remote).await.unwrap());
+        })
+        .await;
+        asked_remotely(false, async {
+            assert!(!spawn(async { remote() }).await.unwrap());
+        })
+        .await;
     }
 }
 

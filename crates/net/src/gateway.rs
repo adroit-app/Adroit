@@ -215,14 +215,10 @@ where
     }
 }
 
-/// Whether `line` is one of the work host's own operations other than
-/// choosing an environment: today, `stop`.
+/// Whether `line` asks the work host to stop.
 fn asks_to_stop(line: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(line).is_ok_and(|value| {
-        value
-            .get("op")
-            .is_some_and(|op| op.as_str() != Some("environment"))
-    })
+    serde_json::from_slice::<serde_json::Value>(line)
+        .is_ok_and(|value| value.get("op").and_then(|op| op.as_str()) == Some("stop"))
 }
 
 /// A paired work machine, reached at `address`.
@@ -474,6 +470,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_forwarded_work_socket_reaches_the_work_host_but_never_stops_it() {
+        // Every operation but stopping is relayed, such as listing the
+        // environments the host serves.
         let setup = setup().await;
         let (_, remote) = paired(&setup);
         let (_dir, work, terminal) = sockets();
@@ -483,9 +481,12 @@ mod tests {
         let mut read = BufReader::new(read);
         assert_eq!(next_line(&mut read).await.unwrap(), "{\"hello\":1}\n");
         write
-            .write_all(b"{\"op\":\"environment\",\"id\":\"p\"}\n{\"ask\":1}\n")
+            .write_all(
+                b"{\"op\":\"environments\"}\n{\"op\":\"environment\",\"id\":\"p\"}\n{\"ask\":1}\n",
+            )
             .await
             .unwrap();
+        assert!(next_line(&mut read).await.unwrap().contains("environments"));
         assert!(next_line(&mut read).await.unwrap().contains("environment"));
         assert!(next_line(&mut read).await.unwrap().contains("ask"));
         write
@@ -496,6 +497,7 @@ mod tests {
         assert_eq!(
             *setup.hosts.lines.lock().unwrap(),
             vec![
+                "{\"op\":\"environments\"}".to_string(),
                 "{\"op\":\"environment\",\"id\":\"p\"}".to_string(),
                 "{\"ask\":1}".to_string()
             ]
