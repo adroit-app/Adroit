@@ -33,6 +33,9 @@ pub struct Fact {
     /// The colour of a value drawn as a badge, named as the sidebar's state
     /// glyphs are; `None` for plain text.
     pub tone: Option<&'static str>,
+    /// Text drawn after the badge, plain: what the program says, which may
+    /// run to a sentence or more and does not fit in one.
+    pub note: Option<String>,
 }
 
 impl Fact {
@@ -42,6 +45,7 @@ impl Fact {
             label,
             value,
             tone: None,
+            note: None,
         }
     }
 }
@@ -67,14 +71,15 @@ pub fn overview_facts(
     };
     // What a program says while it works or once it is done tends to be its
     // session's name, which the details already lead with.
-    let state = match (&s.state, &s.status_message) {
-        (State::Waiting(_) | State::Failed, Some(said)) => format!("{state} — {said}"),
-        _ => state,
+    let note = match (&s.state, &s.status_message) {
+        (State::Waiting(_) | State::Failed, Some(said)) => Some(said.clone()),
+        _ => None,
     };
     out.push(Fact {
         label: "State",
         value: state,
         tone: Some(tone),
+        note,
     });
     if let Some(started) = s.started_ms {
         out.push(Fact::plain("Started", ago(now_ms.saturating_sub(started))));
@@ -1196,6 +1201,7 @@ mod tests {
             label,
             value: value.into(),
             tone: None,
+            note: None,
         }
     }
 
@@ -1379,20 +1385,21 @@ mod tests {
     }
 
     #[test]
-    fn what_a_waiting_or_failed_program_says_follows_its_state() {
+    fn what_a_waiting_or_failed_program_says_follows_its_state_outside_the_badge() {
         let state = |state: State| {
             let s = session("s").state(state).says("Bash(rm -rf build)").build();
-            overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0)[0]
-                .value
-                .clone()
+            let fact =
+                overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0).remove(0);
+            (fact.value, fact.note)
         };
+        let said = Some("Bash(rm -rf build)".to_string());
         assert_eq!(
             state(State::Waiting(Wait::Permission)),
-            "waiting · permission prompt — Bash(rm -rf build)"
+            ("waiting · permission prompt".to_string(), said.clone())
         );
-        assert_eq!(state(State::Failed), "failed — Bash(rm -rf build)");
-        assert_eq!(state(State::Working), "working");
-        assert_eq!(state(State::Done), "done");
+        assert_eq!(state(State::Failed), ("failed".to_string(), said));
+        assert_eq!(state(State::Working), ("working".to_string(), None));
+        assert_eq!(state(State::Done), ("done".to_string(), None));
     }
 
     #[test]

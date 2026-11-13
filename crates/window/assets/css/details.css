@@ -47,6 +47,8 @@
 .process-kill:focus-visible { outline: 2px solid var(--fail); outline-offset: 1px; }
 .details-facts-key { color: var(--text-3); }
 .details-facts-value { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.details-facts-value .state-badge { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.details-facts-note { display: block; margin-top: 2px; color: var(--text-2); overflow-wrap: anywhere; user-select: text; }
 .details-links { gap: 2px; }
 .details-links .list-row { margin: 0 -8px; }
 .details-link .icon { flex: none; color: var(--text-2); }

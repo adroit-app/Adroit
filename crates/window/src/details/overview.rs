@@ -92,6 +92,9 @@ pub(super) fn Overview(
                             if let Some(tone) = fact.tone {
                                 span { class: "details-facts-value",
                                     span { class: "state-badge {tone}", "{fact.value}" }
+                                    if let Some(note) = &fact.note {
+                                        span { class: "details-facts-note", "{note}" }
+                                    }
                                 }
                             } else {
                                 span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }

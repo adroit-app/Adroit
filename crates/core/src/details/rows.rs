@@ -391,6 +391,7 @@ mod tests {
             label: "Worktree",
             value: "/w/x".into(),
             tone: None,
+            note: None,
         }];
         let drawn = link_sections(
             &about(&facts, &HashSet::new()),
