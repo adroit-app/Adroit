@@ -46,6 +46,20 @@ fn the_headless_executable_reports_its_version_without_starting_a_host() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
+#[test]
+fn an_isolated_process_reaches_main_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = isolated(dir.path());
+    let started = std::time::Instant::now();
+    let output = command.arg("--version").output().unwrap();
+    assert!(output.status.success());
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
 #[cfg(not(feature = "desktop"))]
 #[test]
 fn a_headless_build_refuses_window_and_editor_requests_without_starting_hosts() {
@@ -68,6 +82,18 @@ fn a_headless_build_refuses_window_and_editor_requests_without_starting_hosts() 
 
 /// A process whose hosts and data belong to this test alone.
 fn isolated(dir: &Path) -> Command {
+    // Cargo links the executable anew, and macOS scans a file it has not
+    // run before at its first launch, for seconds that grow with the file
+    // and with every other new executable queued on the machine. No
+    // deadline bounds that, so the first launch is waited for here, before
+    // a test times anything.
+    static SCANNED: std::sync::Once = std::sync::Once::new();
+    SCANNED.call_once(|| {
+        Command::new(env!("CARGO_BIN_EXE_adroit"))
+            .arg("--version")
+            .output()
+            .unwrap();
+    });
     let mut command = Command::new(env!("CARGO_BIN_EXE_adroit"));
     for (name, _) in std::env::vars_os() {
         if ["ADROIT_", "FELIS_"]
@@ -162,10 +188,7 @@ impl Drop for Service {
 /// The terminal host `Service::terminal` started, once it answers.
 async fn answering_terminal(hosts: &Hosts) -> adroit_term::Daemon {
     let daemon = adroit_term::Daemon::new(hosts.0.path().join("term.sock"));
-    // Cargo links the executable anew for every run, and macOS checks a
-    // file it has not run before at its first launch: for the debug build
-    // that has taken several seconds before `main` is reached.
-    tokio::time::timeout(Duration::from_secs(30), async {
+    tokio::time::timeout(Duration::from_secs(5), async {
         while daemon.sessions().await.is_err() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
