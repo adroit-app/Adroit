@@ -184,10 +184,11 @@ pub enum Msg {
     WindowDragMove(f64),
     /// The pointer let go, or left the window.
     WindowDragEnd,
-    /// The pointer pressed a window's strip, or a tab for its focused
-    /// window, at `x`, `y`, to drag it.
+    /// The pointer pressed a window's strip, or the tab at `tab` for its
+    /// focused window, at `x`, `y`, to drag it.
     WindowMoveStart {
         window: WindowId,
+        tab: Option<usize>,
         x: f64,
         y: f64,
     },

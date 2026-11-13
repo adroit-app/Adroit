@@ -1297,6 +1297,14 @@ mod tests {
                 "{}",
                 ctx.name()
             );
+            for (key, action) in [("<", Action::TabMovePrev), (">", Action::TabMoveNext)] {
+                assert_eq!(
+                    step(&map, &areas, &["Ctrl+q", "g"], key),
+                    Step::Run(action),
+                    "{} g {key}",
+                    ctx.name()
+                );
+            }
             assert_eq!(
                 step(&map, &areas, &["Ctrl+q"], "M"),
                 Step::Run(Action::WindowIntoLastTab),

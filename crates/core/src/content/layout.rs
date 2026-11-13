@@ -928,6 +928,30 @@ impl<T: Clone + PartialEq> Content<T> {
         self.place(id, beside, Dir::Right);
     }
 
+    /// Move the tab at `from` to the place `to` among the tabs, the shown tab
+    /// staying shown. The preview, always after the tabs, neither moves nor
+    /// is passed.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        let ordinary = self.ordinary();
+        if from == to || from >= ordinary || to >= ordinary {
+            return;
+        }
+        let shown = self.current().map(|t| t.id);
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        if let Some(at) = self.tabs.iter().position(|t| Some(t.id) == shown) {
+            self.current = at;
+        }
+    }
+
+    /// Move the shown tab `delta` places along the tabs, stopping at the
+    /// first and the last.
+    pub fn shift_tab(&mut self, delta: isize) {
+        let last = self.ordinary().saturating_sub(1) as isize;
+        let to = (self.current as isize + delta).clamp(0, last.max(0)) as usize;
+        self.move_tab(self.current, to);
+    }
+
     /// Show the tab `delta` after the shown one, going round at the ends.
     pub fn cycle_tab(&mut self, delta: isize) {
         let n = self.tabs.len();
@@ -1883,6 +1907,66 @@ mod tests {
         c.go_to_tab(1);
         assert_eq!(c.focused(), Some(&"b"));
         c.go_to_tab(8);
+        assert_eq!(c.focused(), Some(&"c"));
+    }
+
+    fn order(c: &C) -> Vec<&'static str> {
+        c.tabs().iter().map(|t| t.focused().shows).collect()
+    }
+
+    #[test]
+    fn a_tab_moved_takes_the_place_given_and_stays_shown() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.move_tab(0, 2);
+        assert_eq!(order(&c), ["b", "c", "a"]);
+        assert_eq!(c.focused(), Some(&"a"));
+        c.move_tab(1, 0);
+        assert_eq!(order(&c), ["c", "b", "a"]);
+        assert_eq!(c.focused(), Some(&"a"));
+    }
+
+    #[test]
+    fn the_shown_tab_steps_along_the_tabs_and_stops_at_the_ends() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(1);
+        c.shift_tab(1);
+        assert_eq!(order(&c), ["a", "c", "b"]);
+        c.shift_tab(1);
+        assert_eq!(order(&c), ["a", "c", "b"]);
+        c.shift_tab(-1);
+        c.shift_tab(-1);
+        c.shift_tab(-1);
+        assert_eq!(order(&c), ["b", "a", "c"]);
+        assert_eq!(c.focused(), Some(&"b"));
+    }
+
+    #[test]
+    fn the_preview_is_neither_moved_nor_passed() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.look("p");
+        c.shift_tab(-1);
+        assert_eq!(order(&c), ["a", "b", "p"]);
+        c.move_tab(0, 2);
+        assert_eq!(order(&c), ["a", "b", "p"]);
+        c.go_to_tab(1);
+        c.shift_tab(1);
+        assert_eq!(order(&c), ["a", "b", "p"]);
+    }
+
+    #[test]
+    fn the_tab_shown_before_is_still_the_same_tab_after_tabs_move() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.open_tab("c");
+        c.go_to_tab(0);
+        c.move_tab(2, 0);
+        c.go_to_last_tab();
         assert_eq!(c.focused(), Some(&"c"));
     }
 

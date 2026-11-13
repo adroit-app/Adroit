@@ -142,6 +142,8 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         Action::WindowIntoLastTab => edit(view, &Content::move_into_last_tab),
         Action::TabGo(n) => edit(view, &|c| c.go_to_numbered_tab(n)),
         Action::TabLast => edit(view, &Content::go_to_last_tab),
+        Action::TabMovePrev => edit(view, &|c| c.shift_tab(-1)),
+        Action::TabMoveNext => edit(view, &|c| c.shift_tab(1)),
         // The tabs of the area the keys are in: the details panel's sheets
         // there, the content's tabs elsewhere.
         Action::TabNext | Action::TabPrev => {

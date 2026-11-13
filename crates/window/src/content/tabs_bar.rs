@@ -74,14 +74,15 @@ pub(super) fn TabsBar(
     });
     let current = app.content.read().described().cloned();
     let shown_at = app.content.read().windows.current_index();
-    // While a window is dragged, the tab it would go into, if any.
-    let dropping = app
+    // While a window is dragged, the tab it would go into or the place a tab
+    // dragged would take, if any, and the place of the tab dragged.
+    let (dropping, from) = app
         .content
         .read()
         .moving
         .as_ref()
         .filter(|m| m.dragging)
-        .map(|m| m.over);
+        .map_or((None, None), |m| (Some(m.over), m.tab));
     let dragging = dropping.is_some();
     let hosts = app.hosts.read();
     rsx! {
@@ -109,6 +110,15 @@ pub(super) fn TabsBar(
                         shell.is_some().then_some("shell"),
                         preview.then_some("preview"),
                         (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
+                        match (dropping, from) {
+                            (Some(Some(DropAt::Place(to))), Some(from)) if to == at && from > at => {
+                                Some("place-before")
+                            }
+                            (Some(Some(DropAt::Place(to))), Some(from)) if to == at && from < at => {
+                                Some("place-after")
+                            }
+                            _ => None,
+                        },
                     ]
                     .into_iter()
                     .flatten()
@@ -129,7 +139,7 @@ pub(super) fn TabsBar(
                                 class: "{class}",
                                 title: "Preview: what is looked at next takes its place; open it to keep it",
                                 onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                                onmousedown: move |e: Event<MouseData>| press(app, e, focused),
+                                onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
                                 onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
                                 oncontextmenu: menu_opener(app, target),
                                 IconView { icon: Icon::Eye, size: 13 }
@@ -157,7 +167,7 @@ pub(super) fn TabsBar(
                             key: "{at}",
                             class: "{class}",
                             onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                            onmousedown: move |e: Event<MouseData>| press(app, e, focused),
+                            onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
                             onmousemove: move |e: Event<MouseData>| hover(app, e, at, dragging),
                             oncontextmenu: menu_opener(app, target),
                             span { class: "tab-number", "{number}" }
@@ -194,8 +204,9 @@ pub(super) fn TabsBar(
     }
 }
 
-/// The pointer pressed a tab, to drag its focused window `window`.
-fn press(app: AppCtx, e: Event<MouseData>, window: WindowId) {
+/// The pointer pressed the tab at `tab`, to drag it, or its focused window
+/// `window`.
+fn press(app: AppCtx, e: Event<MouseData>, tab: usize, window: WindowId) {
     if e.trigger_button() != Some(MouseButton::Primary) {
         return;
     }
@@ -203,6 +214,7 @@ fn press(app: AppCtx, e: Event<MouseData>, window: WindowId) {
     let at = e.client_coordinates();
     app.dispatch(Msg::WindowMoveStart {
         window,
+        tab: Some(tab),
         x: at.x,
         y: at.y,
     });

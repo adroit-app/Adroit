@@ -476,9 +476,15 @@ pub(crate) fn drag_move(view: &mut ContentView, pos: f64) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The pointer pressed the window `window` at `at`, to drag it.
-pub(crate) fn move_start(view: &mut ContentView, window: WindowId, at: (f64, f64)) -> Vec<Effect> {
-    view.moving = Some(WindowMove::new(window, at));
+/// The pointer pressed the window `window` at `at`, to drag it, by the tab
+/// at `tab` among the tabs if by a tab.
+pub(crate) fn move_start(
+    view: &mut ContentView,
+    window: WindowId,
+    tab: Option<usize>,
+    at: (f64, f64),
+) -> Vec<Effect> {
+    view.moving = Some(WindowMove::new(window, tab, at));
     Vec::new()
 }
 
@@ -504,14 +510,8 @@ pub(crate) fn move_over(
 /// The pointer let a window go, or left the window: it moves where it was
 /// dropped, if anywhere.
 pub(crate) fn move_end(view: &mut ContentView) -> Vec<Effect> {
-    if let Some(WindowMove {
-        window,
-        dragging: true,
-        over: Some(to),
-        ..
-    }) = view.moving.take()
-    {
-        view.windows.drop_window(window, to);
+    if let Some(moving) = view.moving.take() {
+        view.windows.drop_moved(&moving);
     }
     Vec::new()
 }

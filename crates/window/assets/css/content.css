@@ -43,3 +43,6 @@
 .win-drop-side.up { left: 0; right: 0; top: 0; height: 50%; }
 .win-drop-side.down { left: 0; right: 0; bottom: 0; height: 50%; }
 .tab.drop { outline: 1px solid var(--focus-border); }
+/* A tab dragged among the tabs: a bar on the side of the tab whose place it would take. */
+.tab.place-before { box-shadow: inset 2px 0 0 var(--focus-border); }
+.tab.place-after { box-shadow: inset -2px 0 0 var(--focus-border); }

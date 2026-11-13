@@ -10,7 +10,10 @@ of its kind ([viewers](#viewers)).
 The tabs line up above the windows, numbered from 1. A tab is named after what
 its focused window shows, with how many windows it holds, and keeps its own
 focused window while another tab is shown. A tab holds whatever was opened in
-it, from any worktree. Closing a tab closes every window in it.
+it, from any worktree. Closing a tab closes every window in it. The tab shown
+is moved a place to either side by keys ([keys](reference/keys.md#actions)),
+and any tab is dragged to another place among the tabs; the preview stays
+after them.
 
 Besides the tabs there may be one **preview**. It comes after every tab,
 without a number, and is drawn apart from them, as is its window, so it is
@@ -30,10 +33,11 @@ own ([keys](reference/keys.md#actions)).
 A window is moved into another tab, named by its number or as the tab shown
 before, beside the window focused there; it takes the focus, and the keys that
 move a window within its tab then place it. The tab it leaves closes when it
-held nothing else. With the mouse, a window's strip, or a tab for its focused
-window, is dragged onto a side of a window, in its own tab or another, or onto
-a tab, and the window goes there; while dragging, holding it over a tab shows
-that tab. Dropped anywhere else, nothing moves.
+held nothing else. With the mouse, a window's strip is dragged onto a side of a
+window, in its own tab or another, or onto a tab, and the window goes there;
+while dragging, holding it over a tab shows that tab. A tab dragged onto a
+side of a window moves its focused window there. Dropped anywhere else,
+nothing moves.
 
 The same thing may stand in any number of windows and tabs. A program shown in
 several windows runs at one size, the focused window's when it is one of them.

@@ -97,7 +97,7 @@ fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
             onmousedown: move |e: Event<MouseData>| {
                 e.prevent_default();
                 let at = e.client_coordinates();
-                app.dispatch(Msg::WindowMoveStart { window: id, x: at.x, y: at.y });
+                app.dispatch(Msg::WindowMoveStart { window: id, tab: None, x: at.x, y: at.y });
             },
             match strip.mark {
                 StripMark::Terminal(runs) => rsx! { TerminalMark { runs } },

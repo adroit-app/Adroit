@@ -18,8 +18,10 @@ tab of its own. It is split off the window focused there and keeps the focus;
 the tab it leaves closes when it held nothing else. Moving it says only which
 tab it goes to: where it stands in that tab is then changed by the keys that
 already move windows within a tab. The mouse does the same by dragging a
-window, or a tab for its focused window, onto a side of a window, or onto a
-tab; dropped anywhere else, nothing moves.
+window onto a side of a window or onto a tab, or a tab onto a side of a window
+for its focused window; a tab dragged onto a tab takes its place among the
+tabs instead, as tabs are reordered in browsers. Dropped anywhere else,
+nothing moves.
 
 ## Alternatives considered
 

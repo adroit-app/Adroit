@@ -104,6 +104,8 @@ pub(crate) fn perform(
         | Action::WindowIntoLastTab
         | Action::TabGo(_)
         | Action::TabLast
+        | Action::TabMovePrev
+        | Action::TabMoveNext
         | Action::TabNext
         | Action::TabPrev
         | Action::TabClose => step(state, Msg::Window(action)),

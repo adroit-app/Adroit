@@ -43,6 +43,8 @@ changes them ([keys](../keys.md)).
 | `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
 | `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
 | `tab.last` | Tab Before | show the content's tab shown before the one shown now | `global`: `Ctrl+q g Tab` |
+| `tab.move_prev` |  | move the content's tab shown one place toward the first, the preview staying after every tab; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g <`, `Ctrl+Shift+PageUp` |
+| `tab.move_next` |  | move the content's tab shown one place toward the last, the preview staying after every tab; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g >`, `Ctrl+Shift+PageDown` |
 | `cursor.down` |  | move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `j`, `ArrowDown`<br>`details`: `j`, `ArrowDown` |
 | `cursor.up` |  | move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `k`, `ArrowUp`<br>`details`: `k`, `ArrowUp` |
 | `cursor.first` |  | move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `g g`<br>`details`: `g g` |
@@ -201,6 +203,10 @@ changes them ([keys](../keys.md)).
 "Ctrl+q 8" = "tab.go 8"
 "Ctrl+q 9" = "tab.go 9"
 "Ctrl+q g Tab" = "tab.last"
+"Ctrl+q g <" = "tab.move_prev"
+"Ctrl+q g >" = "tab.move_next"
+"Ctrl+Shift+PageUp" = "tab.move_prev"
+"Ctrl+Shift+PageDown" = "tab.move_next"
 "Mod+1" = "tab.go 1"
 "Mod+2" = "tab.go 2"
 "Mod+3" = "tab.go 3"
