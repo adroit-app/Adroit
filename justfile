@@ -42,13 +42,22 @@ stamp-check:
     tmp=$(mktemp -d) && cp Cargo.toml Cargo.lock "$tmp" && perl assets/release/stamp-version.pl 0.0.0-ci "$tmp"
 
 # Write the licences of the crates Adroit is built from into
-# THIRD-PARTY-LICENSES.txt, which the app ships.
+# THIRD-PARTY-LICENSES.txt, which the app ships. Run on macOS: cargo-about
+# orders crates under one licence differently on Linux.
+[macos]
 licenses:
     cargo about generate --locked about.hbs -o THIRD-PARTY-LICENSES.txt
 
-# Fail when THIRD-PARTY-LICENSES.txt is not what Cargo.lock now makes.
+# Fail when THIRD-PARTY-LICENSES.txt is not what Cargo.lock now makes, on
+# macOS, where the release builds the app that ships it.
+[macos]
 licenses-check:
     tmp=$(mktemp) && cargo about generate --locked about.hbs -o "$tmp" && diff -q THIRD-PARTY-LICENSES.txt "$tmp" >/dev/null || { echo "THIRD-PARTY-LICENSES.txt is stale; run just licenses" >&2; exit 1; }
+
+# Elsewhere cargo-about writes the same licences in another order, which
+# would never match the file kept.
+[linux]
+licenses-check:
 
 # Everything CI runs, the tests in the Neovim the app carries.
 ci: fmt-check lint stamp-check licenses-check
