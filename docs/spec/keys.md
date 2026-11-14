@@ -51,11 +51,11 @@ name being typed or close the filter.
 An input method that stops answering keys, so that every key vanishes, is
 restarted after a few of them, as choosing an input source in the menu bar
 would: what it was composing is dropped and keys reach the window again. That
-is so both when the keys reach the window as composing and when, held for an
-input method's answer that never comes, none of them reaches it at all, a
-second after the first. Each time, the window writes how many keys were lost
-to `keys.log` in its instance's state folder, and to its standard error,
-whether or not keys are traced.
+is so when the keys reach the window as composing, when they reach it to be
+typed but type nothing, and when, held for an input method's answer that never
+comes, none of them reaches it at all, a second after the first. Each time, the
+window writes how many keys were lost to `keys.log` in its instance's state
+folder, and to its standard error, whether or not keys are traced.
 
 With `$ADROIT_DEBUG_KEYS` set to anything but empty, the window writes to its
 standard error, line by line, each key it receives, where focus moves and

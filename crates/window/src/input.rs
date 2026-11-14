@@ -246,14 +246,14 @@ async fn listen(
             keys::Message::Composing { on } => composing.set(on),
             keys::Message::Dropped { answered } => match unanswered.dropped(answered) {
                 keys::Lost::Nothing => {
-                    keys::trace(|| format!("dropped as composing, answered={answered}"))
+                    keys::trace(|| format!("left to the input method, answered={answered}"))
                 }
                 keys::Lost::Ended(n) => lost(&format!(
-                    "{n} keys dropped as composing went unanswered by the input method"
+                    "{n} keys left to the input method went unanswered by the input method"
                 )),
                 keys::Lost::Reset(n) => {
                     lost(&format!(
-                        "{n} keys in a row dropped as composing went unanswered by the input method: resetting it"
+                        "{n} keys in a row left to the input method went unanswered by the input method: resetting it"
                     ));
                     composing.set(false);
                     reset_input_method(&desktop);

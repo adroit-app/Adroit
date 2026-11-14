@@ -35,13 +35,24 @@ const compose = (on) => {
 const settle = () => {
   if (composing || !current()) return;
   const takes = t.dataset.takesText !== 'no';
-  if (t.readOnly === takes) t.readOnly = !takes;
+  if (t.readOnly === takes) {
+    t.readOnly = !takes;
+    // WebKit's window reads whether the focused field is editable as focus
+    // comes to it, not as it stops being read-only: until then it gives the
+    // field no input method and types none of the keys it passes on. Focus
+    // taken and given back makes it read the field again.
+    if (takes && document.activeElement === t) {
+      t.blur();
+      t.focus();
+    }
+  }
 };
 new MutationObserver(settle).observe(t, { attributes: true, attributeFilter: ['data-takes-text'] });
 settle();
-// A key dropped for the input method is answered by it, as it composes, with
-// a composition event or text at most a moment away. The window is told of
-// each such key, and resets an input method that stops answering them.
+// A key dropped for the input method, or left to it to type, is answered by
+// it with a composition event or text at most a moment away. The window is
+// told of each such key, and resets an input method that stops answering
+// them.
 const moment = 300;
 let answeredAt = -Infinity;
 for (const k of ['compositionstart', 'compositionupdate', 'compositionend', 'beforeinput']) {
@@ -136,6 +147,11 @@ const onKey = (e, astray) => {
     if (t.readOnly || astray) {
       e.preventDefault();
       dioxus.send({ kind: 'text', text: e.key });
+    } else if (!e.repeat) {
+      // Left to WebKit to type, the key is answered with text as one
+      // dropped for the input method is. A key held down is not, as macOS
+      // may hold it to offer its accents.
+      dropped();
     }
     return;
   }

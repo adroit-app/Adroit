@@ -48,8 +48,8 @@ pub enum Message {
     Focused {
         on: bool,
     },
-    /// A key dropped for the input method, and whether it answered within a
-    /// moment.
+    /// A key left to the input method, dropped as composing or to be typed,
+    /// and whether it answered within a moment.
     Dropped {
         answered: bool,
     },
@@ -150,14 +150,14 @@ impl Watch {
 /// taken to have stopped answering them.
 const RESET_AFTER: u32 = 3;
 
-/// Counts the keys the page dropped as composing that the input method did
-/// not answer, with a composition event or text, within a moment.
+/// Counts the keys the page left to the input method that it did not
+/// answer, with a composition event or text, within a moment.
 #[derive(Debug, Default)]
 pub struct Unanswered {
     run: u32,
 }
 
-/// What a key dropped as composing tells.
+/// What a key left to the input method tells.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Lost {
     Nothing,
@@ -169,7 +169,7 @@ pub enum Lost {
 }
 
 impl Unanswered {
-    /// A key dropped as composing, `answered` by the input method or not.
+    /// A key left to the input method, `answered` by it or not.
     pub fn dropped(&mut self, answered: bool) -> Lost {
         if answered {
             return match std::mem::take(&mut self.run) {
