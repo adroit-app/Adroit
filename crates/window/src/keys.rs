@@ -202,6 +202,10 @@ pub struct Unreached {
 
 impl Unreached {
     /// A key macOS gave the window at `at`.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "only macOS tells of the keys it gives the window")
+    )]
     pub fn pressed(&mut self, at: std::time::Instant) {
         self.keys += 1;
         self.since.get_or_insert(at);

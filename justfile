@@ -57,6 +57,7 @@ licenses-check:
 # Elsewhere cargo-about writes the same licences in another order, which
 # would never match the file kept.
 [linux]
+[windows]
 licenses-check:
 
 # Everything CI runs, the tests in the Neovim the app carries.
