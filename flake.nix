@@ -1,6 +1,11 @@
 {
   description = "An Agent Workspace for people who live in Vim: drive any coding agent in its own terminal interface, by hand and the way you edit.";
 
+  nixConfig = {
+    extra-substituters = [ "https://adroit.cachix.org" ];
+    extra-trusted-public-keys = [ "adroit.cachix.org-1:fWcTwjPH//igrya2gumlBcKRSzhRr3p4JqHAsFL8N9Y=" ];
+  };
+
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
     rust-overlay = {
