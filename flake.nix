@@ -69,6 +69,7 @@
               fileset = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
+                ./assets
                 ./crates
                 ./LICENSE
                 ./THIRD-PARTY-LICENSES.txt
