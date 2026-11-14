@@ -14,7 +14,7 @@
     };
     crane.url = "github:ipetkov/crane";
     nix-github-release = {
-      url = "github:lambdalisue/nix-github-release/v0.1.1";
+      url = "github:lambdalisue/nix-github-release/v0.1.2";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

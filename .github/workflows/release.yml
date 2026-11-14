@@ -87,7 +87,7 @@ jobs:
   # fetches it, from the archive GitHub serves for the tag, built into the
   # cache. The run fails unless the package reports the release.
   nix:
-    uses: lambdalisue/nix-github-release/.github/workflows/build.yml@dce4667ead8b4efa7ff5b4784fdaddbdc5506e8a # v0.1.1
+    uses: lambdalisue/nix-github-release/.github/workflows/build.yml@f6fd9d6dfbc98ec1791b90c0a94cd4d78e328811 # v0.1.2
     with:
       ref: ${{ github.event.release.tag_name }}
       packages: adroit
