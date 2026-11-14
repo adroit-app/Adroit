@@ -17,6 +17,10 @@ if (window.adroitDebugKeys) {
   window.addEventListener('error', (e) => trace('error ' + e.message + ' at ' + e.lineno + ':' + e.colno));
   window.addEventListener('unhandledrejection', (e) => trace('rejection ' + e.reason));
 }
+// Every key that reaches the page, wherever its keys are, so the window can
+// tell keys macOS gave it that never came, as WebKit holds them while an
+// input method leaves one unanswered.
+window.addEventListener('keydown', () => current() && dioxus.send({ kind: 'seen' }), true);
 // Whether an input method composes in the text area. WebKit ends a
 // composition whose text area turns read-only, is emptied or loses focus, and
 // brings its text back later: none of these is done to it until the

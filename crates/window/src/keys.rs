@@ -58,6 +58,9 @@ pub enum Message {
     Composing {
         on: bool,
     },
+    /// A key reached the page, wherever in it the keys were and whatever
+    /// became of it.
+    Seen,
 }
 
 /// What to do with what the script sent.
@@ -82,6 +85,19 @@ pub fn after(received: Result<Message, EvalError>) -> Next {
 }
 
 impl Message {
+    /// Whether the page tells of a key it was given: one it sent, typed,
+    /// dropped for the input method, composed with or only saw.
+    pub fn tells_of_a_key(&self) -> bool {
+        matches!(
+            self,
+            Message::Key { .. }
+                | Message::Text { .. }
+                | Message::Dropped { .. }
+                | Message::Composing { .. }
+                | Message::Seen
+        )
+    }
+
     /// The key a key message tells of.
     pub fn key(&self) -> Option<Key> {
         match self {
@@ -166,6 +182,46 @@ impl Unanswered {
             return Lost::Nothing;
         }
         Lost::Reset(std::mem::take(&mut self.run))
+    }
+}
+
+/// How long a key macOS gave the window may take to reach the page before it
+/// is taken to be lost: well past the moment an input method and the page
+/// take over a key.
+pub const STALL_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Counts the keys macOS gave the window that the page has not told of since
+/// it last told of one. WebKit holds each key until the input method answers
+/// it, and one left unanswered holds every key after it, none of which then
+/// reaches the page as composing or otherwise.
+#[derive(Debug, Default)]
+pub struct Unreached {
+    keys: u32,
+    since: Option<std::time::Instant>,
+}
+
+impl Unreached {
+    /// A key macOS gave the window at `at`.
+    pub fn pressed(&mut self, at: std::time::Instant) {
+        self.keys += 1;
+        self.since.get_or_insert(at);
+    }
+
+    /// The page told of a key: the ones before it reached it.
+    pub fn heard(&mut self) {
+        *self = Self::default();
+    }
+
+    /// How many keys never reached the page as of `now`, once a few have
+    /// not and the first of them is a while old; counted afresh then.
+    pub fn stalled(&mut self, now: std::time::Instant) -> Option<u32> {
+        let since = self.since?;
+        if self.keys < RESET_AFTER || now.duration_since(since) < STALL_AFTER {
+            return None;
+        }
+        let keys = self.keys;
+        *self = Self::default();
+        Some(keys)
     }
 }
 
@@ -436,6 +492,56 @@ mod tests {
         assert_eq!(u.dropped(false), Lost::Nothing);
         assert_eq!(u.dropped(false), Lost::Nothing);
         assert_eq!(u.dropped(false), Lost::Reset(3));
+    }
+
+    #[test]
+    fn the_page_telling_of_a_key_it_saw_is_read() {
+        assert_eq!(read(r#"{"kind":"seen"}"#), Message::Seen);
+    }
+
+    #[test]
+    fn keys_the_page_hears_of_are_typing_and_never_a_stall() {
+        let start = std::time::Instant::now();
+        let mut u = Unreached::default();
+        for n in 0..20 {
+            u.pressed(start + STALL_AFTER * n);
+            u.heard();
+            assert_eq!(u.stalled(start + STALL_AFTER * (n + 1)), None);
+        }
+    }
+
+    #[test]
+    fn a_few_keys_the_page_never_hears_of_are_a_stall_once_the_first_is_a_while_old() {
+        let start = std::time::Instant::now();
+        let mut u = Unreached::default();
+        for _ in 0..3 {
+            u.pressed(start);
+        }
+        // Keys on their way to the page are not lost yet.
+        assert_eq!(u.stalled(start + STALL_AFTER / 2), None);
+        assert_eq!(u.stalled(start + STALL_AFTER), Some(3));
+        // Counted afresh from the restart.
+        assert_eq!(u.stalled(start + STALL_AFTER * 2), None);
+    }
+
+    #[test]
+    fn a_key_or_two_the_page_never_hears_of_is_no_stall() {
+        let start = std::time::Instant::now();
+        let mut u = Unreached::default();
+        u.pressed(start);
+        u.pressed(start);
+        assert_eq!(u.stalled(start + STALL_AFTER * 10), None);
+    }
+
+    #[test]
+    fn the_page_hearing_of_a_key_forgets_the_ones_before_it() {
+        let start = std::time::Instant::now();
+        let mut u = Unreached::default();
+        u.pressed(start);
+        u.pressed(start);
+        u.heard();
+        u.pressed(start + STALL_AFTER);
+        assert_eq!(u.stalled(start + STALL_AFTER * 3), None);
     }
 
     #[test]

@@ -129,6 +129,13 @@ pub(crate) fn use_input(ui: &Ui) {
     // there, as it last told.
     let page_focused = use_hook(|| Rc::new(Cell::new(true)));
     let composing = use_hook(|| Rc::new(Cell::new(false)));
+    // The keys macOS gave the window that the page has not told of.
+    let unreached = use_hook(|| Rc::new(RefCell::new(keys::Unreached::default())));
+    #[cfg(target_os = "macos")]
+    use_hook({
+        let unreached = unreached.clone();
+        move || Rc::new(KeyMonitor::watch(&dioxus::desktop::window(), unreached))
+    });
     // The window made key again gives the keys to its page, whatever in the
     // window took them meanwhile: AppKit sends them to the first responder,
     // and with anything but the page there no key reaches the window. Not
@@ -156,13 +163,17 @@ pub(crate) fn use_input(ui: &Ui) {
     use_hook({
         let ui = ui.clone();
         let page_focused = page_focused.clone();
+        let unreached = unreached.clone();
         move || {
-            spawn(listen(ui, page_focused, composing));
+            spawn(listen(ui, page_focused, composing, unreached));
         }
     });
     // A window that has the keys while its page has not, past a moment, gives
     // them back to the page: nothing else in the window uses them, and with
     // them elsewhere every key is lost while the window looks as it should.
+    // Keys macOS gave the window that never reached the page, as when the
+    // input method leaves one unanswered and WebKit holds every key after
+    // it, restart the input method.
     use_hook(move || {
         let desktop = dioxus::desktop::window();
         spawn(async move {
@@ -174,6 +185,13 @@ pub(crate) fn use_input(ui: &Ui) {
                     keys::trace(|| "the page lost the keys of the window: giving them back");
                     let _ = desktop.webview.focus();
                 }
+                let stalled = unreached.borrow_mut().stalled(std::time::Instant::now());
+                if let Some(n) = stalled {
+                    lost(&format!(
+                        "{n} keys macOS gave the window never reached the page: restarting the input method"
+                    ));
+                    reset_input_method(&desktop);
+                }
             }
         });
     });
@@ -182,7 +200,12 @@ pub(crate) fn use_input(ui: &Ui) {
 /// Keys, text, pastes and input-method commits from the hidden text area.
 /// Keys with a modifier and keys that type nothing come as keys; plain
 /// characters come as text.
-async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>, composing: Rc<Cell<bool>>) {
+async fn listen(
+    ui: Ui,
+    page_focused: Rc<Cell<bool>>,
+    composing: Rc<Cell<bool>>,
+    unreached: Rc<RefCell<keys::Unreached>>,
+) {
     let app = ui.app;
     let run = || {
         document::eval(&format!(
@@ -209,6 +232,9 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>, composing: Rc<Cell<bool>>)
                 continue;
             }
         };
+        if message.tells_of_a_key() {
+            unreached.borrow_mut().heard();
+        }
         if let Some(key) = message.key() {
             keys::trace(|| format!("received {key:?}"));
             ui.handle_key(key);
@@ -250,7 +276,7 @@ async fn listen(ui: Ui, page_focused: Rc<Cell<bool>>, composing: Rc<Cell<bool>>)
                     pasted: false,
                 });
             }
-            keys::Message::Key { .. } | keys::Message::Lost => {}
+            keys::Message::Key { .. } | keys::Message::Lost | keys::Message::Seen => {}
         }
     }
 }
@@ -280,13 +306,63 @@ fn resign_first_responder(desktop: &dioxus::desktop::DesktopContext) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
+    // Deactivated and activated again, as choosing an input source in the
+    // menu bar does, the input method answers the keys it left waiting.
     if let Some(context) = NSTextInputContext::currentInputContext(mtm) {
         context.discardMarkedText();
+        context.deactivate();
+        context.activate();
     }
     // SAFETY: tao hands out the window's NSWindow, alive as long as
     // `desktop`.
     let window = unsafe { &*(desktop.window.ns_window() as *const NSWindow) };
     window.makeFirstResponder(None);
+}
+
+/// Counts each key macOS gives the window, so keys that never reach its page
+/// are found, for as long as it is kept. A Command key is left out, as the
+/// menu bar may take it before the page does.
+#[cfg(target_os = "macos")]
+struct KeyMonitor(objc2::rc::Retained<objc2::runtime::AnyObject>);
+
+#[cfg(target_os = "macos")]
+impl KeyMonitor {
+    fn watch(
+        desktop: &dioxus::desktop::DesktopContext,
+        unreached: Rc<RefCell<keys::Unreached>>,
+    ) -> Option<Self> {
+        use dioxus::desktop::tao::platform::macos::WindowExtMacOS;
+        use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSWindow};
+        // SAFETY: tao hands out the window's NSWindow, alive as long as
+        // `desktop`.
+        let window = unsafe { &*(desktop.window.ns_window() as *const NSWindow) };
+        let number = window.windowNumber();
+        let block = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
+            // SAFETY: AppKit hands the monitor an event alive while it runs.
+            let e = unsafe { event.as_ref() };
+            if e.windowNumber() == number
+                && !e.modifierFlags().contains(NSEventModifierFlags::Command)
+                && let Ok(mut u) = unreached.try_borrow_mut()
+            {
+                u.pressed(std::time::Instant::now());
+            }
+            event.as_ptr()
+        });
+        // SAFETY: the block returns the event it is given, so the event goes
+        // on as it would without the monitor.
+        unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+        }
+        .map(Self)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for KeyMonitor {
+    fn drop(&mut self) {
+        // SAFETY: the monitor is the one AppKit returned for it.
+        unsafe { objc2_app_kit::NSEvent::removeMonitor(&self.0) };
+    }
 }
 
 /// The menu bar shows the Command keys in force, and runs what an entry
