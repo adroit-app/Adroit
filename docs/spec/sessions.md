@@ -208,7 +208,9 @@ flowchart LR
 
 The folder of either socket has to be yours and open to no one else: Adroit
 makes it so when it makes the folder, and refuses one already there that is
-not, leaving it as it is.
+not, leaving it as it is. The one exception is an environment's own folder in
+Adroit's state, which a window may have made first: the work host closes it to
+others before serving the environment from it.
 
 A window works with a host whenever they share a version of its protocol,
 whichever build of Adroit either is, so an update of Adroit that leaves the

@@ -22,8 +22,9 @@ impl Environment {
         if !adroit_model::paths::is_instance(id) {
             return Err("Invalid work environment".into());
         }
-        adroit_term::own_dir(&root.join("environments").join(id).join("owner.sock"))
-            .map_err(|e| e.to_string())?;
+        let folder = root.join("environments").join(id);
+        made_private(&folder).map_err(|e| e.to_string())?;
+        adroit_term::own_dir(&folder.join("owner.sock")).map_err(|e| e.to_string())?;
         let context = Arc::new(Self {
             id: id.into(),
             root: root.join("environments").join(id),
@@ -37,6 +38,33 @@ impl Environment {
         *context.settings.write().map_err(|e| e.to_string())? = settings;
         Ok(context)
     }
+}
+
+/// Close the environment's folder to others where it is the user's and open.
+/// A window keeps what it sent for an environment in a folder of the same
+/// name, and one on the work machine itself names its environment as the work
+/// host's scope, so it may make the folder first, with the umask's mode. The
+/// folder lies in adroit's own state, not one the user opened on purpose.
+#[cfg(unix)]
+fn made_private(folder: &Path) -> std::io::Result<()> {
+    use adroit_sys::fs::MetadataExt;
+    match std::fs::symlink_metadata(folder) {
+        Ok(meta)
+            if meta.is_dir()
+                && meta.uid() == adroit_sys::euid()
+                && meta.mode() & 0o777 != 0o700 =>
+        {
+            adroit_sys::fs::set_mode(folder, 0o700)
+        }
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(unix))]
+fn made_private(_: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 pub fn current() -> Option<Arc<Environment>> {
@@ -232,6 +260,20 @@ mod tests {
         })
         .await;
         assert!(Environment::at("../escape", dir.path()).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_environment_whose_folder_a_window_made_open_to_others_is_served_from_it_made_private() {
+        use adroit_sys::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("environments/work");
+        std::fs::create_dir_all(folder.join("remote-journal")).unwrap();
+        adroit_sys::fs::set_mode(&folder, 0o755).unwrap();
+        let context = Environment::at("work", root.path()).unwrap();
+        assert_eq!(context.root, folder);
+        let mode = std::fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
     }
 }
 
