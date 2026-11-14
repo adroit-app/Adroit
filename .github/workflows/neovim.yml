@@ -1,0 +1,47 @@
+name: Neovim
+
+# Pin the latest Neovim release, as assets/neovim/update.sh does by hand,
+# and open a pull request for it when it is not the one pinned already. CI
+# runs the tests in the new release on that pull request, which is the check
+# update.sh asks for before a release is shipped.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pin the latest release
+        id: pin
+        run: |
+          assets/neovim/update.sh
+          echo "tag=$(cat assets/neovim/VERSION)" >>"$GITHUB_OUTPUT"
+      # A pull request opened with GITHUB_TOKEN starts no workflow, so CI
+      # would never test the new release. The token is a fine-grained one
+      # allowed to write contents and pull requests of this repository.
+      # The branch is fixed, so a newer release updates the open pull request
+      # instead of opening another.
+      - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.NEOVIM_UPDATE_TOKEN }}
+          branch: neovim-update
+          delete-branch: true
+          add-paths: assets/neovim/
+          commit-message: |
+            assets: pin Neovim ${{ steps.pin.outputs.tag }}
+
+            The macOS app carries the latest Neovim release, and the tests
+            run in it.
+          title: "assets: pin Neovim ${{ steps.pin.outputs.tag }}"
+          body: |
+            Neovim [${{ steps.pin.outputs.tag }}](https://github.com/neovim/neovim/releases/tag/${{ steps.pin.outputs.tag }}) is out; this pins it with `assets/neovim/update.sh`.
+
+            CI runs the tests in it. Read the release notes for changes the app depends on before merging.
