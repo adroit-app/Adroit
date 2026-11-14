@@ -1773,7 +1773,7 @@ dependencies = [
 [[package]]
 name = "felis-client-core"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "bitflags 2.13.2",
  "directories",
@@ -1792,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "felis-daemon"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "anyhow",
  "bytes 1.12.1",
@@ -1818,7 +1818,7 @@ dependencies = [
 [[package]]
 name = "felis-grid"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "bitflags 2.13.2",
  "bytes 1.12.1",
@@ -1836,7 +1836,7 @@ dependencies = [
 [[package]]
 name = "felis-protocol"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "bitflags 2.13.2",
  "bytes 1.12.1",
@@ -1849,7 +1849,7 @@ dependencies = [
 [[package]]
 name = "felis-pty"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "libc",
  "rustix",
@@ -1862,7 +1862,7 @@ dependencies = [
 [[package]]
 name = "felis-transport"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "bytes 1.12.1",
  "directories",
@@ -1879,7 +1879,7 @@ dependencies = [
 [[package]]
 name = "felis-vt"
 version = "0.2.0"
-source = "git+https://github.com/felis-terminal/felis?rev=6ee73ba9f3db5b0febfef89e6b1d23e102b573d4#6ee73ba9f3db5b0febfef89e6b1d23e102b573d4"
+source = "git+https://github.com/felis-terminal/felis?rev=310c07ec7d1c63465d96395408dfa8812d184e49#310c07ec7d1c63465d96395408dfa8812d184e49"
 dependencies = [
  "felis-protocol",
  "miniz_oxide 0.9.1",
