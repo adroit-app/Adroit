@@ -1,0 +1,64 @@
+name: Bundle
+
+# Build Adroit.app for release and put it in the disk image a GitHub Release
+# carries (`just bundle`). ci.yml calls it with a placeholder version so the
+# packaging is exercised before any release depends on it; release.yml calls
+# it with the tag.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version to stamp and to name the disk image by, without a leading v
+        type: string
+        default: 0.0.0-ci
+      # Signs Adroit.app by the release identity, kept in the secrets of the
+      # environment "release"; ad hoc otherwise. Every release is signed by
+      # the same one, so an update keeps what users let the app do.
+      sign:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: bundle (macos-aarch64)
+    runs-on: macos-latest
+    environment: ${{ inputs.sign && 'release' || '' }}
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ inputs.version }}
+    # Release builds use rustup, not Nix, so the executable never refers into
+    # /nix/store, and they start without caches, so nothing a pull request
+    # wrote can reach a published package.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: just
+      - name: Import the release signing identity
+        if: inputs.sign
+        run: |
+          assets/macos/import-identity.sh "$RUNNER_TEMP/signing.keychain-db"
+          echo "ADROIT_SIGN_IDENTITY=Adroit Release" >>"$GITHUB_ENV"
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+      # The script `just ci` also runs, so a placeholder it no longer finds
+      # fails a pull request rather than a release.
+      - name: Stamp the version
+        run: perl assets/release/stamp-version.pl "$VERSION"
+      - name: Bundle
+        run: just bundle "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle-macos-aarch64
+          path: dist/*
+          if-no-files-found: error
+          # A release attaches its disk image; a pull request's only needs to
+          # stay while it is reviewed.
+          retention-days: ${{ inputs.version == '0.0.0-ci' && 3 || 30 }}

@@ -15,6 +15,27 @@
         "type": "github"
       }
     },
+    "nix-github-release": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792771613,
+        "narHash": "sha256-UCyXWm/+4tLIn5Gdb0FYQeRo1WZm3df1emo9C9ahwjk=",
+        "owner": "lambdalisue",
+        "repo": "nix-github-release",
+        "rev": "dce4667ead8b4efa7ff5b4784fdaddbdc5506e8a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "lambdalisue",
+        "ref": "v0.1.1",
+        "repo": "nix-github-release",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1791956154,
@@ -31,6 +52,7 @@
     "root": {
       "inputs": {
         "crane": "crane",
+        "nix-github-release": "nix-github-release",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"
       }

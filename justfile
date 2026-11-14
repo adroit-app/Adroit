@@ -37,8 +37,21 @@ test:
 references:
     cargo run -q -p adroit-core --example references
 
+# Fail when the release could not stamp its version over the placeholder.
+stamp-check:
+    tmp=$(mktemp -d) && cp Cargo.toml Cargo.lock "$tmp" && perl assets/release/stamp-version.pl 0.0.0-ci "$tmp"
+
+# Write the licences of the crates Adroit is built from into
+# THIRD-PARTY-LICENSES.txt, which the app ships.
+licenses:
+    cargo about generate --locked about.hbs -o THIRD-PARTY-LICENSES.txt
+
+# Fail when THIRD-PARTY-LICENSES.txt is not what Cargo.lock now makes.
+licenses-check:
+    tmp=$(mktemp) && cargo about generate --locked about.hbs -o "$tmp" && diff -q THIRD-PARTY-LICENSES.txt "$tmp" >/dev/null || { echo "THIRD-PARTY-LICENSES.txt is stale; run just licenses" >&2; exit 1; }
+
 # Everything CI runs, the tests in the Neovim the app carries.
-ci: fmt-check lint
+ci: fmt-check lint stamp-check licenses-check
     just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
     just test-headless
 
@@ -46,7 +59,7 @@ ci: fmt-check lint
 # tests in the Neovim of the release the app carries. The executable for a
 # work machine is left out, as a work machine runs Unix.
 [windows]
-ci-windows: fmt-check lint
+ci-windows: fmt-check lint stamp-check
     just test-neovim "$(assets/neovim/fetch.sh)/bin/nvim"
 
 # The executable for a work machine, with no desktop runtime linked.
@@ -72,12 +85,25 @@ install-macos: build-macos
     rm -rf /Applications/Adroit.app
     cp -R "${CARGO_TARGET_DIR:-target}/macos/Adroit.app" /Applications/
 
-# Make the identity the macOS app is signed with, "Adroit Release", into a new folder to keep.
+# Build Adroit.app for release and put it in the disk image a GitHub Release
+# carries, in dist/. Run outside the Nix shell, as the release does: a build
+# made inside it refers into /nix/store, which the disk image refuses.
+[macos]
+bundle version="0.0.0-ci":
+    cargo build --release --locked -p adroit
+    assets/macos/bundle.sh
+    assets/macos/dmg.sh {{version}} dist
+
+# Make a new identity to sign the macOS app with, "Adroit Release", into a
+# new folder. The one releases are signed with is kept in 1Password; a new
+# one makes every user grant the app its permissions again.
 [macos]
 macos-make-identity folder:
     assets/macos/make-identity.sh {{folder}}
 
-# Import the identity in a folder `macos-make-identity` made into the login keychain, so `build-macos` signs with it.
+# Import the identity releases sign with, given as MACOS_SIGNING_P12 and
+# MACOS_SIGNING_PASSWORD, into the login keychain, so `build-macos` signs with
+# it too.
 [macos]
-macos-import-identity folder:
-    assets/macos/import-identity.sh {{folder}}
+macos-import-identity:
+    assets/macos/import-identity.sh

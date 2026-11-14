@@ -69,6 +69,24 @@ file in Neovim runs the `nvim` on `PATH` either way.
 Install jj to read jj repositories and create jj workspaces. ghq is optional;
 when installed, its repositories are offered in the directory picker.
 
+On an Apple silicon Mac, install the latest release with Homebrew:
+
+```sh
+brew install --cask adroit-app/tap/adroit
+```
+
+Each [release](https://github.com/adroit-app/Adroit/releases) carries the disk
+image the cask installs. Adroit.app is signed by a self-signed certificate,
+not by an Apple Developer ID, so a downloaded copy needs its quarantine removed
+(`xattr -dr com.apple.quarantine /Applications/Adroit.app`) or opening allowed
+in System Settings → Privacy & Security; the cask does this itself.
+
+With Nix (prebuilt in the `adroit` Cachix cache):
+
+```sh
+nix profile install github:adroit-app/Adroit
+```
+
 Build and run from the Nix development shell:
 
 ```sh
@@ -85,14 +103,20 @@ The installed command is `/Applications/Adroit.app/Contents/MacOS/adroit`. Add
 that directory to `PATH` to use the `adroit` commands below from your terminal.
 
 The app is signed by the self-signed identity "Adroit Release" when the login
-keychain has it, so reinstalling keeps the permissions macOS gave the previous
-build. Otherwise it is signed ad hoc. To create and import the identity once,
-keep the resulting folder and run these from the development shell:
+keychain has it, so a local build keeps the permissions macOS gave the release
+or the build before it. Otherwise it is signed ad hoc. Releases are signed by
+the same identity; to import it, give it as `MACOS_SIGNING_P12` (identity.p12
+in base64) and `MACOS_SIGNING_PASSWORD`:
 
 ```sh
-just macos-make-identity ~/adroit-identity
-just macos-import-identity ~/adroit-identity
+MACOS_SIGNING_P12=… MACOS_SIGNING_PASSWORD=… just macos-import-identity
 ```
+
+A release is published as a GitHub Release with a tag such as `v0.1.0`; the
+disk image, the Nix build and the Homebrew cask follow
+([ADR](docs/adr/20261114-release-adroit-from-a-github-release.md)). Build the
+disk image the way the release does, outside the Nix shell, with
+`just bundle`.
 
 On Windows, build with Rust, the MSVC build tools and LLVM installed, and
 Neovim on `PATH`:

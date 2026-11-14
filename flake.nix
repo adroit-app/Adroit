@@ -8,6 +8,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
+    nix-github-release = {
+      url = "github:lambdalisue/nix-github-release/v0.1.1";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -16,6 +20,7 @@
       nixpkgs,
       rust-overlay,
       crane,
+      nix-github-release,
       ...
     }:
     let
@@ -51,17 +56,22 @@
           inherit (pkgs) lib;
           rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: rust);
-          workspace = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package;
+          # The tag this flake was fetched at, from VERSION; see
+          # github:lambdalisue/nix-github-release.
+          version = nix-github-release.lib.version { inherit self; };
           build = {
             pname = "adroit";
-            # The source carries no tags, so a build names the commit it is made from.
-            version = "${workspace.version}-${self.shortRev or self.dirtyShortRev or "unknown"}";
+            # Cargo.toml's placeholder, so the dependency layer stays cached
+            # across releases; the package itself is stamped with the version.
+            version = "0.0.0";
             src = lib.fileset.toSource {
               root = ./.;
               fileset = lib.fileset.unions [
                 ./Cargo.toml
                 ./Cargo.lock
                 ./crates
+                ./LICENSE
+                ./THIRD-PARTY-LICENSES.txt
               ];
             };
             strictDeps = true;
@@ -71,7 +81,22 @@
             # The tests run in CI and with `just test`.
             doCheck = false;
           };
-          adroit = craneLib.buildPackage (build // { cargoArtifacts = craneLib.buildDepsOnly build; });
+          adroit = craneLib.buildPackage (
+            nix-github-release.lib.stampCargo { inherit pkgs version; } (
+              build
+              // {
+                cargoArtifacts = craneLib.buildDepsOnly build;
+                # Adroit's licence and those of the crates built into it go
+                # with it.
+                postInstall = ''
+                  licenses="$out/share/licenses/adroit"
+                  install -Dm644 LICENSE "$licenses/LICENSE"
+                  install -Dm644 THIRD-PARTY-LICENSES.txt "$licenses/THIRD-PARTY-LICENSES.txt"
+                '';
+                meta.mainProgram = "adroit";
+              }
+            )
+          );
         in
         {
           inherit adroit;
@@ -97,6 +122,9 @@
               pkgs.nodejs
               # What adroit reads of jj repositories; its tests make them with jj.
               pkgs.jujutsu
+              # Writes the licences of the crates Adroit is built from
+              # (just licenses).
+              pkgs.cargo-about
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ]
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.pkg-config ]

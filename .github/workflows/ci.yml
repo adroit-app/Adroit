@@ -16,6 +16,23 @@ permissions:
   contents: read
 
 jobs:
+  # Every action and reusable workflow is pinned to a commit, with its
+  # version beside it: a tag can be moved to other code, a commit cannot —
+  # code that would then run with the release environment's signing identity
+  # and the tokens that push to Cachix and the tap. `pinact run -u` updates
+  # the pins.
+  pinned:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+      - name: Check that every action is pinned
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: nix shell nixpkgs#pinact -c pinact run --check
+
   ci:
     strategy:
       fail-fast: false
@@ -23,24 +40,24 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
       # The store the development shell comes from. Only an exact match is
       # restored, and only main saves, so pull requests cannot evict the
       # caches each other start from.
-      - uses: nix-community/cache-nix-action@v7
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
         with:
           primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.nix', 'flake.lock', 'rust-toolchain.toml') }}
           save: ${{ github.ref == 'refs/heads/main' }}
       # Load the development shell (flake.nix) into the job, so the steps
       # below run the same commands on every OS.
-      - uses: nicknovitski/nix-develop@v1
-      - uses: Swatinem/rust-cache@v2
+      - uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1.2.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # The same gate as local development (justfile).
@@ -56,13 +73,13 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: just
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: just ci-windows
@@ -71,3 +88,20 @@ jobs:
           # The debug information of a Windows build fills the runner's disk
           # before both lint and tests have built.
           CARGO_PROFILE_DEV_DEBUG: "0"
+
+  # The package `nix profile install github:adroit-app/Adroit` installs,
+  # built on each system the flake lists from the archive GitHub serves — the
+  # source such an install fetches, and the only one with VERSION filled in.
+  nix:
+    uses: lambdalisue/nix-github-release/.github/workflows/build.yml@dce4667ead8b4efa7ff5b4784fdaddbdc5506e8a # v0.1.1
+    with:
+      packages: adroit
+      cachix-cache: adroit
+    secrets:
+      # Pull requests read the cache but do not push into it.
+      cachix-auth-token: ${{ github.event_name != 'pull_request' && secrets.CACHIX_AUTH_TOKEN || '' }}
+
+  # The disk image a release attaches, made the way the release makes it,
+  # with a placeholder version, so a release is never its first run.
+  bundle:
+    uses: ./.github/workflows/bundle.yml

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Make the self-signed identity the macOS app is signed with, "Adroit
-# Release": identity.p12 and the password that opens it, written into a new
-# folder. macOS keeps what it let the app do only while every build is signed
-# by the same one, so the folder is kept to import it again on another Mac.
+# Make the self-signed identity Adroit.app is signed with, "Adroit Release",
+# for the secrets of the GitHub environment "release": MACOS_SIGNING_P12
+# (identity.p12 in base64) and MACOS_SIGNING_PASSWORD, written into a new
+# folder. Every build must be signed by the same one, or macOS forgets what
+# the user let the app do, so the identity is made once and kept: it is in
+# 1Password as "Adroit macOS code signing identity". Making another replaces
+# it for every user.
 #
 #   make-identity.sh <folder to create>
 set -euo pipefail
@@ -35,8 +38,11 @@ openssl=/usr/bin/openssl
 "$openssl" rand -hex 24 >"$out/password"
 "$openssl" pkcs12 -export -passout "file:$out/password" \
   -inkey "$work/key.pem" -in "$work/cert.pem" -out "$out/identity.p12"
+/usr/bin/base64 -i "$out/identity.p12" >"$out/identity.p12.base64"
 "$openssl" x509 -in "$work/cert.pem" -noout -fingerprint -sha256
 cat <<MSG
-Import it into the login keychain with import-identity.sh $out, then keep
-$out somewhere safe: a new identity makes macOS ask for every permission again.
+Keep these where import-identity.sh can be given them, register them as
+secrets of the GitHub environment "release", then delete $out:
+  MACOS_SIGNING_P12       the content of $out/identity.p12.base64
+  MACOS_SIGNING_PASSWORD  the content of $out/password
 MSG

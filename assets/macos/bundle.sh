@@ -32,6 +32,11 @@ mkdir -p "$app/Contents/Resources/neovim"
 cp -R "$neovim/bin" "$neovim/lib" "$neovim/share" "$app/Contents/Resources/neovim/"
 cp "$root/assets/neovim/LICENSE.txt" "$app/Contents/Resources/neovim/LICENSE.txt"
 
+# Adroit's licence, and those of the crates built into it, whose notices are
+# to travel with every copy.
+mkdir -p "$app/Contents/Resources/licenses"
+cp "$root/LICENSE" "$root/THIRD-PARTY-LICENSES.txt" "$app/Contents/Resources/licenses/"
+
 # Quick Look draws the SVG as WebKit would; iconutil wants each size.
 qlmanage -t -s 1024 -o "$work" "$root/assets/logo/adroit-icon.svg" >/dev/null
 for size in 16 32 128 256 512; do

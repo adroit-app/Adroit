@@ -1,0 +1,110 @@
+name: Release
+
+# Publishing a GitHub Release starts this: write the notes, publish, and the
+# disk image, the Nix build and the Homebrew cask follow. The release exists
+# before its assets do — expect a few minutes with the notes up and nothing
+# attached.
+#
+# The tag is the only record of the version. `version` in Cargo.toml is a
+# placeholder that the bundle stamps from the tag before it builds. The flake
+# stamps its build the same way, from VERSION, which GitHub fills in with the
+# tag when it serves the tagged source.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# The tag reaches every step through the environment rather than being
+# interpolated into a script, so its text can never be read as shell.
+env:
+  TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  # The tag without its leading v, which the bundle stamps and names by.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: echo "version=${TAG#v}" >>"$GITHUB_OUTPUT"
+
+  bundle:
+    needs: version
+    uses: ./.github/workflows/bundle.yml # zizmor: ignore[secrets-inherit]
+    with:
+      version: ${{ needs.version.outputs.version }}
+      sign: true
+    # A called workflow reads the secrets of the environment "release" only
+    # when they are inherited; they cannot be passed by name, as the caller
+    # has no environment to read them from.
+    secrets: inherit
+
+  # One job owns the upload, so the checksum is computed from exactly the
+  # bytes that get attached.
+  attach:
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      dmg-sha256: ${{ steps.dmg.outputs.sha256 }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          for f in *; do
+            sha256sum "$f" > "$f.sha256"
+          done
+      # The disk image is what the Homebrew cask installs, so a release
+      # without it is not one.
+      - name: Find the disk image
+        id: dmg
+        working-directory: dist
+        run: |
+          dmg="Adroit_${TAG#v}_aarch64.dmg"
+          if [ ! -f "$dmg" ]; then
+            echo "::error::$dmg was not built" >&2
+            exit 1
+          fi
+          echo "sha256=$(cut -d' ' -f1 "$dmg.sha256")" >>"$GITHUB_OUTPUT"
+      # `gh release upload` only adds assets, so the notes written by hand are
+      # never touched. --clobber keeps a re-run from failing on an asset that
+      # is already there.
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" dist/* --clobber
+
+  # The flake as `nix profile install github:adroit-app/Adroit/vX.Y.Z`
+  # fetches it, from the archive GitHub serves for the tag, built into the
+  # cache. The run fails unless the package reports the release.
+  nix:
+    uses: lambdalisue/nix-github-release/.github/workflows/build.yml@dce4667ead8b4efa7ff5b4784fdaddbdc5506e8a # v0.1.1
+    with:
+      ref: ${{ github.event.release.tag_name }}
+      packages: adroit
+      cachix-cache: adroit
+      cachix-pin: release
+    secrets:
+      cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  # The tap updates its cask to the disk image just attached. Only a token
+  # allowed to dispatch to adroit-app/homebrew-tap can start its run.
+  homebrew:
+    needs: attach
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          repository: adroit-app/homebrew-tap
+          event-type: update
+          client-payload: '{"version": "${{ github.event.release.tag_name }}", "sha256": "${{ needs.attach.outputs.dmg-sha256 }}"}'
