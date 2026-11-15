@@ -8,6 +8,7 @@ use adroit_model::{Session, Tree};
 
 use super::Item;
 use crate::content::Tab;
+use crate::picker::fuzzy::Query;
 use crate::tree::Place;
 
 /// Find a session by id, with the worktree it runs in.
@@ -32,16 +33,16 @@ pub fn followed(sessions: &[Session], tabs: &HashSet<Tab>) -> HashSet<Tab> {
         .collect()
 }
 
-/// `tree` with only the sessions and terminals whose names hold `text`, any
-/// case, and the worktrees and workspaces that still hold one; a workspace or a worktree
-/// whose own name holds it keeps everything beneath it. An empty `text` keeps
-/// everything.
+/// `tree` with only the sessions and terminals whose names match `text` as
+/// the pickers match, and the worktrees and workspaces that still hold one;
+/// a workspace or a worktree whose own name matches keeps everything beneath
+/// it. A `text` that asks nothing keeps everything.
 pub fn narrowed(tree: &Tree, text: &str) -> Tree {
-    if text.is_empty() {
+    let query = Query::new(text);
+    if query.is_empty() {
         return tree.clone();
     }
-    let want = text.to_lowercase();
-    let named = |name: &str| name.to_lowercase().contains(&want);
+    let named = |name: &str| query.matches(name);
     let mut out = tree.clone();
     for ws in &mut out.workspaces {
         if named(&ws.name) {

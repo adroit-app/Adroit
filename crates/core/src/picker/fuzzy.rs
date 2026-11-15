@@ -1,4 +1,4 @@
-//! Narrowing a list of paths by what was typed, with fzf's syntax: the
+//! Narrowing a list of paths or names by what was typed, with fzf's syntax: the
 //! characters of each term appear in order, `'exact`, `^start`, `end$` and
 //! `!not` are understood, and a lowercase term ignores case.
 //!
@@ -66,6 +66,11 @@ impl Query {
     /// Whether nothing was asked; whitespace alone asks nothing.
     pub fn is_empty(&self) -> bool {
         self.pattern.atoms.is_empty()
+    }
+
+    /// Whether `text` answers; everything does when nothing was asked.
+    pub fn matches(&self, text: &str) -> bool {
+        self.rank(text, None).is_some()
     }
 
     /// How well `path` answers, or [`None`] if it does not.

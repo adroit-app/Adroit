@@ -554,7 +554,7 @@ fn a_selected_row_that_leaves_gives_way_to_the_same_session_s_or_the_shown_tab_s
 #[test]
 fn a_filter_keeps_the_sessions_whose_names_match_and_the_rows_above_them() {
     let t = tree();
-    let list = rows(&narrowed(&t, "O"), &Folds::default());
+    let list = rows(&narrowed(&t, "o"), &Folds::default());
     // The worktree oauth is named with an o, and keeps all it holds.
     assert_eq!(
         list,
@@ -969,7 +969,7 @@ fn folding_a_worktree_or_a_workspace_hides_its_shells() {
 #[test]
 fn a_filter_keeps_the_shells_whose_names_match_as_it_keeps_sessions() {
     let t = shelled();
-    let list = rows(&narrowed(&t, "LOG"), &Folds::default());
+    let list = rows(&narrowed(&t, "log"), &Folds::default());
     assert_eq!(
         list,
         [vec![ws("/notes")], group("/notes", &[], &[shell(5)])].concat()
@@ -1411,4 +1411,13 @@ fn a_file_or_worktree_row_copies_its_path_and_what_runs_its_name() {
         Some(Copied::Name("build".into()))
     );
     assert_eq!(copied(&sessions_of("/api"), &t, &shells), None);
+}
+
+#[test]
+fn a_filter_matches_a_name_whose_letters_come_in_its_order_as_the_pickers_do() {
+    let t = shelled();
+    let logs = [vec![ws("/notes")], group("/notes", &[], &[shell(5)])].concat();
+    assert_eq!(rows(&narrowed(&t, "lgs"), &Folds::default()), logs);
+    // A lowercase filter ignores case; one with an uppercase letter keeps it.
+    assert_eq!(rows(&narrowed(&t, "LOGS"), &Folds::default()), []);
 }

@@ -155,7 +155,10 @@ A worktree where something runs is closed the same ways: it asks first, then
 ends every session and terminal running there, and its row goes while its
 workspace stays listed.
 
-The filter at the top of the tree narrows it as it is typed into. The sessions
+The filter at the top of the tree narrows it as it is typed into, by the
+fuzzy match the pickers use, fzf's syntax included, on the names of
+sessions, terminals, worktrees and workspaces; a worktree or a workspace that
+matches keeps all it holds, and the rows keep the tree's order. The sessions
 waiting on you are listed again at the bottom of the tree, apart from it.
 
 The tree heads each [environment](environments.md)'s work with a row named
