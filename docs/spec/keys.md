@@ -71,14 +71,9 @@ A `keys.toml` on another work machine is not read by the window.
 - otherwise `keys.toml` in `$XDG_CONFIG_HOME/adroit/`, or in
   `~/.config/adroit/` when `$XDG_CONFIG_HOME` is unset.
 
-A missing file keeps Adroit's own bindings. A binding to `coordinator.open`,
-`project.new`, `project.edit`, `workspace.pick`, `details.files`,
-`details.diff`, `session.take_over`, `session.agent_next` or
-`session.agent_prev`, actions earlier versions had, is read and dropped. The area
-earlier versions called `sidebar` is read as `tree`, and `sidebar.toggle` as
-`tree.toggle`. The window
-reads the file again when it changes; a mistake in it is reported at the bottom
-of the window, and the bindings in force stay as they were.
+A missing file keeps Adroit's own bindings. The window reads the file again
+when it changes; a mistake in it is reported at the bottom of the window, and
+the bindings in force stay as they were.
 
 ## Changing them in the Settings window
 

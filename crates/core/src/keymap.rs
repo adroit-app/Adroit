@@ -142,33 +142,6 @@ fn areas(table: toml::Table) -> Result<Vec<(String, toml::Table)>, Error> {
     Ok(out)
 }
 
-/// Names earlier versions gave an area or an action, read as the names they
-/// go by now.
-const RENAMED: &[(&str, &str)] = &[("sidebar", "tree"), ("sidebar.toggle", "tree.toggle")];
-
-fn renamed(name: &str) -> &str {
-    RENAMED
-        .iter()
-        .find(|(old, _)| *old == name)
-        .map_or(name, |(_, now)| now)
-}
-
-/// Actions earlier versions had: a binding to one is dropped as it is read,
-/// so a file that has one still reads.
-const RETIRED: &[&str] = &[
-    "coordinator.open",
-    "project.new",
-    "project.edit",
-    "workspace.pick",
-    "sheet.prev",
-    "sheet.next",
-    "details.files",
-    "details.diff",
-    "session.take_over",
-    "session.agent_next",
-    "session.agent_prev",
-];
-
 /// What a key comes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
@@ -209,17 +182,14 @@ impl Keymap {
         for (area, entries) in areas(table)? {
             let ctx = Context::ALL
                 .into_iter()
-                .find(|c| c.name() == renamed(&area))
+                .find(|c| c.name() == area)
                 .ok_or_else(|| Error(format!("{area:?} is not an area of the window")))?;
             for (keys, action) in &entries {
                 let seq = parse_sequence(keys)?;
                 let name = action
                     .as_str()
                     .ok_or_else(|| Error(format!("{keys:?} in [{area}] is not bound to a name")))?;
-                if RETIRED.contains(&name) {
-                    continue;
-                }
-                let action: Action = renamed(name).parse()?;
+                let action: Action = name.parse()?;
                 self.bindings.retain(|(c, s, _)| !(*c == ctx && *s == seq));
                 self.bindings.push((ctx, seq, action));
             }
@@ -733,26 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn a_binding_to_the_sheets_actions_earlier_versions_had_is_dropped() {
-        let map = Keymap::with_user(
-            "[details]\n\"J\" = \"sheet.next\"\n\"K\" = \"scroll.up\"\n\
-             [global]\n\"Mod+4\" = \"details.files\"\n\"Mod+5\" = \"details.diff\"\n",
-        )
-        .unwrap();
-        for (digit, n) in [("4", 4), ("5", 5)] {
-            assert_eq!(
-                map.resolve(&[Context::Global], &[], &press(&format!("Mod+{digit}"))),
-                Step::Run(Action::TabGo(n)),
-                "{digit}"
-            );
-        }
-        assert_eq!(
-            map.resolve(&[Context::Details], &[], &Key::new("K").shift()),
-            Step::Run(Action::ScrollUp)
-        );
-    }
-
-    #[test]
     fn window_motions_reach_every_area() {
         let map = Keymap::defaults();
         for ctx in [Context::Tree, Context::Details, Context::Console] {
@@ -799,20 +749,6 @@ mod tests {
     }
 
     #[test]
-    fn a_binding_to_an_action_earlier_versions_had_is_read_and_dropped() {
-        let map = Keymap::with_user(
-            "[tree]\n\"P\" = \"project.new\"\n\"c\" = \"coordinator.open\"\n\"T\" = \"session.take_over\"\n\"J\" = \"cursor.down\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            step(&map, &[Context::Tree], &[], "J"),
-            Step::Run(Action::CursorDown)
-        );
-        assert_eq!(step(&map, &[Context::Tree], &[], "P"), Step::Nothing);
-        assert_eq!(step(&map, &[Context::Tree], &[], "T"), Step::Nothing);
-    }
-
-    #[test]
     fn a_viewer_scrolls_zooms_turns_pages_plays_and_closes_by_its_own_keys() {
         let map = Keymap::defaults();
         let viewer = [Context::Viewer, Context::Global];
@@ -842,35 +778,6 @@ mod tests {
     }
 
     #[test]
-    fn the_tree_s_bindings_are_read_from_the_area_earlier_versions_called_sidebar() {
-        let map = Keymap::with_user("[sidebar]\n\"J\" = \"cursor.down\"\n").unwrap();
-        assert_eq!(
-            step(&map, &[Context::Tree], &[], "J"),
-            Step::Run(Action::CursorDown)
-        );
-        assert!(map.listed().iter().all(|(area, _, _)| *area != "sidebar"));
-    }
-
-    #[test]
-    fn a_binding_to_the_sidebar_toggle_earlier_versions_had_toggles_the_tree() {
-        let map = Keymap::with_user("[global]\n\"Mod+y\" = \"sidebar.toggle\"\n").unwrap();
-        assert_eq!(
-            step(&map, &[Context::Global], &[], "Mod+y"),
-            Step::Run(Action::TreeToggle)
-        );
-        assert!(!Action::names().any(|n| n == "sidebar.toggle"));
-    }
-
-
-    #[test]
-    fn a_binding_to_the_workspace_picker_earlier_versions_had_is_dropped() {
-        let map = Keymap::with_user("[global]\n\"Cmd+y\" = \"workspace.pick\"\n").unwrap();
-        let key = Key::new("y").meta();
-        assert_eq!(map.resolve(&[Context::Global], &[], &key), Step::Nothing);
-        assert!(!Action::names().any(|n| n == "workspace.pick"));
-    }
-
-    #[test]
     fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_opens_a_past_conversation() {
         let map = Keymap::defaults();
         assert_eq!(
@@ -891,6 +798,10 @@ mod tests {
             "[tree]\n\"Hyper+j\" = \"cursor.down\"\n",
             "[tree]\n\"j\" = \"cursor.sideways\"\n",
             "[tree]\n\"j\" = 1\n",
+            "[sidebar]\n\"j\" = \"cursor.down\"\n",
+            "[global]\n\"Mod+y\" = \"sidebar.toggle\"\n",
+            "[tree]\n\"l\" = \"cursor.show\"\n",
+            "[tree]\n\"P\" = \"project.new\"\n",
         ] {
             assert!(Keymap::with_user(bad).is_err(), "{bad}");
         }
@@ -1124,29 +1035,6 @@ mod tests {
                 k,
             );
             assert_eq!(got, Step::Run(Action::PromptWrite), "{k}");
-        }
-    }
-
-    #[test]
-    fn a_binding_to_switching_a_draft_s_agent_is_read_and_dropped_now_its_profile_names_it() {
-        let map = Keymap::with_user(
-            "[draft]\n\"Ctrl+g a\" = \"session.agent_next\"\n\"Ctrl+g A\" = \"session.agent_prev\"\n\"Ctrl+g p\" = \"session.profile_next\"\n",
-        )
-        .unwrap();
-        let draft = [Context::Draft, Context::Prompt, Context::Global];
-        for k in ["a", "A"] {
-            assert_eq!(step(&map, &draft, &["Ctrl+g"], k), Step::Nothing, "{k}");
-        }
-        assert_eq!(
-            step(&map, &draft, &["Ctrl+g"], "p"),
-            Step::Run(Action::SessionProfileNext)
-        );
-        for k in ["a", "A"] {
-            assert_eq!(
-                step(&Keymap::defaults(), &draft, &["Ctrl+g"], k),
-                Step::Nothing,
-                "{k}"
-            );
         }
     }
 
