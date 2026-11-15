@@ -6,6 +6,7 @@ use std::path::Path;
 use adroit_model::{EnvironmentId, Interrupted};
 
 use super::fuzzy::{Query, best};
+use super::list::ListState;
 use super::{close, short};
 use crate::effect::Effect;
 use crate::host::Hosts;
@@ -18,8 +19,7 @@ const ROWS: usize = 200;
 pub struct Waiting {
     /// The environment whose terminal host took them.
     pub environment: EnvironmentId,
-    pub query: String,
-    pub cursor: usize,
+    pub list: ListState,
 }
 
 /// What waits in `environment` to be brought back, as its host lists it.
@@ -30,7 +30,7 @@ pub fn waiting<'a>(hosts: &'a Hosts, environment: &EnvironmentId) -> &'a [Interr
 /// What waits that the list's query answers to, best first, each matched
 /// by its name and its directory as drawn, `home` written as `~`.
 pub fn rows<'a>(list: &Waiting, home: &Path, hosts: &'a Hosts) -> Vec<&'a Interrupted> {
-    let query = Query::new(&list.query);
+    let query = Query::new(&list.list.query);
     best(
         waiting(hosts, &list.environment).iter().filter_map(|i| {
             let text = format!("{} {}", i.name, short(&i.cwd, home));

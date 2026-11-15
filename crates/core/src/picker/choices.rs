@@ -1,15 +1,13 @@
 //! The picker that goes to a session or starts one: one list of the sessions,
-//! then of the directories to start one in, narrowed by a fuzzy query, or, for
-//! a directory the list does not offer, a directory tree.
+//! then of the directories to start one in, narrowed by a fuzzy query.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use adroit_model::{CloneTarget, EnvironmentId, GitHubTyped, Session, Tree};
 use adroit_protocol::{Offers, PickWork};
 
-use super::filer::{Filer, Row};
 use super::fuzzy::{Query, best};
 use crate::attention::{self, Changes};
 use crate::completion::Completions;
@@ -487,75 +485,6 @@ pub fn labelled_lines(
 
 pub use adroit_model::paths::tilde as short;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Mode {
-    #[default]
-    List,
-    Tree,
-}
-
-/// What choosing a row does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Purpose {
-    /// Go to the session, or start one in the directory.
-    #[default]
-    Go,
-    /// Add the directory to the tree; only directories are offered.
-    Add,
-}
-
-/// What the picker holds while it is open.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Picker {
-    pub query: String,
-    pub cursor: usize,
-    pub mode: Mode,
-    pub purpose: Purpose,
-    pub filer: Filer,
-    /// What was typed, where the cursor was and the row it was on when the
-    /// rows were last drawn.
-    pub(crate) held: Option<(String, usize, Choice)>,
-    /// The directories the tree listed when the picker opened, by the
-    /// environment they are in.
-    pub running: BTreeMap<EnvironmentId, Vec<PathBuf>>,
-    /// What each environment's host offered, as the list ranks it; none
-    /// from a host until it is listed.
-    pub offered: BTreeMap<EnvironmentId, Offers>,
-    /// The directory opened before it was listed, which the cursor moves
-    /// into once it is.
-    pub(crate) entering: Option<Row>,
-    /// The environment the directory tree browses, and the scratch row
-    /// starts in.
-    pub environment: EnvironmentId,
-    /// The home directory of that environment's host, where the tree starts.
-    pub home: PathBuf,
-}
-
-impl Picker {
-    pub fn new(filer: Filer) -> Self {
-        Self {
-            filer,
-            ..Self::default()
-        }
-    }
-
-    /// Typing narrows the list anew, so the cursor goes back to the best row.
-    /// Narrow by `query` from now on, from the first row when it changed.
-    pub fn set_query(&mut self, query: &str) {
-        if self.query != query {
-            self.query = query.to_string();
-            self.cursor = 0;
-        }
-    }
-
-    pub fn toggle_mode(&mut self) {
-        self.mode = match self.mode {
-            Mode::List => Mode::Tree,
-            Mode::Tree => Mode::List,
-        };
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use adroit_model::testing::{self, session};
@@ -705,36 +634,6 @@ mod tests {
         );
         // The home directory's own name is not in what is drawn.
         assert!(matching(&cs, "me/", 10).is_empty());
-    }
-
-    #[test]
-    fn typing_narrows_anew_and_puts_the_cursor_back_on_the_first_row() {
-        let mut p = Picker {
-            cursor: 3,
-            ..Picker::default()
-        };
-        p.set_query("adr");
-        assert_eq!(p.query, "adr");
-        assert_eq!(p.cursor, 0);
-    }
-
-    #[test]
-    fn the_same_query_again_keeps_the_cursor_where_it_is() {
-        let mut p = Picker::default();
-        p.set_query("aあ");
-        p.cursor = 2;
-        p.set_query("aあ");
-        assert_eq!(p.cursor, 2);
-    }
-
-    #[test]
-    fn the_picker_opens_on_the_list_and_toggles_to_the_tree_and_back() {
-        let mut p = Picker::new(Filer::new(paths(&["/w"])));
-        assert_eq!(p.mode, Mode::List);
-        p.toggle_mode();
-        assert_eq!(p.mode, Mode::Tree);
-        p.toggle_mode();
-        assert_eq!(p.mode, Mode::List);
     }
 
     const OAUTH: &str = "/w/api/.claude/worktrees/oauth";

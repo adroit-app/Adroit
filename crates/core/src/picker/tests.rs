@@ -65,7 +65,7 @@ fn picking() -> Scenario {
         .send(Msg::PickerOpen)
 }
 
-fn picker(run: &Scenario) -> &Picker {
+fn picker(run: &Scenario) -> &GoPicker {
     match &run.state().picker.open {
         Some(Picking::Go(p)) => p,
         other => panic!("the picker is not open: {other:?}"),
@@ -140,11 +140,11 @@ fn the_cursor_stays_on_its_row_as_the_offers_come() {
     let run = picking().send(Msg::PickerQuery("a".into()));
     let last = names(&run).len() - 1;
     let run = run.send_all(std::iter::repeat_n(key("ArrowDown"), last));
-    let on = names(&run)[picker(&run).cursor].clone();
+    let on = names(&run)[picker(&run).list.cursor].clone();
     assert_eq!(on, "/r/a");
     let run = run.tell(offers(&["/a", "/Users/me/a"], &[], &[]));
     assert_eq!(names(&run).len(), last + 3);
-    assert_eq!(names(&run)[picker(&run).cursor], on);
+    assert_eq!(names(&run)[picker(&run).list.cursor], on);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn the_list_s_keys_move_round_its_rows() {
     ];
     for (keys, want) in cases {
         let run = picking().send_all(keys.clone());
-        assert_eq!(picker(&run).cursor, want, "{keys:?}");
+        assert_eq!(picker(&run).list.cursor, want, "{keys:?}");
     }
 }
 
@@ -176,7 +176,7 @@ fn typing_narrows_the_list_and_puts_the_cursor_back_on_the_first_row() {
         .send(key("ArrowDown"))
         .send(Msg::PickerQuery("r/a".into()));
     assert_eq!(names(&run), ["/r/a"]);
-    assert_eq!(picker(&run).cursor, 0);
+    assert_eq!(picker(&run).list.cursor, 0);
 }
 
 #[test]
@@ -733,7 +733,7 @@ fn the_cursor_stays_on_its_session_while_a_change_of_state_moves_it() {
             &run.state().tree,
         )
         .into_iter()
-        .nth(picker(run).cursor)
+        .nth(picker(run).list.cursor)
     };
     let Some(Choice::Session(was)) = on(&run) else {
         panic!("the cursor is not on a session: {:?}", on(&run));
@@ -748,7 +748,7 @@ fn the_cursor_stays_on_its_session_while_a_change_of_state_moves_it() {
     assert_eq!(now.id, "b");
     // Typing still starts again from the best row.
     let run = run.send(Msg::PickerQuery("@".into()));
-    assert_eq!(picker(&run).cursor, 0);
+    assert_eq!(picker(&run).list.cursor, 0);
 }
 
 /// The picker open with a host that clones with ghq, `github.com/o/r` typed.
@@ -854,7 +854,7 @@ fn the_help_row_shows_how_to_clone_from_github_where_ghq_clones_and_choosing_it_
     assert!(!names(&asking_github("a")).contains(&GITHUB_HELP.to_string()));
     assert!(!names(&picking()).contains(&GITHUB_HELP.to_string()));
     let run = last_row(asking_github("")).send(key("Enter"));
-    assert_eq!(picker(&run).query, "github:");
+    assert_eq!(picker(&run).list.query, "github:");
 }
 
 #[test]
@@ -882,7 +882,7 @@ fn choosing_an_owner_types_it_to_look_through_its_repositories() {
             owners: vec!["adroit-app".into()],
         })
         .send(key("Enter"));
-    assert_eq!(picker(&run).query, "github:adroit-app/");
+    assert_eq!(picker(&run).list.query, "github:adroit-app/");
     assert_eq!(
         asked_github(&run),
         Some((vec!["adroit-app".to_string()], false))

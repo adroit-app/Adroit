@@ -7,6 +7,7 @@ use adroit_model::{EnvironmentId, Past};
 use adroit_protocol::{PastSight, WorkSnapshot};
 
 use super::fuzzy::{Query, best};
+use super::list::ListState;
 use super::{close, short};
 use crate::content::{self, Tab};
 use crate::effect::Effect;
@@ -26,8 +27,7 @@ pub struct Resume {
     /// Whether every directory's conversations are listed, rather than the
     /// directory's.
     pub every: bool,
-    pub query: String,
-    pub cursor: usize,
+    pub list: ListState,
 }
 
 /// A conversation the list draws, with the session of this window that
@@ -51,7 +51,7 @@ impl Resume {
     pub(crate) fn toggle_every(&mut self) {
         if self.dir.is_some() {
             self.every = !self.every;
-            self.cursor = 0;
+            self.list.cursor = 0;
         }
     }
 }
@@ -61,7 +61,7 @@ impl Resume {
 /// by its title and the directory it ran in as drawn, `home` written as `~`.
 pub fn rows(list: &Resume, home: &Path, work: Option<&WorkSnapshot>) -> Option<Vec<Row>> {
     let pasts = work?.past.of(&list.sight())?;
-    let query = Query::new(&list.query);
+    let query = Query::new(&list.list.query);
     let matched = best(
         pasts.iter().filter_map(|p| {
             let text = format!("{} {}", p.title, short(&p.cwd, home));

@@ -9,7 +9,6 @@ use adroit_protocol::{PastSight, PickSight, Request, WorkSnapshot};
 
 use crate::actions::Action;
 use crate::content::{self, Opening, TerminalAsk};
-use crate::cursor;
 use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::keymap::{Context, Step};
@@ -20,14 +19,18 @@ use crate::tree::{self, TreeView};
 mod choices;
 pub mod filer;
 pub mod fuzzy;
+mod go;
 pub mod interrupted;
+mod list;
 pub mod resume;
 #[cfg(test)]
 mod tests;
 
 pub use choices::*;
 use filer::{Filer, Row};
+pub use go::*;
 use interrupted::Waiting;
+pub use list::*;
 use resume::Resume;
 
 /// The most sessions, and the most directories, the picker going to a
@@ -45,7 +48,7 @@ pub struct PickerView {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Picking {
     /// Go to a session, or start one.
-    Go(Box<Picker>),
+    Go(Box<GoPicker>),
     /// Resume a conversation an agent kept.
     Resume(Resume),
     /// Bring back what the terminal host took with it.
@@ -54,20 +57,24 @@ pub enum Picking {
 
 impl Picking {
     /// What is typed to narrow the list, and the row the cursor is on.
-    fn list(&mut self) -> (&mut String, &mut usize) {
+    pub fn list(&self) -> &ListState {
         match self {
-            Picking::Go(p) => (&mut p.query, &mut p.cursor),
-            Picking::Resume(r) => (&mut r.query, &mut r.cursor),
-            Picking::Interrupted(w) => (&mut w.query, &mut w.cursor),
+            Picking::Go(p) => &p.list,
+            Picking::Resume(r) => &r.list,
+            Picking::Interrupted(w) => &w.list,
+        }
+    }
+
+    fn list_mut(&mut self) -> &mut ListState {
+        match self {
+            Picking::Go(p) => &mut p.list,
+            Picking::Resume(r) => &mut r.list,
+            Picking::Interrupted(w) => &mut w.list,
         }
     }
 
     pub fn cursor(&self) -> usize {
-        match self {
-            Picking::Go(p) => p.cursor,
-            Picking::Resume(r) => r.cursor,
-            Picking::Interrupted(w) => w.cursor,
-        }
+        self.list().cursor
     }
 }
 
@@ -96,7 +103,7 @@ impl PickerView {
             sight = PickSight::default();
         }
         let clones = p.offered.get(environment).is_some_and(|o| o.clones);
-        match GitHubTyped::parse(&p.query).filter(|_| clones) {
+        match GitHubTyped::parse(&p.list.query).filter(|_| clones) {
             Some(GitHubTyped::Owner(_)) => sight.accounts = true,
             Some(GitHubTyped::Repository { owner, .. }) => {
                 sight.owners.insert(owner);
@@ -156,7 +163,7 @@ fn listed_dirs(work: Option<&WorkSnapshot>, dir: &Path) -> Option<Vec<PathBuf>> 
 /// What the picker going to a session lists from every environment
 /// `hosts` holds, best first for what is typed, each session standing as
 /// `tree` shows it; the directories alone while it adds to the tree.
-pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Choice> {
+pub fn go_rows(picker: &GoPicker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Choice> {
     let github = hosts.each().filter_map(|(environment, host)| {
         Some(GitHubOffers {
             environment,
@@ -164,7 +171,7 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
             listed: &host.work.as_ref()?.pick,
         })
     });
-    if let Some(rows) = github_choices(&picker.query, github, PICKS) {
+    if let Some(rows) = github_choices(&picker.list.query, github, PICKS) {
         return rows;
     }
     let mut all_sessions = Vec::new();
@@ -190,10 +197,15 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
         ));
     }
     let clones = hosts.each().filter_map(|(environment, _)| {
-        clone_offer(environment, picker.offered.get(environment)?, &picker.query)
+        clone_offer(
+            environment,
+            picker.offered.get(environment)?,
+            &picker.list.query,
+        )
     });
-    let help = github_help(&picker.query, picker.offered.values()).then_some(Choice::GitHubHelp);
-    let rows = choices(&all_sessions, &directories, &picker.query, home, PICKS)
+    let help =
+        github_help(&picker.list.query, picker.offered.values()).then_some(Choice::GitHubHelp);
+    let rows = choices(&all_sessions, &directories, &picker.list.query, home, PICKS)
         .into_iter()
         .chain(clones.map(Choice::Clone))
         .chain(help);
@@ -207,7 +219,7 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
 
 /// The rows of [`go_rows`] as drawn: with more than one environment shown,
 /// each session and directory names the environment it is in.
-pub fn go_lines(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Line> {
+pub fn go_lines(picker: &GoPicker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Line> {
     let several = hosts.each().nth(1).is_some();
     labelled_lines(&go_rows(picker, home, hosts, tree), home, |environment| {
         several.then(|| hosts.name(environment))
@@ -216,7 +228,7 @@ pub fn go_lines(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) ->
 
 /// The rows of the picker's directory tree, each open directory's as the
 /// host listed them.
-pub fn tree_rows(picker: &Picker, work: Option<&WorkSnapshot>) -> Vec<Row> {
+pub fn tree_rows(picker: &GoPicker, work: Option<&WorkSnapshot>) -> Vec<Row> {
     picker
         .filer
         .rows(|dir| listed_dirs(work, dir).unwrap_or_default())
@@ -241,12 +253,12 @@ pub(crate) fn open(state: &mut ViewState, purpose: Purpose) -> Vec<Effect> {
     let environment = content::focused_environment(state);
     let work = state.hosts.work(&environment);
     let home = home_of(state, &environment);
-    let mut picker = Picker {
+    let mut picker = GoPicker {
         running,
         purpose,
         environment,
         home: home.clone(),
-        ..Picker::new(Filer::new([home]))
+        ..GoPicker::new(Filer::new([home]))
     };
     enter(&mut picker, work);
     state.picker.open = Some(Picking::Go(Box::new(picker)));
@@ -277,11 +289,7 @@ pub(crate) fn close(view: &mut PickerView) -> Vec<Effect> {
 /// changed.
 pub(crate) fn query(view: &mut PickerView, text: String) -> Vec<Effect> {
     if let Some(open) = &mut view.open {
-        let (query, cursor) = open.list();
-        if *query != text {
-            *query = text;
-            *cursor = 0;
-        }
+        open.list_mut().set_query(text);
     }
     Vec::new()
 }
@@ -347,8 +355,7 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
         Some(ListKey::Step(delta)) => {
             let len = rows_len(&state.picker, &state.hosts, &state.tree);
             if let Some(open) = &mut state.picker.open {
-                let (_, at) = open.list();
-                *at = cursor::wrap(*at, delta, len);
+                open.list_mut().step(delta, len);
             }
             Vec::new()
         }
@@ -369,7 +376,11 @@ fn rows_len(view: &PickerView, hosts: &Hosts, tree: &TreeView) -> usize {
 
 /// The filer's action in the directory tree; the directory chosen, when
 /// one is.
-fn tree_key(picker: &mut Picker, action: &Action, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
+fn tree_key(
+    picker: &mut GoPicker,
+    action: &Action,
+    work: Option<&WorkSnapshot>,
+) -> Option<PathBuf> {
     let rows = tree_rows(picker, work);
     let filer = &mut picker.filer;
     match action {
@@ -386,7 +397,7 @@ fn tree_key(picker: &mut Picker, action: &Action, work: Option<&WorkSnapshot>) -
 
 /// Open the directory under the tree's cursor and move onto its first
 /// child; into one the host has not listed yet, once it has.
-fn enter(picker: &mut Picker, work: Option<&WorkSnapshot>) {
+fn enter(picker: &mut GoPicker, work: Option<&WorkSnapshot>) {
     let Some(at) = picker.filer.cursor().cloned() else {
         return;
     };
@@ -536,7 +547,7 @@ fn under_cursor(state: &ViewState) -> Option<(EnvironmentId, PathBuf)> {
     }
     match go_rows(p, &state.picker.home, &state.hosts, &state.tree)
         .into_iter()
-        .nth(p.cursor)?
+        .nth(p.list.cursor)?
     {
         Choice::Scratch => {
             let environment = browsed(state);
@@ -563,7 +574,7 @@ fn clone_under_cursor(state: &ViewState) -> Option<CloneOffer> {
     }
     match go_rows(p, &state.picker.home, &state.hosts, &state.tree)
         .into_iter()
-        .nth(p.cursor)?
+        .nth(p.list.cursor)?
     {
         Choice::Clone(offer) => Some(offer),
         _ => None,
@@ -669,16 +680,15 @@ pub(crate) fn keep_cursor(view: &mut PickerView, hosts: &Hosts, tree: &TreeView)
         return;
     };
     let rows = go_rows(picker, home, hosts, tree);
-    if let Some((query, cursor, on)) = &picker.held
-        && *query == picker.query
-        && *cursor == picker.cursor
-        && rows.get(picker.cursor).is_none_or(|c| !c.same_row(on))
+    if let Some((list, on)) = &picker.held
+        && *list == picker.list
+        && rows.get(picker.list.cursor).is_none_or(|c| !c.same_row(on))
     {
-        picker.cursor = rows.iter().position(|c| c.same_row(on)).unwrap_or(0);
+        picker.list.cursor = rows.iter().position(|c| c.same_row(on)).unwrap_or(0);
     }
     picker.held = rows
-        .get(picker.cursor)
-        .map(|c| (picker.query.clone(), picker.cursor, c.clone()));
+        .get(picker.list.cursor)
+        .map(|c| (picker.list.clone(), c.clone()));
 }
 
 /// A directory opened before the host listed it is moved into once it

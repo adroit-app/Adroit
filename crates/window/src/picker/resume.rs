@@ -32,7 +32,7 @@ pub(super) fn Resume(list: List) -> Element {
     rsx! {
         Dialog { kind: "picker-dialog", icon: Icon::TransferIn, title: "Resume a conversation",
             div { class: "filter-field",
-                QueryField { query: list.query.clone(), placeholder: "Conversations of {scope}" }
+                QueryField { query: list.list.query.clone(), placeholder: "Conversations of {scope}" }
                 if list.dir.is_some() {
                     Button {
                         onclick: move |_| app.dispatch(Msg::PickerEvery),
@@ -45,14 +45,14 @@ pub(super) fn Resume(list: List) -> Element {
                     None => rsx! { ListRow { kind: "dim", "Reading the conversations…" } },
                     Some(rows) if rows.is_empty() => rsx! {
                         ListRow { kind: "dim",
-                            if list.query.is_empty() { "No conversation was kept here" } else { "Nothing matches" }
+                            if list.list.query.is_empty() { "No conversation was kept here" } else { "Nothing matches" }
                         }
                     },
                     Some(rows) => rsx! {
                         for (i, row) in rows.into_iter().enumerate() {
                             ListRow {
                                 key: "{row.past.agent:?}:{row.past.id}",
-                                selected: i == list.cursor,
+                                selected: i == list.list.cursor,
                                 onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
                                 PlaceMark { icon: if row.session.is_some() { Icon::Message } else { Icon::TransferIn } }
                                 span { class: "list-row-name",

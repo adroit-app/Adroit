@@ -27,18 +27,18 @@ pub(super) fn Interrupted(list: Waiting) -> Element {
     rsx! {
         Dialog { kind: "picker-dialog", icon: Icon::Restore, title: "Bring back what the sessions' daemon took",
             div { class: "filter-field",
-                QueryField { query: list.query.clone(), placeholder: "Sessions and shells" }
+                QueryField { query: list.list.query.clone(), placeholder: "Sessions and shells" }
             }
             div { class: "list-rows",
                 if rows.is_empty() {
                     ListRow { kind: "dim",
-                        if list.query.is_empty() { "Nothing waits to be brought back" } else { "Nothing matches" }
+                        if list.list.query.is_empty() { "Nothing waits to be brought back" } else { "Nothing matches" }
                     }
                 }
                 for (i, waiting) in rows.into_iter().enumerate() {
                     ListRow {
                         key: "{waiting.id}",
-                        selected: i == list.cursor,
+                        selected: i == list.list.cursor,
                         onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
                         PlaceMark { icon: if waiting.is_session() { Icon::Message } else { Icon::Terminal } }
                         span { class: "list-row-name",

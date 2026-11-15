@@ -2,7 +2,7 @@
 
 use adroit_core::msg::Msg;
 use adroit_core::picker::fuzzy::Query;
-use adroit_core::picker::{Mark, Mode, Narrowing, Picker, Purpose, go_lines, short, tree_rows};
+use adroit_core::picker::{GoPicker, Mark, Mode, Narrowing, Purpose, go_lines, short, tree_rows};
 use dioxus::prelude::*;
 
 use super::{PickerKeys, QueryField};
@@ -27,7 +27,7 @@ fn marked(query: &Query, text: &str) -> Element {
 }
 
 #[component]
-pub(super) fn Go(picker: Picker) -> Element {
+pub(super) fn Go(picker: GoPicker) -> Element {
     let app = use_context::<AppCtx>();
     let home = app.picker.read().home.clone();
     let hosts = app.hosts.read();
@@ -76,11 +76,11 @@ pub(super) fn Go(picker: Picker) -> Element {
         Dialog { kind: "picker-dialog", title: "{title}",
             match picker.mode {
                 Mode::List => {
-                    let query = Query::new(&Narrowing::new(&picker.query).text);
+                    let query = Query::new(&Narrowing::new(&picker.list.query).text);
                     let rows = go_lines(&picker, &home, &hosts, &tree);
                     rsx! {
                         div { class: "filter-field",
-                            QueryField { query: picker.query.clone() }
+                            QueryField { query: picker.list.query.clone() }
                         }
                         div { class: "list-rows",
                             if rows.is_empty() {
@@ -93,7 +93,7 @@ pub(super) fn Go(picker: Picker) -> Element {
                                     }
                                     ListRow {
                                         kind: if matches!(line.mark, Mark::Directory | Mark::Clone) { "mono" } else { "" },
-                                        selected: i == picker.cursor,
+                                        selected: i == picker.list.cursor,
                                         onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
                                         PlaceMark { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder, Mark::Clone => Icon::FolderDown, Mark::Owner => Icon::BrandGithub, Mark::Help => Icon::InfoCircle } }
                                         span { class: "list-row-name",
