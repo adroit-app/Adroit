@@ -77,7 +77,7 @@ ci-windows: fmt-check lint stamp-check
 # The executable for a work machine, with no desktop runtime linked.
 test-headless:
     cargo clippy -p adroit --all-targets --no-default-features -- -D warnings
-    cargo test -p adroit --no-default-features --test headless
+    cargo test -p adroit --no-default-features --test headless --test hosts --test remote --test gateway
 
 # Run the tests in the Neovim at `nvim`, as a Neovim release is checked
 # before assets/neovim/update.sh pins it for the app to carry.
