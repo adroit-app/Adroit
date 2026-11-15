@@ -1,7 +1,14 @@
 (function(){
 var viewer=null,loaded={};
 function draw(){if(viewer&&window.ArtoRenderer)ArtoRenderer.render(viewer);}
-function paint(theme){if(window.ArtoRenderer&&theme)ArtoRenderer.setTheme(theme);}
+// The page takes the viewer's background, which the theme's tokens give the
+// viewer alone, so the frame's own shows nowhere: not under the scrollbar.
+function paint(theme){
+  if(!theme)return;
+  document.documentElement.setAttribute('data-adroit-theme',theme);
+  if(window.ArtoRenderer)ArtoRenderer.setTheme(theme);
+  if(viewer)document.documentElement.style.backgroundColor=getComputedStyle(viewer).backgroundColor;
+}
 // Bundles are loaded one after another, in the order given, as the head
 // loads them: each registers itself on the runtime loaded before it.
 function load(urls,then){

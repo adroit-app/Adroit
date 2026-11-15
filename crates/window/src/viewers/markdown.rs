@@ -135,6 +135,13 @@ pub fn library_names(libraries: Libraries) -> Vec<&'static str> {
     .collect()
 }
 
+/// What the page around Arto's viewer is, as Arto's own window makes it: the
+/// stylesheet colours only what the document draws, and leaves the text to
+/// take the page's colour and the page its margins.
+const PAGE_STYLE: &str = "html,body{margin:0;padding:0}\
+     html[data-adroit-theme^=dark]{color-scheme:dark}\
+     .markdown-viewer{color:var(--fgColor-default);min-height:100vh;box-sizing:border-box}";
+
 /// The theme of Arto's that a theme of `kind` is drawn beside.
 pub fn arto_theme(kind: ThemeKind) -> &'static str {
     match kind {
@@ -153,7 +160,7 @@ pub fn markdown_document(fragment: &str, libraries: Libraries, theme: &str) -> S
         .collect();
     format!(
         "<!doctype html><html data-adroit-theme=\"{theme}\"><head><meta charset=\"utf-8\">\
-         <link rel=\"stylesheet\" href=\"{css}\">{page}{scripts}<script>{own}</script></head>\
+         <link rel=\"stylesheet\" href=\"{css}\"><style>{PAGE_STYLE}</style>{page}{scripts}<script>{own}</script></head>\
          <body><div class=\"markdown-viewer\"><article class=\"markdown-body\">{fragment}</article></div></body></html>",
         css = arto_url("embed.css"),
         page = serve::PAGE_SCRIPT,
@@ -408,6 +415,13 @@ mod tests {
             image_response(images.get(image_id("other.png"))).status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[test]
+    fn the_document_s_text_takes_the_theme_s_colour_and_fills_the_frame() {
+        let doc = markdown_document("<p>hi</p>", none(), "dark");
+        assert!(doc.contains(".markdown-viewer{color:var(--fgColor-default)"));
+        assert!(doc.contains("html,body{margin:0"));
     }
 
     #[test]

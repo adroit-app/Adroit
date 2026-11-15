@@ -458,6 +458,7 @@ fn ViewerOf(
                 box_id.clone(),
                 s.zoom.factor(),
                 0.0,
+                None,
                 document,
             )
         }
@@ -471,6 +472,7 @@ fn ViewerOf(
                 box_id.clone(),
                 s.zoom.factor(),
                 top.get(),
+                Some(theme()),
                 document,
             ),
         },
@@ -591,13 +593,30 @@ async fn follow_frame(
 
 /// The frame `media_id` that draws `document` apart from the window, at
 /// `zoom` and scrolled `top` down, handing the keys pressed in it to the
-/// viewer's box `box_id`.
-fn page_frame(media_id: String, box_id: String, zoom: f64, top: f64, document: String) -> Element {
+/// viewer's box `box_id`. A page of the window's own `scheme`, `light` or
+/// `dark`, is framed in nothing of its own; any other is framed in white,
+/// as a browser frames a page.
+fn page_frame(
+    media_id: String,
+    box_id: String,
+    zoom: f64,
+    top: f64,
+    scheme: Option<&'static str>,
+    document: String,
+) -> Element {
     let relay_id = media_id.clone();
+    let (class, style) = match scheme {
+        Some(scheme) => (
+            "viewer-frame viewer-document",
+            format!("color-scheme: {scheme}"),
+        ),
+        None => ("viewer-frame", String::new()),
+    };
     rsx! {
         iframe {
             id: "{media_id}",
-            class: "viewer-frame",
+            class,
+            style,
             "srcdoc": "{document}",
             "sandbox": "allow-scripts allow-forms",
             onload: move |_| {
