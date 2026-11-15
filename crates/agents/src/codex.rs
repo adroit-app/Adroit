@@ -12,6 +12,11 @@ mod usage;
 
 pub struct Codex;
 
+/// What starts Codex's app server as `context` runs sessions, to ask it something.
+fn app_server(context: &AgentContext) -> crate::Started {
+    launch_in(context, vec!["app-server".into()], Vec::new())
+}
+
 impl AgentAdapter for Codex {
     fn conversation_title_needs_lookup(&self, title: &str) -> bool {
         identity::prefix(title).is_some()
@@ -35,7 +40,7 @@ impl AgentAdapter for Codex {
 
     fn developer_instructions(&self, context: AgentContext, cwd: PathBuf) -> DeveloperInstructions {
         Box::pin(async move {
-            let start = launch_in(&context, vec!["app-server".into()], Vec::new());
+            let start = app_server(&context);
             let result = rpc::request(
                 start,
                 &cwd,
@@ -163,12 +168,7 @@ impl AgentAdapter for Codex {
     }
     fn commands(&self, context: AgentContext, dir: PathBuf) -> Probe<crate::commands::Command> {
         Box::pin(async move {
-            commands::probe(
-                launch_in(&context, vec!["app-server".into()], Vec::new()),
-                &dir,
-                crate::commands::PROBE_TIMEOUT,
-            )
-            .await
+            commands::probe(app_server(&context), &dir, crate::commands::PROBE_TIMEOUT).await
         })
     }
     fn builtin_commands(&self) -> Vec<crate::commands::Command> {
@@ -180,23 +180,11 @@ impl AgentAdapter for Codex {
         dir: PathBuf,
         timeout: std::time::Duration,
     ) -> Probe<adroit_model::ProviderModel> {
-        Box::pin(async move {
-            models::probe(
-                launch_in(&context, vec!["app-server".into()], Vec::new()),
-                &dir,
-                timeout,
-            )
-            .await
-        })
+        Box::pin(async move { models::probe(app_server(&context), &dir, timeout).await })
     }
     fn usage(&self, context: AgentContext, home: PathBuf) -> Probe<crate::usage::Limit> {
         Box::pin(async move {
-            usage::probe(
-                launch_in(&context, vec!["app-server".into()], Vec::new()),
-                &home,
-                crate::usage::PROBE_TIMEOUT,
-            )
-            .await
+            usage::probe(app_server(&context), &home, crate::usage::PROBE_TIMEOUT).await
         })
     }
     fn dialog_open(&self, screen: &[String]) -> bool {

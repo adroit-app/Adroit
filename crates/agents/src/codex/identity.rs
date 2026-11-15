@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::app_server;
 use super::{rpc, transcript};
-use crate::{AgentContext, launch_in};
+use crate::AgentContext;
 
 pub(super) fn prefix(title: &str) -> Option<String> {
     let mut matches = title.split_whitespace().filter_map(|part| {
@@ -24,7 +25,7 @@ pub(super) async fn resolve(context: AgentContext, cwd: PathBuf, title: String) 
         let mut cursor = Value::Null;
         let mut matched = BTreeSet::new();
         for _ in 0..8 {
-            let start = launch_in(&context, vec!["app-server".into()], Vec::new());
+            let start = app_server(&context);
             let page = rpc::request(
                 start,
                 &cwd,
