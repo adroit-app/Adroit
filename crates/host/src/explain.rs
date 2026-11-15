@@ -88,11 +88,20 @@ impl Source {
     }
 }
 
+/// What a session is called by: its name, its code and its terminal host's id.
+#[derive(Debug, Clone)]
+pub(crate) struct Named {
+    pub name: String,
+    /// None for a session started before codes were.
+    pub code: Option<adroit_model::SessionCode>,
+    pub id: String,
+}
+
 /// Everything an explanation says of one session or one screen.
 #[derive(Debug, Clone)]
 pub(crate) struct Explained {
-    /// The session's name and id; none for a screen kept in a file.
-    pub session: Option<(String, String)>,
+    /// The session; none for a screen kept in a file.
+    pub session: Option<Named>,
     pub agent: Agent,
     pub reported: Option<Reported>,
     /// How the screen reads; none when the screen was not read, as while the
@@ -153,8 +162,11 @@ impl Explained {
 
     pub(crate) fn text(&self) -> String {
         let mut out = Vec::new();
-        if let Some((name, id)) = &self.session {
-            out.push(format!("session: {name} ({id})"));
+        if let Some(Named { name, code, id }) = &self.session {
+            out.push(match code {
+                Some(code) => format!("session: {name} {code} ({id})"),
+                None => format!("session: {name} ({id})"),
+            });
         }
         out.push(format!("agent: {}", self.agent.key()));
         if self.session.is_some() {
@@ -215,7 +227,7 @@ impl Explained {
     pub(crate) fn json(&self) -> Value {
         let (state, source) = self.state();
         json!({
-            "session": self.session.as_ref().map(|(name, id)| json!({"name": name, "id": id})),
+            "session": self.session.as_ref().map(|s| json!({"name": s.name, "code": s.code, "id": s.id})),
             "agent": self.agent.key(),
             "state": self.session.as_ref().map(|_| state.word()),
             "source": self.session.as_ref().map(|_| source.key()),
@@ -317,7 +329,7 @@ pub(crate) fn printed(explained: &Explained, json: bool) -> String {
 }
 
 /// The session of `sessions` that `asked` names: by its id in the terminal
-/// host, the id of its record, or a name no other session has.
+/// host, the id of its record, its code, or a name no other session has.
 pub(crate) fn named<'a>(
     sessions: &'a [adroit_term::Session],
     asked: &str,
@@ -327,8 +339,11 @@ pub(crate) fn named<'a>(
         _ => None,
     };
     let by_id = sessions.iter().find(|s| {
-        read(s)
-            .is_some_and(|c| c.id == asked || c.delegation.is_some_and(|d| d.to_string() == asked))
+        read(s).is_some_and(|c| {
+            c.id == asked
+                || c.delegation.is_some_and(|d| d.to_string() == asked)
+                || c.code.as_ref().is_some_and(|code| code.as_str() == asked)
+        })
     });
     if let Some(found) = by_id {
         return Ok(found);
@@ -392,7 +407,11 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
         None => None,
     };
     Ok(Explained {
-        session: Some((c.name.clone(), c.id.clone())),
+        session: Some(Named {
+            name: c.name.clone(),
+            code: c.code.clone(),
+            id: c.id.clone(),
+        }),
         agent: c.agent,
         reported: native.status.as_ref().map(|s| Reported {
             state: s.state.clone(),
@@ -502,7 +521,11 @@ mod tests {
     fn explained(reported: Option<Reported>, shown: Option<Shown>) -> Explained {
         let screen = recorded("working");
         Explained {
-            session: Some(("fix".into(), "00ab".into())),
+            session: Some(Named {
+                name: "fix".into(),
+                code: Some("k7f3".parse().unwrap()),
+                id: "00ab".into(),
+            }),
             reported,
             shown,
             start: Some(Start {
@@ -532,7 +555,7 @@ mod tests {
             (State::Working, Source::Screen)
         );
         let mut starting = of_screen(Agent::Claude, &[]);
-        starting.session = Some(("fix".into(), "00ab".into()));
+        starting.session = explained(None, None).session;
         assert_eq!(starting.state(), (State::Starting, Source::Startup));
     }
 
@@ -595,7 +618,7 @@ mod tests {
         assert_eq!(
             lines[..6],
             [
-                "session: fix (00ab)",
+                "session: fix k7f3 (00ab)",
                 "agent: claude",
                 "state: working (from screen)",
                 "reported: nothing",
@@ -606,6 +629,61 @@ mod tests {
         assert!(text.contains("\nstartup: ready by rule claude.input_box_ready\n"));
         assert!(text.contains("\nrecorded: ready\n"));
         assert!(text.contains("\n  | ❯"));
+    }
+
+    #[test]
+    fn the_json_names_the_session_s_code_beside_its_name_and_id() {
+        let json = explained(None, None).json();
+        assert_eq!(
+            json["session"],
+            json!({"name": "fix", "code": "k7f3", "id": "00ab"})
+        );
+    }
+
+    #[test]
+    fn a_session_is_named_by_its_id_its_record_s_id_its_code_or_a_name_no_other_has() {
+        let session = |id: u128, name: &str, code: &str| {
+            let mut delegation = crate::delegation::launch::Delegation::new(
+                adroit_model::SessionId::new(),
+                None,
+                "/state".into(),
+                "token".into(),
+            );
+            delegation.code = Some(code.parse().unwrap());
+            let mut tags = crate::sessions::agent_tags(
+                Agent::Claude,
+                name,
+                std::path::Path::new("/api"),
+                "",
+                &Default::default(),
+                0,
+            );
+            tags.extend(delegation.tags());
+            (
+                adroit_term::Session {
+                    id,
+                    tags,
+                    title: None,
+                    exited: false,
+                    status: None,
+                    sequence: 1,
+                },
+                delegation.id,
+            )
+        };
+        let (fix, record) = session(7, "fix", "k7f3");
+        let (other, _) = session(8, "test", "q2m9");
+        let (twin, _) = session(9, "test", "r5n8");
+        let sessions = [fix, other, twin];
+        let found = |asked: &str| named(&sessions, asked).map(|s| s.id);
+
+        assert_eq!(found("k7f3"), Ok(7));
+        assert_eq!(found(&record.to_string()), Ok(7));
+        assert_eq!(found(&crate::sessions::hex(7)), Ok(7));
+        assert_eq!(found("fix"), Ok(7));
+        assert_eq!(found("q2m9"), Ok(8));
+        assert!(found("test").is_err());
+        assert!(found("zzzz").is_err());
     }
 
     #[test]

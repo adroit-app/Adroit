@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_model::profile::ProfileId;
-use adroit_model::{Agent, AgentPermissions, TerminalSession};
+use adroit_model::{Agent, AgentPermissions, SessionCode, TerminalSession};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -93,6 +93,10 @@ const MIGRATIONS: &[&str] = &[
     // A name a person gave a session is kept from its agent's renaming;
     // every name from before was made from the prompt or by a session.
     "ALTER TABLE sessions ADD COLUMN name_given INTEGER NOT NULL DEFAULT 0;",
+    // Every session keeps a code; those from before are given theirs once
+    // the step has run, by `fill_codes`, since SQL draws no code.
+    "ALTER TABLE sessions ADD COLUMN code TEXT;
+     CREATE INDEX sessions_by_code ON sessions(code);",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -111,6 +115,9 @@ pub struct NewSession {
     pub started_ms: u64,
     /// Whether a person gave its name, which its agent then never changes.
     pub name_given: bool,
+    /// The code it had before, when it is brought back or resumes a
+    /// conversation; none to be given a code no session has had.
+    pub code: Option<SessionCode>,
 }
 
 /// A terminal as Adroit keeps it, with the terminal host that holds it.
@@ -151,6 +158,7 @@ impl Store {
             transaction.commit()?;
         }
         migrate(&mut connection)?;
+        fill_codes(&mut connection)?;
         Ok(Self { connection })
     }
 
@@ -171,11 +179,15 @@ impl Store {
         {
             return Err(Error::new(Code::Refused, "the opening session has ended"));
         }
+        let code = match new.code {
+            Some(code) => code,
+            None => draw_code(&transaction, SessionCode::random)?,
+        };
         let id = SessionId::new();
         let token = format!("{}{}", SessionId::new(), SessionId::new());
         transaction.execute(
-            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms, model, permissions, name_given)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO sessions (id, token, parent, agent, profile, home, name, cwd, launch, readiness, started_ms, model, permissions, name_given, code)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id.to_string(),
                 token,
@@ -191,6 +203,7 @@ impl Store {
                 new.model,
                 serde_json::to_string(&new.permissions).map_err(Error::storage)?,
                 new.name_given,
+                code.as_str(),
             ],
         )?;
         transaction.commit()?;
@@ -226,6 +239,41 @@ impl Store {
         let rows = statement.query_map([], read_session)?;
         rows.map(|row| row.map_err(Error::from).and_then(|row| row))
             .collect()
+    }
+
+    /// A code `draw` gives that no session has had.
+    pub fn draw_code(&self, draw: impl FnMut() -> SessionCode) -> Result<SessionCode> {
+        draw_code(&self.connection, draw)
+    }
+
+    /// The record standing for the session with `code` now: the newest one
+    /// holding it, since one brought back or resumed takes on the code.
+    pub fn by_code(&self, code: &SessionCode) -> Result<Option<Session>> {
+        self.connection
+            .query_row(
+                &format!(
+                    "SELECT {SESSION_COLUMNS} FROM sessions WHERE code = ?1 ORDER BY rowid DESC LIMIT 1"
+                ),
+                [code.as_str()],
+                read_session,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    /// The code of the session that last held `conversation`, for a session
+    /// that resumes it.
+    pub fn code_of_conversation(&self, conversation: &str) -> Result<Option<SessionCode>> {
+        self.connection
+            .query_row(
+                "SELECT code FROM sessions WHERE conversation = ?1 ORDER BY rowid DESC LIMIT 1",
+                [conversation],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .map(|code| code.parse().map_err(Error::storage))
+            .transpose()
     }
 
     /// The settings `id` was launched with, which its later deliveries follow.
@@ -523,7 +571,7 @@ impl Store {
     }
 }
 
-const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by, name_given";
+const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by, name_given, code";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let id: String = row.get(0)?;
@@ -544,6 +592,7 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
     let interrupted = row.get(15)?;
     let brought_back_by: Option<String> = row.get(16)?;
     let name_given = row.get(17)?;
+    let code: Option<String> = row.get(18)?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(Error::storage)?,
@@ -578,6 +627,10 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
                 .transpose()
                 .map_err(Error::storage)?,
             name_given,
+            code: code
+                .ok_or_else(|| Error::storage("a session has no code"))?
+                .parse()
+                .map_err(Error::storage)?,
         })
     })())
 }
@@ -688,6 +741,56 @@ fn migrate(connection: &mut Connection) -> Result<()> {
     }
 }
 
+/// How many codes are drawn before giving up: with few of the codes there
+/// are given, a draw that hits one given before is rare.
+const DRAWS: usize = 64;
+
+fn draw_code(
+    connection: &Connection,
+    mut draw: impl FnMut() -> SessionCode,
+) -> Result<SessionCode> {
+    let mut given = connection.prepare_cached("SELECT 1 FROM sessions WHERE code = ?1")?;
+    for _ in 0..DRAWS {
+        let code = draw();
+        if !given.exists([code.as_str()])? {
+            return Ok(code);
+        }
+    }
+    Err(Error::storage("no session code is left to give"))
+}
+
+/// Gives every session recorded before codes were its own, the one brought
+/// back taking the code of the one it was brought back for.
+fn fill_codes(connection: &mut Connection) -> Result<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let missing: Vec<String> = {
+        let mut statement =
+            transaction.prepare("SELECT id FROM sessions WHERE code IS NULL ORDER BY rowid")?;
+        statement
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    for id in missing {
+        let inherited: Option<String> = transaction
+            .query_row(
+                "SELECT code FROM sessions WHERE brought_back_by = ?1 AND code IS NOT NULL",
+                [&id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let code = match inherited {
+            Some(code) => code,
+            None => draw_code(&transaction, SessionCode::random)?.to_string(),
+        };
+        transaction.execute(
+            "UPDATE sessions SET code = ?2 WHERE id = ?1",
+            params![id, code],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 /// Creates the database privately, returning whether it was created now.
 fn private_database(path: &Path) -> Result<bool> {
     let parent = path
@@ -766,6 +869,7 @@ mod tests {
             permissions: AgentPermissions::Default,
             started_ms: 1,
             name_given: false,
+            code: None,
         }
     }
 
@@ -1249,7 +1353,8 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "ALTER TABLE sessions DROP COLUMN name_given; PRAGMA user_version = 5;",
+                    "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
+                     ALTER TABLE sessions DROP COLUMN name_given; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -1396,5 +1501,126 @@ PRAGMA user_version = 1;
             (None, AgentPermissions::Default)
         );
         assert!(store.terminals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_session_is_given_a_code_no_other_session_has() {
+        let (_dir, mut store) = store();
+        let ids: Vec<_> = (0..200)
+            .map(|n| register(&mut store, None, &n.to_string()))
+            .collect();
+
+        let codes: std::collections::HashSet<_> = ids
+            .iter()
+            .map(|id| store.known(*id).unwrap().code)
+            .collect();
+        assert_eq!(codes.len(), ids.len());
+    }
+
+    #[test]
+    fn a_session_keeps_its_code_through_renaming_and_ending() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "first");
+        let code = store.known(id).unwrap().code;
+
+        store.rename(id, "second", true).unwrap();
+        store.end(id).unwrap();
+
+        assert_eq!(store.known(id).unwrap().code, code);
+    }
+
+    #[test]
+    fn a_session_recorded_with_a_code_it_had_keeps_that_code() {
+        let (_dir, mut store) = store();
+        let old = register(&mut store, None, "old");
+        let code = store.known(old).unwrap().code;
+        store.interrupt(old).unwrap();
+
+        let (by, _) = store
+            .register(NewSession {
+                code: Some(code.clone()),
+                ..new(None, "old")
+            })
+            .unwrap();
+
+        assert_eq!(store.known(by).unwrap().code, code);
+    }
+
+    #[test]
+    fn a_code_is_never_drawn_again_once_given() {
+        let (_dir, mut store) = store();
+        let taken: SessionCode = "k7f3".parse().unwrap();
+        let first = store
+            .register(NewSession {
+                code: Some(taken.clone()),
+                ..new(None, "first")
+            })
+            .unwrap()
+            .0;
+        store.end(first).unwrap();
+
+        let drawn = store.draw_code(|| taken.clone()).unwrap_err();
+
+        assert_eq!(drawn.code, Code::Storage);
+    }
+
+    #[test]
+    fn the_code_of_a_conversation_is_that_of_the_session_that_last_held_it() {
+        let (_dir, mut store) = store();
+        let older = register(&mut store, None, "older");
+        store.learn_conversation(older, "conv").unwrap();
+        let newer = register(&mut store, None, "newer");
+        store.learn_conversation(newer, "conv").unwrap();
+
+        assert_eq!(
+            store.code_of_conversation("conv").unwrap(),
+            Some(store.known(newer).unwrap().code)
+        );
+        assert_eq!(store.code_of_conversation("other").unwrap(), None);
+    }
+
+    #[test]
+    fn a_session_is_found_by_its_code_as_the_record_that_stands_for_it_now() {
+        let (_dir, mut store) = store();
+        let old = register(&mut store, None, "old");
+        let code = store.known(old).unwrap().code;
+        store.interrupt(old).unwrap();
+        let (by, _) = store
+            .register(NewSession {
+                code: Some(code.clone()),
+                ..new(None, "old")
+            })
+            .unwrap();
+        store.brought_back(old, by).unwrap();
+
+        assert_eq!(store.by_code(&code).unwrap().map(|s| s.id), Some(by));
+        assert_eq!(store.by_code(&"zzzz".parse().unwrap()).unwrap(), None);
+    }
+
+    #[test]
+    fn a_database_from_before_codes_gives_every_session_one_and_a_brought_back_one_its_old_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delegation/state.sqlite3");
+        let (old, by, other) = {
+            let mut store = Store::open(&path).unwrap();
+            let old = register(&mut store, None, "old");
+            store.interrupt(old).unwrap();
+            let by = register(&mut store, None, "old");
+            store.brought_back(old, by).unwrap();
+            let other = register(&mut store, None, "other");
+            store
+                .connection
+                .execute_batch(
+                    "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                )
+                .unwrap();
+            (old, by, other)
+        };
+
+        let store = Store::open(&path).unwrap();
+
+        let code = |id| store.known(id).unwrap().code;
+        assert_eq!(code(old), code(by));
+        assert_ne!(code(old), code(other));
     }
 }

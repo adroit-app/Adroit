@@ -70,12 +70,12 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "send",
-            "Send a message to another session by its id: what it should know, or a question about what it knows; never work for it to do. It reaches that session between its turns and costs it a turn: send only what it has to act on or answer, and plan nothing on a reply coming.",
+            "Send a message to another session by its code: what it should know, or a question about what it knows; never work for it to do. It reaches that session between its turns and costs it a turn: send only what it has to act on or answer, and plan nothing on a reply coming.",
             schemars::schema_for!(Send),
         ),
         tool(
             "sessions",
-            "List the sessions Adroit runs, with where each works and which session opened it.",
+            "List the sessions Adroit runs, each with the code it keeps, where it works and which session opened it.",
             schemars::schema_for!(Sessions),
         ),
         tool(

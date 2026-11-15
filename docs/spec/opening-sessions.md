@@ -28,7 +28,7 @@ cannot act as another.
   directory to work in (the caller's own when omitted), whether to work in a
   new worktree, the revision that worktree starts from, the profile, the
   agent, the model, the permission profile, a name, and whether to show it to
-  you. It returns the new session's id and name. A session asked to be shown
+  you. It returns the new session's id, [code](sessions.md#a-sessions-code) and name. A session asked to be shown
   opens in the window with the keys when it appears while the window's focused
   window shows the session that opened it; otherwise it is only listed, as is
   any other. It starts from the profile it names, which has to
@@ -45,14 +45,14 @@ cannot act as another.
   worktree is made removes that worktree again, unless the agent may already
   run on the work machine. A model must be one its profile lists
   (see `models`); any other is refused, naming the listed ones.
-- **`send`** sends a message to another session by its id. Any session Adroit
+- **`send`** sends a message to another session by its code or its id. Any session Adroit
   started, running or not yet ready, can be sent to; one that has ended
   cannot.
 - **`rename_session`** names the caller's own session anew
   ([renaming](sessions.md#renaming-a-session)), and returns the name it
   took, numbered when another session has it. It is refused for a name you
   gave and while renaming is switched off, telling the agent to keep the name.
-- **`sessions`** lists the sessions Adroit runs, each with its id, name,
+- **`sessions`** lists the sessions Adroit runs, each with its id, code, name,
   workspace, the directory it runs in, how it stands and which session opened
   it. It can be narrowed to one repository or directory.
 - **`models`** lists, for each profile a session can start from, its agent,

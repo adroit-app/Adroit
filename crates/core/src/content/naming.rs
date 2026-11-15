@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use adroit_model::{TerminalSession, Tree};
+use adroit_model::{SessionCode, TerminalSession, Tree};
 
 use super::Tab;
 use crate::tree::nav;
@@ -29,6 +29,15 @@ pub fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> St
         Tab::Draft { .. } => "new session".into(),
         Tab::Viewer(_, path) => file_name(path),
         Tab::Drawn { width, height, .. } => format!("Image {width} × {height}"),
+    }
+}
+
+/// The code the session `thing` shows keeps, for a tab that shows a session
+/// that has one.
+pub fn thing_code(tree: &Tree, thing: &Tab) -> Option<SessionCode> {
+    match thing {
+        Tab::Session(_, id) => nav::find(tree, id).and_then(|(_, s)| s.code.clone()),
+        _ => None,
     }
 }
 
@@ -74,5 +83,22 @@ mod tests {
                 "{thing:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_tab_shows_the_code_of_the_session_it_shows_and_nothing_else_has_one() {
+        let tree = testing::tree()
+            .session(testing::session("a").code("k7f3").cwd("/r"))
+            .session(testing::session("b").cwd("/r"))
+            .build();
+        let code = |thing| thing_code(&tree, &thing).map(|c| c.to_string());
+
+        assert_eq!(
+            code(Tab::Session(here(), "a".into())).as_deref(),
+            Some("k7f3")
+        );
+        assert_eq!(code(Tab::Session(here(), "b".into())), None);
+        assert_eq!(code(Tab::Session(here(), "gone".into())), None);
+        assert_eq!(code(Tab::Terminal(here(), 7)), None);
     }
 }

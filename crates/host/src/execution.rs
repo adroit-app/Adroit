@@ -67,6 +67,9 @@ pub struct StartRequest {
     pub home: Option<PathBuf>,
     /// Whether the session that opens it asks that it be shown to the user.
     pub show: bool,
+    /// The code it had before, when it is brought back; one is found for a
+    /// conversation it resumes, and drawn anew otherwise.
+    pub code: Option<adroit_model::SessionCode>,
 }
 
 pub use adroit_model::ModelSource;

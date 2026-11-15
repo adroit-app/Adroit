@@ -77,6 +77,9 @@ impl Agent {
 pub struct Session {
     /// Adroit's record of the session, for one Adroit started.
     pub delegation: Option<SessionId>,
+    /// The code its record keeps; none for one started before codes were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<crate::SessionCode>,
     /// The session that opened this one; none for one the user started.
     pub parent: Option<SessionId>,
     /// Whether the session that opened it asked that it be shown to the user.

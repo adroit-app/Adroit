@@ -32,6 +32,7 @@ pub fn record(name: &str) -> RecordBuilder {
         interrupted: false,
         brought_back_by: None,
         name_given: false,
+        code: adroit_model::SessionCode::random(),
     })
 }
 
@@ -49,6 +50,12 @@ impl RecordBuilder {
     /// The conversation the session holds.
     pub fn conversation(mut self, id: impl Into<String>) -> Self {
         self.0.conversation = Some(id.into());
+        self
+    }
+
+    /// Opened by the session recorded as `parent`.
+    pub fn parent(mut self, parent: SessionId) -> Self {
+        self.0.parent = Some(parent);
         self
     }
 

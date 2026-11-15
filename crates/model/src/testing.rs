@@ -114,6 +114,12 @@ impl SessionBuilder {
     }
 
     /// Adroit's record of the session.
+    /// Keeping the code `code`, which has to be one.
+    pub fn code(mut self, code: &str) -> Self {
+        self.0.code = Some(code.parse().expect("a session code"));
+        self
+    }
+
     pub fn delegation(mut self, id: SessionId) -> Self {
         self.0.delegation = Some(id);
         self

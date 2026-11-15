@@ -1,7 +1,7 @@
 //! What a session asks the work host, one JSON line each way.
 use std::path::{Path, PathBuf};
 
-use adroit_model::{Agent, AgentPermissions, MessageId, SessionId};
+use adroit_model::{Agent, AgentPermissions, MessageId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -120,8 +120,8 @@ pub struct Start {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Send {
-    /// The recipient's id, as `sessions` lists it.
-    pub to: SessionId,
+    /// The recipient's code, or its id, as `sessions` lists them.
+    pub to: String,
     pub body: String,
 }
 

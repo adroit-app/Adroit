@@ -277,7 +277,10 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 s.as_ref()
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| id.clone()),
-                String::new(),
+                s.as_ref()
+                    .and_then(|s| s.code.as_ref())
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
                 s.map(|s| glyph(context.completions.read().state(&s))),
             )
         }

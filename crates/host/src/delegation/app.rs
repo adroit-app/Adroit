@@ -37,6 +37,7 @@ pub(crate) async fn with_store<T: Send + 'static>(
 pub struct Recorded {
     root: PathBuf,
     pub id: SessionId,
+    pub code: adroit_model::SessionCode,
 }
 
 impl Recorded {
@@ -85,16 +86,30 @@ async fn record(
         permissions: request.permissions.clone(),
         started_ms: request.started_ms,
         name_given: request.name_given,
+        code: request.code.clone(),
     };
-    let (id, token) = with_store(root, move |store| store.register(new))
-        .await
-        .map_err(|error| error.to_string())?;
+    let resumes = request.resume.clone();
+    let (id, token, code) = with_store(root, move |store| {
+        let new = match (&new.code, &resumes) {
+            (None, Some(conversation)) => NewSession {
+                code: store.code_of_conversation(conversation)?,
+                ..new
+            },
+            _ => new,
+        };
+        let (id, token) = store.register(new)?;
+        Ok((id, token, store.known(id)?.code))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     let mut delegation = Delegation::new(id, parent, root.to_path_buf(), token);
     delegation.show = request.show;
+    delegation.code = Some(code.clone());
     request.delegation = Some(delegation);
     Ok(Recorded {
         root: root.to_path_buf(),
         id,
+        code,
     })
 }
 

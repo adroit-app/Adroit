@@ -349,7 +349,7 @@ came from: what its program reported, or the rule its screen was read by and
 the rows that rule went by, or that no rule's sign was shown and a default was
 taken; how its start stands and how long until it counts as stalled; the
 screen rules in force, and why a set of yours was set aside; and the last rows
-of its screen. The session is named by its id or its name, and `--json` prints
+of its screen. The session is named by its id, its code or its name, and `--json` prints
 the same as JSON. `adroit session explain --file <path>
 --agent <agent>` reads a screen kept in a file as that agent's.
 
@@ -357,6 +357,15 @@ A session whose turn has finished is marked done, with a check, in the tree
 and in the strip of a window showing it, until it is viewed in this window;
 viewed, it shows as idle. A later turn finished out of view is marked done
 again. A window in the background views nothing, so its marks stay.
+
+## A session's code
+
+Every session carries a short code of letters and digits, given when it starts
+and never changed: renaming leaves it as it was, and a session brought back,
+or a conversation resumed in a new session, keeps the code it had. No two
+sessions of an instance have the same code, and a code is never given again.
+The tree and the session's tab show it beside the name, and other sessions and
+the `adroit session` commands take it wherever they take the session's id.
 
 ## Renaming a session
 

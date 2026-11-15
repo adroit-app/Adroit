@@ -7,7 +7,7 @@ use adroit_model::profile::ProfileId;
 use adroit_model::{Session, State, TerminalProgram, TerminalSession};
 use adroit_term::tags;
 
-use crate::delegation::launch::{PARENT_TAG, SESSION_TAG, SHOW_TAG};
+use crate::delegation::launch::{CODE_TAG, PARENT_TAG, SESSION_TAG, SHOW_TAG};
 
 const KIND: &str = "adroit.kind";
 pub const NAME: &str = "adroit.name";
@@ -109,6 +109,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
     match adroit_model::Agent::parse(&kind) {
         Some(agent) => Some(Kept::Agent(Session {
             delegation: tags::value(t, SESSION_TAG).and_then(|id| id.parse().ok()),
+            code: tags::value(t, CODE_TAG).and_then(|code| code.parse().ok()),
             parent: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
             show: tags::value(t, SHOW_TAG).is_some(),
             agent,
@@ -716,6 +717,31 @@ mod tests {
         assert_eq!(c.delegation, Some(delegation.id));
         assert_eq!(c.parent, Some(parent));
         assert!(!c.show);
+    }
+
+    #[test]
+    fn a_session_is_read_back_with_its_code_and_one_from_before_codes_with_none() {
+        let mut delegation = crate::delegation::launch::Delegation::new(
+            adroit_model::SessionId::new(),
+            None,
+            "/state".into(),
+            "token".into(),
+        );
+        let before = {
+            let mut tags = fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0);
+            tags.extend(delegation.tags());
+            tags
+        };
+        delegation.code = Some("k7f3".parse().unwrap());
+        let mut tags = fix_tags("uuid", &adroit_model::AgentPermissions::Default, 0);
+        tags.extend(delegation.tags());
+
+        let code = |tags| match read(&kept(7, tags)) {
+            Some(Kept::Agent(c)) => c.code,
+            _ => panic!("not a session"),
+        };
+        assert_eq!(code(tags), Some("k7f3".parse().unwrap()));
+        assert_eq!(code(before), None);
     }
 
     #[test]

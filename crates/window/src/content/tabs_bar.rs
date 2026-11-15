@@ -15,7 +15,7 @@ use crate::bridge::AppCtx;
 use crate::components::{
     DraftMark, PlaceMark, SessionMark, StateGlyph, TerminalMark, glyph, runs_of, session_mark,
 };
-use crate::content::{DropAt, Tab, WindowId, thing_name};
+use crate::content::{DropAt, Tab, WindowId, thing_code, thing_name};
 use crate::icons::{Icon, IconView};
 use crate::nav;
 use crate::rename::{Place as RenamePlace, SessionName};
@@ -60,9 +60,11 @@ pub(super) fn TabsBar(
                     Tab::Terminal(_, _) | Tab::Viewer(_, _) | Tab::Drawn { .. } => (None, None),
                 };
                 let name = thing_name(t, terms, &shows);
+                let code = thing_code(t, &shows);
                 (
                     shows,
                     name,
+                    code,
                     state,
                     mark,
                     tab.windows().len(),
@@ -87,7 +89,7 @@ pub(super) fn TabsBar(
     // A tab dragged among the tabs is drawn where it would land, the others
     // making room, so the order it leaves is seen before it is let go.
     let rows = tabs();
-    let ordinary = rows.iter().filter(|r| !r.5).count();
+    let ordinary = rows.iter().filter(|r| !r.6).count();
     let mut order: Vec<usize> = (0..rows.len()).collect();
     let ghost = match (dropping, from) {
         (Some(Some(DropAt::Place(to))), Some(from)) if from < ordinary && to < ordinary => {
@@ -112,7 +114,7 @@ pub(super) fn TabsBar(
                     "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                 }
             }
-            for (place , at , (tab , name , state , mark , count , preview , focused)) in laid {
+            for (place , at , (tab , name , code , state , mark , count , preview , focused)) in laid {
                 {
                     let is_active = at == shown_at;
                     let shell = match &tab {
@@ -191,6 +193,9 @@ pub(super) fn TabsBar(
                                     environment: environment.clone(), id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
                                 }
                             } else { "{name}" }
+                            if let Some(code) = code {
+                                span { class: "tab-code", title: "The code it keeps", "{code}" }
+                            }
                             SessionMark { mark }
                             span { class: "tab-count", title: "{windows}", "{count}" }
                             if has_draft {

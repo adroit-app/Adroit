@@ -332,6 +332,7 @@ async fn resume(
         model: record.model.clone(),
         name: record.name.clone(),
         name_given: record.name_given,
+        code: Some(record.code.clone()),
         cwd: record.cwd.clone(),
         permissions: record.permissions.clone(),
         resume: record.conversation.clone(),

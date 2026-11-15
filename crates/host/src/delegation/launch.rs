@@ -24,6 +24,8 @@ pub const PARENT_TAG: &str = "adroit.parent";
 /// The session tag set on a session the session that opened it asked be
 /// shown to the user.
 pub const SHOW_TAG: &str = "adroit.show";
+/// The session tag holding the code the session keeps.
+pub const CODE_TAG: &str = "adroit.code";
 
 #[derive(Clone)]
 pub struct Delegation {
@@ -32,6 +34,8 @@ pub struct Delegation {
     pub root: PathBuf,
     /// Whether the session that opened it asked that it be shown to the user.
     pub show: bool,
+    /// The code its record keeps.
+    pub code: Option<adroit_model::SessionCode>,
     token: String,
 }
 
@@ -43,6 +47,7 @@ impl fmt::Debug for Delegation {
             .field("parent", &self.parent)
             .field("root", &self.root)
             .field("show", &self.show)
+            .field("code", &self.code)
             .field("token", &"[redacted]")
             .finish()
     }
@@ -55,6 +60,7 @@ impl Delegation {
             parent,
             root,
             show: false,
+            code: None,
             token,
         }
     }
@@ -129,6 +135,9 @@ impl Delegation {
         }
         if self.show {
             tags.extend(adroit_term::tags::tagged(SHOW_TAG, "1"));
+        }
+        if let Some(code) = &self.code {
+            tags.extend(adroit_term::tags::tagged(CODE_TAG, code.as_str()));
         }
         tags
     }

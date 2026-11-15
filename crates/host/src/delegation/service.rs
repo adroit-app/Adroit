@@ -188,9 +188,10 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
             };
             Ok(json!({
                 "id": caller.id,
+                "code": caller.code,
                 "name": caller.name,
                 "dir": caller.cwd,
-                "opened_by": parent.map(|p| json!({"id": p.id, "name": p.name, "ended": p.ended})),
+                "opened_by": parent.map(|p| json!({"id": p.id, "code": p.code, "name": p.name, "ended": p.ended})),
             }))
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
@@ -198,7 +199,10 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         Command::Naming { cleared } => naming(context, &caller, cleared).await,
         Command::Send(send) => {
             let id = context
-                .call(move |store| store.send(caller.id, send.to, &send.body))
+                .call(move |store| {
+                    let to = addressed(store, &send.to)?;
+                    store.send(caller.id, to, &send.body)
+                })
                 .await?;
             Ok(json!({"sent": id}))
         }
@@ -256,13 +260,31 @@ fn from_own_conversation(caller: &Session, thread: Option<&str>) -> Result<()> {
     }
 }
 
+/// The session `to` names, by its code or by the id of its record.
+fn addressed(store: &super::store::Store, to: &str) -> Result<SessionId> {
+    let found = match (
+        to.parse::<SessionId>(),
+        to.parse::<adroit_model::SessionCode>(),
+    ) {
+        (Ok(id), _) => store.session(id)?.map(|s| s.id),
+        (_, Ok(code)) => store.by_code(&code)?.map(|s| s.id),
+        _ => None,
+    };
+    found.ok_or_else(|| {
+        Error::new(
+            Code::NotFound,
+            format!("no session has the code or id {to}"),
+        )
+    })
+}
+
 /// What a message reads as when it reaches its recipient's agent.
 pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
     match sender {
         Some(sender) => format!(
             "[message] from {} ({}) working in {}:\n{}",
             sender.name,
-            sender.id,
+            sender.code,
             sender.cwd.display(),
             message.body
         ),
@@ -457,7 +479,7 @@ async fn launch(
         recorded.failed().await;
         return Err(Failed::NothingRan(failure));
     }
-    Ok(json!({"id": recorded.id, "name": name, "dir": cwd}))
+    Ok(json!({"id": recorded.id, "code": recorded.code, "name": name, "dir": cwd}))
 }
 
 /// The start's answer, with the worktree made for it taken back when nothing
@@ -513,9 +535,10 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
         let opened_by = session
             .parent
             .and_then(|parent| all.iter().find(|s| s.id == parent))
-            .map(|parent| json!({"id": parent.id, "name": parent.name}));
+            .map(|parent| json!({"id": parent.id, "code": parent.code, "name": parent.name}));
         out.push(json!({
             "id": session.id,
+            "code": session.code,
             "name": session.name,
             "agent": session.agent,
             "dir": session.cwd,
@@ -980,6 +1003,7 @@ mod tests {
                 permissions: Default::default(),
                 started_ms: 1,
                 name_given: false,
+                code: None,
             })
             .unwrap();
         store
@@ -1383,15 +1407,66 @@ mod tests {
     }
 
     #[test]
-    fn a_message_names_its_sender_and_where_it_works() {
+    fn a_message_names_its_sender_by_its_code_and_where_it_works() {
         let sender = record("review").build();
         let message = message(sender.id, SessionId::new()).body("done").build();
         let read = envelope(&message, Some(&sender));
-        assert!(read.starts_with("[message] from review"), "{read}");
-        assert!(read.contains(&sender.id.to_string()), "{read}");
+        assert!(
+            read.starts_with(&format!("[message] from review ({})", sender.code)),
+            "{read}"
+        );
         assert!(read.ends_with("\ndone"), "{read}");
         let unknown = envelope(&message, None);
         assert!(unknown.contains(&sender.id.to_string()), "{unknown}");
+    }
+
+    #[test]
+    fn a_recipient_is_found_by_its_code_or_its_id_and_nothing_else() {
+        use super::super::store::{NewSession, Store};
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
+        let (id, _) = store
+            .register(NewSession {
+                parent: None,
+                agent: Agent::Claude,
+                profile: adroit_model::profile::ProfileId::builtin(Agent::Claude),
+                home: None,
+                name: "review".into(),
+                cwd: "/repo".into(),
+                launch: Settings::default(),
+                model: None,
+                permissions: Default::default(),
+                started_ms: 1,
+                name_given: false,
+                code: Some("k7f3".parse().unwrap()),
+            })
+            .unwrap();
+
+        assert_eq!(addressed(&store, "k7f3").unwrap(), id);
+        assert_eq!(addressed(&store, &id.to_string()).unwrap(), id);
+        for unknown in ["zzzz", "review", ""] {
+            assert_eq!(
+                addressed(&store, unknown).unwrap_err().code,
+                Code::NotFound,
+                "{unknown}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sessions_are_listed_with_their_codes_and_the_code_of_the_one_that_opened_them() {
+        let opener = record("opener").build();
+        let opened = record("opened").parent(opener.id).build();
+        let listed = listed(
+            vec![opener.clone(), opened.clone()],
+            &protocol::Sessions::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(listed[0]["code"], opener.code.as_str());
+        assert_eq!(listed[1]["code"], opened.code.as_str());
+        assert_eq!(listed[1]["opened_by"]["code"], opener.code.as_str());
     }
 
     #[test]
@@ -1433,6 +1508,7 @@ mod tests {
             permissions: Default::default(),
             started_ms: 1,
             name_given: false,
+            code: None,
         };
         let to = {
             let mut store = Store::open(&path).unwrap();
@@ -1473,6 +1549,7 @@ mod tests {
                 permissions: Default::default(),
                 started_ms: 1,
                 name_given: false,
+                code: None,
             }
         };
         let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
