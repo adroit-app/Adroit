@@ -594,9 +594,7 @@ impl AppCtx {
             let saved = link.ask(Ask::SaveSettingsChecked { text, expected });
             self.keep(async move {
                 if let Some(error) = crate::link::failure(saved.await) {
-                    eprintln!(
-                        "adroit: the appearance was not written into {environment:?}: {error}"
-                    );
+                    tracing::warn!(?environment, %error, "the appearance was not written");
                 }
             });
         }
@@ -1232,8 +1230,10 @@ fn run(effects: Vec<Effect>, links: &Links<impl HostLink>, mut local: impl FnMut
                 request,
             } => match links.get(&environment) {
                 Some(link) => link.send(request),
-                None => eprintln!(
-                    "adroit: no link to environment {environment:?} for {request:?}; dropped"
+                None => tracing::warn!(
+                    ?environment,
+                    ?request,
+                    "no link to the environment; the request is dropped"
                 ),
             },
             effect => local(effect),

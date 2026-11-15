@@ -284,7 +284,7 @@ async fn listen(
 /// Tell of keys the input method lost, on the standard error and in the
 /// lost keys' log, whether keys are traced or not.
 fn lost(what: &str) {
-    eprintln!("[keys] {what}");
+    tracing::warn!(lost = %what, "the input method lost keys");
     let _ = keys::record(&keys::lost_log(), what, keys::LOST_LOG_LIMIT);
 }
 

@@ -263,8 +263,10 @@ pub static TRACED: LazyLock<bool> =
 /// Write where a key went, while keys are traced; `what` is not even made
 /// otherwise.
 pub fn trace<D: std::fmt::Display>(what: impl FnOnce() -> D) {
+    // At info, not debug: ADROIT_DEBUG_KEYS already asked for these, and
+    // ADROIT_LOG left at its default would otherwise drop them.
     if *TRACED {
-        eprintln!("[keys] {}", what());
+        tracing::info!(key = %what(), "traced");
     }
 }
 

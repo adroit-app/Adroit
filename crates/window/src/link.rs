@@ -186,7 +186,7 @@ impl Link {
                 rt.block_on(keeping.run());
             });
         if let Err(e) = started {
-            eprintln!("adroit: cannot reach the work host: {e}");
+            tracing::warn!(error = %e, "cannot reach the work host");
         }
         let link = Link {
             requests: Sending::Local(requests),

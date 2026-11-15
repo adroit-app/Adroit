@@ -108,11 +108,14 @@ async fn kept_drafts(app: AppCtx) -> Option<KeptDrafts> {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Answer::Failed { text } => {
-                eprintln!("adroit: {text}; what is written is not kept, to keep what is there");
+                tracing::warn!(
+                    error = %text,
+                    "cannot read the drafts; what is written is not kept, to keep what is there"
+                );
                 return None;
             }
             answer => {
-                eprintln!("adroit: the work host answered {answer:?} for the drafts");
+                tracing::warn!(?answer, "the work host answered the drafts unexpectedly");
                 return None;
             }
         }
@@ -132,11 +135,11 @@ fn save(app: AppCtx, tx: UnboundedSender<Op>, kept: &KeptDrafts, now: KeptDrafts
         let saved = match asked.await {
             Answer::Done => Some(now),
             Answer::Failed { text } => {
-                eprintln!("adroit: cannot keep what is written: {text}");
+                tracing::warn!(error = %text, "cannot keep what is written");
                 None
             }
             answer => {
-                eprintln!("adroit: the work host answered {answer:?} for the drafts");
+                tracing::warn!(?answer, "the work host answered the drafts unexpectedly");
                 None
             }
         };
@@ -216,8 +219,8 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                     match restore_before_op(&mut drafts, &mut opened, op, put).await {
                         Ok(op) => op,
                         Err(op) => {
-                            eprintln!(
-                                "adroit: cannot restore the saved prompt; its draft remains saved"
+                            tracing::warn!(
+                                "cannot restore the saved prompt; its draft remains saved"
                             );
                             deferred.push_front(op);
                             break;
@@ -369,7 +372,7 @@ pub(crate) fn keeper(nvim: Signal<Option<Arc<Embedded>>>, app: AppCtx) -> Prompt
                         match nv.text().await {
                             Ok(text) => text,
                             Err(error) => {
-                                eprintln!("adroit: cannot save the prompt checkpoint: {error}");
+                                tracing::warn!(%error, "cannot save the prompt checkpoint");
                                 continue;
                             }
                         }

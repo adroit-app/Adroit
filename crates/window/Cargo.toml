@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+tracing.workspace = true
 adroit-sys.workspace = true
 adroit-connect.workspace = true
 adroit-core.workspace = true
