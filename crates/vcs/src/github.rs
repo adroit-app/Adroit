@@ -417,6 +417,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs jj")]
     async fn a_jj_workspace_on_a_pull_request_s_branch_tracks_its_bookmark_and_starts_on_it() {
         let dir = tempfile::tempdir().unwrap();
         let (clone, head) = cloned_with_a_pull(dir.path());
@@ -469,6 +470,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs jj")]
     async fn a_pull_request_s_head_fetched_into_a_jj_repository_is_seen_by_jj() {
         let dir = tempfile::tempdir().unwrap();
         let (clone, head) = cloned_with_a_pull(dir.path());
