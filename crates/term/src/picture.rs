@@ -35,3 +35,17 @@ pub fn data_url(mime: &str, bytes: &[u8]) -> Arc<str> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     format!("data:{mime};base64,{b64}").into()
 }
+
+/// RGBA pixels as a PNG `data:` URL.
+pub(crate) fn rgba_url(width: u32, height: u32, rgba: &[u8]) -> Option<Arc<str>> {
+    let mut bytes = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut bytes, width, height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().ok()?;
+        w.write_image_data(rgba).ok()?;
+    }
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:image/png;base64,{b64}").into())
+}

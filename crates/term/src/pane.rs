@@ -5,8 +5,6 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use base64::Engine;
-
 use crate::input::Event as _;
 use felis_client_core::renderer_effect::{RendererEffect, renderer_effect};
 use felis_client_core::{
@@ -907,25 +905,11 @@ impl State {
         }
         let mut pixels = Vec::new();
         image.write_rgba8(&mut pixels);
-        let url = data_url(image.width, image.height, &pixels)?;
+        let url = crate::picture::rgba_url(image.width, image.height, &pixels)?;
         let shows = shows(image.width, image.height, &pixels);
         self.urls.insert(id, (generation, url.clone(), shows));
         Some((url, shows))
     }
-}
-
-/// RGBA pixels as a PNG `data:` URL.
-fn data_url(width: u32, height: u32, rgba: &[u8]) -> Option<Arc<str>> {
-    let mut bytes = Vec::new();
-    {
-        let mut enc = png::Encoder::new(&mut bytes, width, height);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        let mut w = enc.write_header().ok()?;
-        w.write_image_data(rgba).ok()?;
-    }
-    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Some(format!("data:image/png;base64,{b64}").into())
 }
 
 /// Draws of an image that meet edge to edge, on the screen and in the
