@@ -64,8 +64,13 @@ pub fn Viewer(
 ) -> Element {
     let key = path.to_string_lossy().into_owned();
     match ViewerState::new(FileKind::of(&path)) {
+        // Keyed within a fragment: a key on the root of what a component
+        // renders is not compared, and the viewer of the file shown before
+        // would be kept, hooks and all, for the next one.
         Some(_) => rsx! {
-            ViewerOf { key: "{key}", path, root, theme, command, on_close, on_link, left }
+            {std::iter::once(rsx! {
+                ViewerOf { key: "{key}", path, root, theme, command, on_close, on_link, left }
+            })}
         },
         None => rsx! {
             div { class: "viewer",
