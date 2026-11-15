@@ -11,11 +11,13 @@ use dioxus::prelude::*;
 use super::message::MessageView;
 use super::process::ProcessView;
 use super::subagent::SubagentView;
+use super::timeline::{ProgressCard, TaskView, TimelineRows};
 use crate::bridge::AppCtx;
 use crate::components::{Fact, Facts, ListRow, Section};
 use crate::details::{
     Details, Entry, Group, Listing, Sheet, change_line, entry_listing, link_sections, opened_agent,
-    opened_note, opened_process, overview_change, overview_facts, shown_session, stats,
+    opened_note, opened_process, opened_task, overview_change, overview_facts, shown_session,
+    stats,
 };
 use crate::icons::{Icon, IconView};
 
@@ -60,12 +62,15 @@ pub(super) fn Overview(
     let agent = opened_agent(&details, work);
     let note = opened_note(&details, work);
     let process = opened_process(&details, work);
+    let task = opened_task(&details, work);
+    let sheet = details.drill.sheet();
     let entries = match &listing {
         // A row opened stands in for the rows.
         Some(Listing::Entries(entries))
             if details.drill.agent().is_none()
                 && details.drill.message().is_none()
-                && details.drill.process().is_none() =>
+                && details.drill.process().is_none()
+                && details.drill.task().is_none() =>
         {
             entries.as_slice()
         }
@@ -76,6 +81,18 @@ pub(super) fn Overview(
         .or_else(|| session.as_ref().map(|s| s.cwd.clone()))
         .unwrap_or_default();
     let sections = link_sections(entries, &paths_from, &crate::paths::home(), now_ms);
+    let progress = match entries.first() {
+        Some(Entry::Progress(p)) => Some(p.clone()),
+        _ => None,
+    };
+    let timeline_rows: Vec<(usize, Entry)> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, Entry::Tree(_) | Entry::Task(_)))
+        .map(|(at, e)| (at, e.clone()))
+        .collect();
+    let no_timeline =
+        sheet == Sheet::Timeline && session.is_some() && entries.is_empty() && task.is_none();
     let killable = |at: usize| match &listing {
         Some(Listing::Entries(entries)) => match entries.get(at) {
             Some(Entry::Process(p)) if !p.zombie => session.clone().map(|s| (s, p.clone())),
@@ -115,6 +132,25 @@ pub(super) fn Overview(
                     span { class: "list-row-name", "{change.subject}" }
                     span { class: "details-link-tag", "{change.files}" }
                 }
+            }
+        }
+        if let Some(progress) = progress {
+            ProgressCard { progress, at: 0, selected: selected == Some(0), now_ms }
+        }
+        if !timeline_rows.is_empty() {
+            TimelineRows { rows: timeline_rows, selected, now_ms }
+        }
+        if no_timeline {
+            div { class: "details-block timeline-empty",
+                "No timeline yet. A session's agent records the plan and progress of its work here as it goes."
+            }
+        }
+        if let Some(detail) = task {
+            TaskView {
+                detail,
+                now_ms,
+                back_keys: back_keys.clone(),
+                on_back: move |_| app.dispatch(Msg::DetailsBack),
             }
         }
         if let Some(agent) = agent {

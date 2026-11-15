@@ -34,7 +34,8 @@ notes                            ← a directory outside git
 
 Sessions and shells keep running when the window closes. Open Adroit again to
 return to them, or open several windows onto the same work. The details panel
-shows the session's overview, changes, history, agents and resources.
+shows the session's overview, changes, history, agents, resources and the
+timeline its agent records of its work.
 
 ```text
 ┌──────────────┬──────────────────────────────────┬─────────────┐
@@ -45,7 +46,7 @@ shows the session's overview, changes, history, agents and resources.
 │ │   ├── …    │                │                 │ Log         │
 │ └── …        ├────────────────┤                 │ Agents      │
 │              │ prompt: Neovim │                 │ Resources   │
-│ waiting on   │                │                 │             │
+│ waiting on   │                │                 │ Timeline    │
 │ you          │                │                 │ usage       │
 └──────────────┴────────────────┴─────────────────┴─────────────┘
 ```

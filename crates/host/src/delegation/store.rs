@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_model::profile::ProfileId;
+use adroit_model::timeline::Entry;
 use adroit_model::{Agent, AgentPermissions, SessionCode, TerminalSession};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -97,6 +98,15 @@ const MIGRATIONS: &[&str] = &[
     // the step has run, by `fill_codes`, since SQL draws no code.
     "ALTER TABLE sessions ADD COLUMN code TEXT;
      CREATE INDEX sessions_by_code ON sessions(code);",
+    // What each session's agent recorded of its work, by the code that the
+    // session keeps when it is brought back.
+    "CREATE TABLE timeline (
+         seq INTEGER PRIMARY KEY AUTOINCREMENT,
+         code TEXT NOT NULL,
+         at_ms INTEGER NOT NULL,
+         ops TEXT NOT NULL
+     );
+     CREATE INDEX timeline_by_code ON timeline(code);",
 ];
 
 /// What the window or the work host knows of a session before its program starts.
@@ -558,6 +568,37 @@ impl Store {
         let rows = statement.query_map([id.to_string()], read_message)?;
         rows.map(|row| row.map_err(Error::from).and_then(|row| row))
             .collect()
+    }
+
+    /// Adds `entry` to the journal of the session with `code`.
+    pub fn record_timeline(&mut self, code: &SessionCode, entry: &Entry) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO timeline (code, at_ms, ops) VALUES (?1, ?2, ?3)",
+            params![
+                code.as_str(),
+                entry.at_ms as i64,
+                serde_json::to_string(&entry.ops).map_err(Error::storage)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The journal of the session with `code`, the oldest call first.
+    pub fn timeline_of(&self, code: &SessionCode) -> Result<Vec<Entry>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT at_ms, ops FROM timeline WHERE code = ?1 ORDER BY seq")?;
+        let rows = statement.query_map([code.as_str()], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.map(|row| {
+            let (at_ms, ops) = row?;
+            Ok(Entry {
+                at_ms: at_ms as u64,
+                ops: serde_json::from_str(&ops).map_err(Error::storage)?,
+            })
+        })
+        .collect()
     }
 
     fn update(&mut self, id: SessionId, sql: &str, value: String) -> Result<()> {
@@ -1354,7 +1395,7 @@ PRAGMA user_version = 1;
                 .connection
                 .execute_batch(
                     "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
-                     ALTER TABLE sessions DROP COLUMN name_given; PRAGMA user_version = 5;",
+                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -1611,7 +1652,7 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                    "DROP TABLE timeline; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
                 )
                 .unwrap();
             (old, by, other)
@@ -1622,5 +1663,51 @@ PRAGMA user_version = 1;
         let code = |id| store.known(id).unwrap().code;
         assert_eq!(code(old), code(by));
         assert_ne!(code(old), code(other));
+    }
+
+    fn entry(at_ms: u64, id: &str) -> Entry {
+        Entry {
+            at_ms,
+            ops: vec![adroit_model::timeline::Op::Remove { id: id.into() }],
+        }
+    }
+
+    #[test]
+    fn a_session_s_timeline_keeps_every_call_in_the_order_made() {
+        let (_dir, mut store) = store();
+        let one = register(&mut store, None, "one");
+        let one = store.known(one).unwrap().code;
+        let two = register(&mut store, None, "two");
+        let two = store.known(two).unwrap().code;
+
+        store.record_timeline(&one, &entry(2, "b")).unwrap();
+        store.record_timeline(&two, &entry(1, "x")).unwrap();
+        store.record_timeline(&one, &entry(1, "a")).unwrap();
+
+        assert_eq!(
+            store.timeline_of(&one).unwrap(),
+            [entry(2, "b"), entry(1, "a")]
+        );
+        assert_eq!(store.timeline_of(&two).unwrap(), [entry(1, "x")]);
+    }
+
+    #[test]
+    fn a_session_brought_back_goes_on_with_the_timeline_of_the_one_it_stands_for() {
+        let (_dir, mut store) = store();
+        let old = register(&mut store, None, "old");
+        let code = store.known(old).unwrap().code;
+        store.record_timeline(&code, &entry(1, "a")).unwrap();
+        store.interrupt(old).unwrap();
+
+        let (by, _) = store
+            .register(NewSession {
+                code: Some(code.clone()),
+                ..new(None, "old")
+            })
+            .unwrap();
+        store.brought_back(old, by).unwrap();
+
+        let code = store.known(by).unwrap().code;
+        assert_eq!(store.timeline_of(&code).unwrap(), [entry(1, "a")]);
     }
 }

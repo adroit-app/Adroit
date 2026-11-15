@@ -80,6 +80,8 @@ pub fn link_sections(
     let mut out: Vec<LinkSection> = Vec::new();
     for (at, entry) in entries.iter().enumerate() {
         let row = match entry {
+            // The timeline's rows are drawn as cards and bars, not as links.
+            Entry::Progress(_) | Entry::Tree(_) | Entry::Task(_) => None,
             Entry::More { hidden, .. } => {
                 if let Some(section) = out.last_mut() {
                     section.more = Some((at, *hidden));

@@ -102,6 +102,7 @@ changes them ([keys](../keys.md)).
 | `details.log` | Log | show the log sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `3` |
 | `details.agents` | Agents | show the agents sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `4` |
 | `details.resources` | Resources | show the resources sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `5` |
+| `details.timeline` | Timeline | show the timeline sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `6` |
 | `worktrees.toggle` | Toggle All Worktrees | list every worktree git knows, those without sessions too, or only those with sessions again | `tree`: `!` |
 | `scroll.down` |  | scroll the details panel down a step; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows | `viewer`: `j`, `ArrowDown` |
 | `scroll.up` |  | scroll up a step, what `scroll.down` scrolls | `viewer`: `k`, `ArrowUp` |
@@ -312,6 +313,7 @@ changes them ([keys](../keys.md)).
 "3" = "details.log"
 "4" = "details.agents"
 "5" = "details.resources"
+"6" = "details.timeline"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
 

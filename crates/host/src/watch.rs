@@ -31,6 +31,7 @@ mod processes;
 mod repository;
 pub(crate) mod sessions;
 mod system;
+mod timeline;
 mod usage;
 
 pub use sessions::read_sessions;
@@ -309,5 +310,6 @@ pub fn start(watched: Watched) {
     crate::environment::spawn(context::watch(watched.clone()));
     crate::environment::spawn(usage::watch(watched.clone()));
     crate::environment::spawn(processes::watch(watched.clone()));
+    crate::environment::spawn(timeline::watch(watched.clone()));
     crate::environment::spawn(system::watch(watched));
 }

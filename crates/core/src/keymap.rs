@@ -701,6 +701,8 @@ mod tests {
             ("3", Action::DetailsLog),
             ("4", Action::DetailsAgents),
             ("5", Action::DetailsResources),
+            ("6", Action::DetailsTimeline),
+            ("6", Action::DetailsTimeline),
         ] {
             assert_eq!(
                 step(&map, &details, &[], digit),

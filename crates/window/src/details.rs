@@ -9,6 +9,7 @@ mod overview;
 mod panel;
 mod process;
 mod subagent;
+mod timeline;
 mod usage;
 
 pub(crate) use adroit_core::details::*;

@@ -120,6 +120,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::DetailsLog),
                 Run(Action::DetailsAgents),
                 Run(Action::DetailsResources),
+                Run(Action::DetailsTimeline),
                 Separator,
                 Run(Action::Filter),
                 Run(Action::WorktreesToggle),

@@ -89,11 +89,52 @@ fn tools() -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         }),
         json!({
+            "name": "timeline_tasks",
+            "description": TIMELINE_TASKS,
+            "inputSchema": timeline_schema(),
+        }),
+        json!({
+            "name": "timeline",
+            "description": "Read your timeline as it stands: every task tree with its tasks' statuses, weights and notes, and each tree's progress.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+        }),
+        json!({
             "name": "models",
             "description": "List the profiles a session can start from, each with its agent, the folder of its own its login is kept in, if any, and the models it accepts, and which profile a session starts from by default.",
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         }),
     ]
+}
+
+const TIMELINE_TASKS: &str = "Record the plan of a goal that takes several steps as a task tree on your timeline, which the user follows in Adroit, and keep it current as you work. Make one top-level task per goal, titled with the goal, and put its steps under it as subtasks, split further where a step is large. Give each task a weight: its size beside its siblings. Mark a task in_progress as you start it, and completed or blocked as soon as it is; put what it will do in description, and what happened, its result or why it is blocked, in note. Use it in place of a todo list. ops are applied in order: add {id, parent?, title, weight?, status?, description?, note?}, update {id, status?, title?, weight?, description?, note?}, remove {id}.";
+
+/// What `timeline_tasks` takes, written out flat: some agents read only a
+/// part of JSON Schema, which the schema of a tagged enum steps outside.
+fn timeline_schema() -> Value {
+    let text = json!({"type": "string"});
+    json!({
+        "type": "object",
+        "properties": {
+            "ops": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "op": {"type": "string", "enum": ["add", "update", "remove"]},
+                        "id": {"type": "string", "description": "A short id you choose, unique on your timeline."},
+                        "parent": {"type": "string", "description": "add: the task it is a step of; a new tree when omitted."},
+                        "title": {"type": "string", "description": "Required to add."},
+                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked"]},
+                        "weight": {"type": "number", "description": "Its size beside its siblings, zero or more; 1 when omitted."},
+                        "description": text,
+                        "note": text,
+                    },
+                    "required": ["op", "id"],
+                },
+            },
+        },
+        "required": ["ops"],
+    })
 }
 
 /// The protocol command a tool call asks for.
@@ -113,6 +154,10 @@ fn command(name: &str, arguments: Value) -> std::result::Result<Command, String>
         "models" => Command::Models,
         "rename_session" => Command::Rename(serde_json::from_value(arguments).map_err(parsed)?),
         "close_session" => Command::Close,
+        "timeline_tasks" => {
+            Command::TimelineTasks(serde_json::from_value(arguments).map_err(parsed)?)
+        }
+        "timeline" => Command::Timeline,
         _ => return Err(format!("unknown tool {name}")),
     })
 }
@@ -203,6 +248,10 @@ where
                     Err(error) => Err(error),
                 };
                 match answer {
+                    // A text answer is handed over as it reads, not as JSON.
+                    Ok(Value::String(text)) => {
+                        json!({"isError": false, "content": [{"type": "text", "text": text}]})
+                    }
                     Ok(value) => {
                         json!({"isError": false, "content": [{"type": "text", "text": value.to_string()}]})
                     }
@@ -403,6 +452,7 @@ mod tests {
                 Command::Next => self.waiting.lock().unwrap().pop().unwrap_or(Value::Null),
                 Command::Send(send) => json!({"sent_to": send.to}),
                 Command::Naming { cleared } => json!({"note": format!("cleared={cleared}")}),
+                Command::Timeline => json!("(no tasks)\nline two"),
                 _ => Value::Null,
             })
         }
@@ -521,6 +571,8 @@ mod tests {
                 "sessions",
                 "rename_session",
                 "close_session",
+                "timeline_tasks",
+                "timeline",
                 "models"
             ]
         );
@@ -588,6 +640,47 @@ mod tests {
                 .unwrap()
                 .contains(&to.to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn a_text_answer_reaches_the_agent_as_it_reads() {
+        let out = exchange(
+            Fake::new(),
+            false,
+            &[
+                rpc(1, "initialize", json!({})),
+                rpc(
+                    2,
+                    "tools/call",
+                    json!({"name": "timeline", "arguments": {}}),
+                ),
+            ],
+            Duration::from_millis(100),
+        )
+        .await;
+        assert_eq!(
+            out[1]["result"]["content"][0]["text"],
+            "(no tasks)\nline two"
+        );
+    }
+
+    #[test]
+    fn timeline_operations_are_read_into_the_command_the_work_host_makes() {
+        let asked = command(
+            "timeline_tasks",
+            json!({"ops": [{"op": "add", "id": "a", "title": "A", "weight": 2}, {"op": "remove", "id": "b"}]}),
+        )
+        .unwrap();
+        let Command::TimelineTasks(asked) = asked else {
+            panic!("{asked:?}");
+        };
+        assert_eq!(asked.ops.len(), 2);
+        let refused = command(
+            "timeline_tasks",
+            json!({"ops": [{"op": "update", "id": "a", "parent": "b"}]}),
+        )
+        .unwrap_err();
+        assert!(refused.contains("parent"), "{refused}");
     }
 
     #[tokio::test]

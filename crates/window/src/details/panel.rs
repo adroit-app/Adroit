@@ -44,6 +44,7 @@ pub(crate) fn sheet_action(sheet: Sheet) -> Action {
         Sheet::Log => Action::DetailsLog,
         Sheet::Agents => Action::DetailsAgents,
         Sheet::Resources => Action::DetailsResources,
+        Sheet::Timeline => Action::DetailsTimeline,
     }
 }
 

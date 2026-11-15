@@ -28,6 +28,7 @@ mod terminal;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod time;
+pub mod timeline;
 mod tree;
 pub mod usage;
 

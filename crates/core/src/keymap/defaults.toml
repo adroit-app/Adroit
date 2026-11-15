@@ -167,6 +167,7 @@
 "3" = "details.log"
 "4" = "details.agents"
 "5" = "details.resources"
+"6" = "details.timeline"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
 

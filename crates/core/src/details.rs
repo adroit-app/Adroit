@@ -19,11 +19,13 @@ mod environment;
 mod panel;
 mod rows;
 mod system;
+mod timeline;
 
 pub use environment::*;
 pub use panel::*;
 pub use rows::*;
 pub use system::*;
+pub use timeline::*;
 
 /// One line of what the overview says about a session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -437,15 +439,19 @@ pub enum Sheet {
     /// The artifacts, images, links and files its conversation brought up,
     /// each opening outside adroit.
     Resources,
+    /// The task trees its agent recorded of its work, each task opening
+    /// its history.
+    Timeline,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 5] = [
+    pub const ALL: [Sheet; 6] = [
         Sheet::Overview,
         Sheet::Changes,
         Sheet::Log,
         Sheet::Agents,
         Sheet::Resources,
+        Sheet::Timeline,
     ];
 
     pub fn title(self) -> &'static str {
@@ -455,13 +461,17 @@ impl Sheet {
             Sheet::Log => "Log",
             Sheet::Agents => "Agents",
             Sheet::Resources => "Resources",
+            Sheet::Timeline => "Timeline",
         }
     }
 
     /// Whether it lists rows of the session shown, rather than what was read
     /// of the worktree.
     pub fn lists_entries(self) -> bool {
-        matches!(self, Sheet::Overview | Sheet::Agents | Sheet::Resources)
+        matches!(
+            self,
+            Sheet::Overview | Sheet::Agents | Sheet::Resources | Sheet::Timeline
+        )
     }
 
     /// The sheet `delta` places along, wrapping around.
@@ -536,6 +546,7 @@ pub enum Group {
     Images,
     Links,
     Files,
+    Timeline,
 }
 
 impl Group {
@@ -558,6 +569,7 @@ impl Group {
             Group::Images => "Images",
             Group::Links => "Links",
             Group::Files => "Files",
+            Group::Timeline => "Timeline",
         }
     }
 }
@@ -577,6 +589,12 @@ pub enum Entry {
     Fact(Fact),
     Link(Link),
     Image(Shot),
+    /// What the overview sums up of the timeline, which shows it.
+    Progress(Progress),
+    /// A tree of the timeline, heading its tasks.
+    Tree(TreeCard),
+    /// A task of a tree, which opens its history.
+    Task(TaskLine),
     /// The row standing for a group's links not shown, which shows them all.
     More {
         group: Group,
@@ -599,6 +617,7 @@ impl Entry {
                 Group::Images => "\0images",
                 Group::Links => "\0links",
                 Group::Files => "\0files",
+                Group::Timeline => "\0timeline",
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Message(n) => n.id.as_str(),
@@ -607,6 +626,9 @@ impl Entry {
             Entry::Fact(f) => f.label,
             Entry::Link(l) => l.target.as_str(),
             Entry::Image(s) => s.key.as_str(),
+            Entry::Progress(_) => "\0progress",
+            Entry::Tree(card) => card.key.as_str(),
+            Entry::Task(line) => line.id.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
@@ -617,6 +639,7 @@ impl Entry {
                 Group::Images => "\0more images",
                 Group::Links => "\0more links",
                 Group::Files => "\0more files",
+                Group::Timeline => "\0more timeline",
             },
         }
     }
@@ -632,6 +655,7 @@ impl Entry {
             Entry::Fact(_) => Group::About,
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
+            Entry::Progress(_) | Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
             Entry::More { group, .. } => *group,
         }
     }
@@ -916,6 +940,8 @@ enum Opened {
     /// A message of Agents, by its id, and its first line.
     Message(String, String),
     Process(String, String),
+    /// A task of the timeline, by its id, and its title.
+    Task(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -968,11 +994,19 @@ impl Drill {
         }
     }
 
+    /// The task opened, by its id.
+    pub fn task(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Task(id, _)) => Some(id),
+            _ => None,
+        }
+    }
+
     /// Whether a row opened from the entries is shown, in place of a list.
     pub fn shows_row(&self) -> bool {
         matches!(
             self.opened.last(),
-            Some(Opened::Agent(..) | Opened::Message(..) | Opened::Process(..))
+            Some(Opened::Agent(..) | Opened::Message(..) | Opened::Process(..) | Opened::Task(..))
         )
     }
 
@@ -980,7 +1014,9 @@ impl Drill {
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
         Some(match (self.sheet, self.opened.as_slice()) {
-            (Sheet::Overview | Sheet::Agents | Sheet::Resources, _) => return None,
+            (Sheet::Overview | Sheet::Agents | Sheet::Resources | Sheet::Timeline, _) => {
+                return None;
+            }
             (Sheet::Changes, []) => Spot::Files(Rev::WorkingCopy),
             (Sheet::Changes, [Opened::File(f), ..]) => Spot::Diff(Rev::WorkingCopy, f.clone()),
             (Sheet::Log, []) => Spot::Log,
@@ -1003,6 +1039,7 @@ impl Drill {
                 Opened::Agent(_, description) => description.clone(),
                 Opened::Message(_, summary) => summary.clone(),
                 Opened::Process(_, name) => name.clone(),
+                Opened::Task(_, title) => title.clone(),
             })
             .collect()
     }
@@ -1027,6 +1064,15 @@ impl Drill {
         self.cursor = listing.keys().get(at).map(|k| Cursor {
             key: k.to_string(),
             at,
+        });
+    }
+
+    /// Select the row `key` tells apart, wherever it is listed; the first
+    /// row stands in while none is.
+    pub fn aim(&mut self, key: &str) {
+        self.cursor = Some(Cursor {
+            key: key.to_owned(),
+            at: 0,
         });
     }
 
@@ -1060,6 +1106,7 @@ impl Drill {
                 Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
                 Entry::Message(n) => Opened::Message(n.id.clone(), n.summary().to_owned()),
                 Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
+                Entry::Task(t) => Opened::Task(t.id.clone(), t.title.clone()),
                 _ => return false,
             },
             Listing::Diff(_) | Listing::Error(_) => return false,
@@ -1090,6 +1137,7 @@ impl Drill {
             Opened::Agent(call, _) => call,
             Opened::Message(id, _) => id,
             Opened::Process(key, _) => key,
+            Opened::Task(id, _) => id,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
         // first row stands in.
@@ -1583,8 +1631,9 @@ mod tests {
     fn sheets_step_around_in_both_directions() {
         assert_eq!(Sheet::Overview.step(1), Sheet::Changes);
         assert_eq!(Sheet::Log.step(1), Sheet::Agents);
-        assert_eq!(Sheet::Resources.step(1), Sheet::Overview);
-        assert_eq!(Sheet::Overview.step(-1), Sheet::Resources);
+        assert_eq!(Sheet::Resources.step(1), Sheet::Timeline);
+        assert_eq!(Sheet::Timeline.step(1), Sheet::Overview);
+        assert_eq!(Sheet::Overview.step(-1), Sheet::Timeline);
     }
 
     #[test]
@@ -1593,10 +1642,12 @@ mod tests {
         assert!(lists(Sheet::Overview));
         assert!(lists(Sheet::Agents));
         assert!(lists(Sheet::Resources));
+        assert!(lists(Sheet::Timeline));
         assert!(!lists(Sheet::Changes));
         assert!(!lists(Sheet::Log));
         assert_eq!(Drill::new(Sheet::Agents).spot(), None);
         assert_eq!(Drill::new(Sheet::Resources).spot(), None);
+        assert_eq!(Drill::new(Sheet::Timeline).spot(), None);
     }
 
     fn change(status: &str, path: &str) -> Change {

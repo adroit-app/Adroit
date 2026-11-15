@@ -1,11 +1,11 @@
 # The details panel
 
 The details panel tells about what the content's focused window shows, and the
-worktree it is in, on the sheets Overview, Changes, Log, Agents and Resources
-([content](content.md)). It follows the focus from window to window and from
-tab to tab, not the tree's selection; with nothing open, it has nothing to
-describe. While an environment's heading is selected in the tree, it tells
-instead of that environment ([tree](tree.md)): how its connection stands,
+worktree it is in, on the sheets Overview, Changes, Log, Agents, Resources and
+Timeline ([content](content.md)). It follows the focus from window to window
+and from tab to tab, not the tree's selection; with nothing open, it has
+nothing to describe. While an environment's heading is selected in the tree, it
+tells instead of that environment ([tree](tree.md)): how its connection stands,
 the address and key of its work machine, and its agents. Each agent profile
 of the environment is listed with its agent, whether it is the default,
 whether its login is logged in, as that environment's machine says, and, for
@@ -26,6 +26,11 @@ described before.
   time stays with the running session when the window closes. Below them is
   the change the worktree is on: its description's first line and how many
   files it changes; a click on it shows Changes.
+  Once the session's agent has recorded a timeline, a summary of it comes
+  first: the tree at work, its status, how much of it is completed, the
+  task in progress in it, or else the next one to do, how many of its leaf
+  tasks are completed and how long it has taken. Opening it shows Timeline
+  with that task selected.
   Under Running are what works for the session right now: the subagents
   still at work, its live work processes, and the sessions tied to it that
   still run. Under About, folded until it is unfolded, are the facts that
@@ -33,8 +38,8 @@ described before.
   tool call counts, the profile and the login it started from, the workspace
   and the worktree, and the conversation's ID. Copying a fact copies its
   value. What was not reported is left out.
-- **Changes** shows the current jj change’s full description, or the HEAD
-  commit’s full message in Git, alongside the files the worktree changes.
+- **Changes** shows the current jj changeâs full description, or the HEAD
+  commitâs full message in Git, alongside the files the worktree changes.
   Opening a file shows its diff.
 - **Log** lists the changes that lead to the worktree, drawn as a graph: each
   change is joined by lines to its parents, so forks and merges show. A line
@@ -60,9 +65,11 @@ described before.
   searched is the file's, not brought up. The images are those the session's
   console drew and the image files it came across that still exist,
   together, each beside a small picture of it.
+- **Timeline** shows the task trees the session's agent recorded of its
+  work ([below](#the-timeline)).
 
-A shell or a draft has no conversation, and Overview, Agents and Resources
-show nothing for it.
+A shell or a draft has no conversation, and Overview, Agents, Resources and
+Timeline show nothing for it.
 
 A work process is one the session started; the agent and its supporting
 runtimes are excluded from both the list and kill targets, while work
@@ -144,6 +151,35 @@ is gone meanwhile, its file changed no more or its change rewritten out of
 existence, is gone back from. Showing another worktree, or another sheet,
 starts it from its list again.
 
+## The timeline
+
+A session's agent records the plan of a goal that takes several steps as a
+tree of tasks, through Adroit's own tools
+([sessions that open sessions](opening-sessions.md#what-a-session-can-do)),
+and marks each task as it starts, finishes or is blocked. It is the same for
+Claude Code, Codex, Pi and OpenCode, is kept for as long as the session's
+record is, and goes on with the session when it is brought back. A session
+whose agent never recorded one has an empty Timeline.
+
+Each tree is a card: its title, its status, a bar split into what is
+completed, in progress, blocked and not started, the share completed, how
+many of its leaf tasks are completed and how long it has taken, until it was
+completed or until now. Under the card are its tasks, each step under the
+task it is a step of, each with its status, a bar and its share. The tree at
+work comes first, then the newest. A completed tree shows its card alone
+until it is unfolded, any other its tasks until it is folded, and a card
+opened folds or unfolds it. Opening a task shows what it is for, what came of
+it, its share, its weight and its leaf tasks completed, and its history,
+newest first: each change with how long ago it was made, the status after it,
+the task's share before and after it, and the description and note it set.
+The timeline follows what the agent records while it is shown.
+
+Siblings split their parent's share of the work by their weights, so
+splitting a task into steps leaves its share as it was, and a completed task
+counts whole whatever its steps say. A tree is completed once every leaf task
+is, or its top task is; blocked while a leaf task is blocked; in progress once
+a leaf task is in progress or completed; and not started otherwise.
+
 ## In a jj repository
 
 A worktree inside a jj repository, a colocated one too, is read through jj:
@@ -173,6 +209,8 @@ back. In Overview, Agents and Resources, the same keys move over their headings
 and rows and open a link, an image, a message, a process or a subagent; on a
 heading, `Enter` or `l` folds or unfolds its group, the keys that go back fold
 the group of what is selected, and `y` copies the selected row. In a row
-opened, the keys that go back go back to its sheet. In a diff or a row
+opened, the keys that go back go back to its sheet. In Timeline, a tree's card
+folds and unfolds as a heading does, and the keys that go back from a task
+fold its tree. In a diff or a row
 opened, `j`, `k`, `gg` and `G` scroll, and in every sheet `Ctrl+d` and
-`Ctrl+u` scroll by half a page. `1` to `5` show the sheets ([keys](keys.md)).
+`Ctrl+u` scroll by half a page. `1` to `6` show the sheets ([keys](keys.md)).

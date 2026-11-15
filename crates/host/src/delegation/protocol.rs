@@ -67,6 +67,10 @@ pub enum Command {
     Naming {
         cleared: bool,
     },
+    /// Record changes to the caller's timeline.
+    TimelineTasks(TimelineTasks),
+    /// The caller's timeline as it stands.
+    Timeline,
     /// The oldest message waiting for the caller, as its agent is to read it.
     Next,
     Delivered {
@@ -133,6 +137,14 @@ pub struct Send {
 pub struct Rename {
     /// A few words saying what this session works on, in the language the user writes in.
     pub name: String,
+}
+
+/// Change the tasks of your timeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineTasks {
+    /// Applied in the order given.
+    pub ops: Vec<adroit_model::timeline::Op>,
 }
 
 /// List the sessions Adroit runs.

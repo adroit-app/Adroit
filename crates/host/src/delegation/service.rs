@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use adroit_model::timeline::{Entry, Timeline};
 use adroit_model::{Agent, ModelCatalog, SessionId, StartupReadiness};
 use adroit_term::{Daemon, tags};
 use serde_json::{Value, json};
@@ -198,6 +199,12 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         Command::Rename(asked) => rename(context, &caller, asked).await,
         Command::Close => close(context, &caller).await,
         Command::Naming { cleared } => naming(context, &caller, cleared).await,
+        Command::TimelineTasks(asked) => record_timeline(context, &caller, asked).await,
+        Command::Timeline => {
+            let code = caller.code.clone();
+            let entries = context.call(move |store| store.timeline_of(&code)).await?;
+            Ok(Value::String(Timeline::replay(&entries).text()))
+        }
         Command::Send(send) => {
             let id = context
                 .call(move |store| {
@@ -291,6 +298,58 @@ pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
         ),
         None => format!("[message] from {}:\n{}", message.sender, message.body),
     }
+}
+
+/// Make the changes the caller's agent asks of its timeline and journal
+/// them; the trees as they now stand, with each change that could not be
+/// made. A call none of whose changes could be made is refused and left out
+/// of the journal.
+async fn record_timeline(
+    context: &Context,
+    caller: &Session,
+    asked: protocol::TimelineTasks,
+) -> Result<Value> {
+    if asked.ops.is_empty() {
+        return Err(Error::new(Code::Invalid, "ops names no change to make"));
+    }
+    let code = caller.code.clone();
+    context
+        .call(move |store| {
+            let mut timeline = Timeline::replay(&store.timeline_of(&code)?);
+            let entry = Entry {
+                at_ms: super::now_ms(),
+                ops: asked.ops,
+            };
+            let refused = timeline.apply(&entry);
+            if refused.len() == entry.ops.len() {
+                return Err(Error::new(
+                    Code::Invalid,
+                    format!(
+                        "no change could be made:
+{}",
+                        refused.join(
+                            "
+"
+                        )
+                    ),
+                ));
+            }
+            store.record_timeline(&code, &entry)?;
+            let mut answer = timeline.text();
+            if !refused.is_empty() {
+                answer.push_str(
+                    "
+Not made:
+",
+                );
+                answer.push_str(&refused.join(
+                    "
+",
+                ));
+            }
+            Ok(Value::String(answer))
+        })
+        .await
 }
 
 /// Name the caller's session as its agent asks, in its tags, which the tree
@@ -1212,6 +1271,80 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(refused.code, Code::Invalid);
+    }
+
+    fn tasks(ops: Value) -> protocol::TimelineTasks {
+        serde_json::from_value(serde_json::json!({ "ops": ops })).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_timeline_call_is_journaled_and_answered_with_the_trees() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let answer = record_timeline(
+            &context,
+            &caller,
+            tasks(json!([
+                {"op": "add", "id": "goal", "title": "Review"},
+                {"op": "add", "id": "a", "parent": "goal", "title": "Read", "status": "completed"},
+                {"op": "add", "id": "b", "parent": "goal", "title": "Write"},
+            ])),
+        )
+        .await
+        .unwrap();
+
+        let text = answer.as_str().unwrap();
+        assert!(text.contains("50.00% completed"), "{text}");
+        let kept = context
+            .store
+            .lock()
+            .unwrap()
+            .timeline_of(&caller.code)
+            .unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].ops.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_timeline_call_says_which_changes_it_could_not_make() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let answer = record_timeline(
+            &context,
+            &caller,
+            tasks(json!([
+                {"op": "add", "id": "goal", "title": "Review"},
+                {"op": "update", "id": "ghost", "status": "completed"},
+            ])),
+        )
+        .await
+        .unwrap();
+
+        let text = answer.as_str().unwrap();
+        assert!(text.contains("Not made:\nghost: no such task"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_timeline_call_that_makes_no_change_is_refused_and_not_journaled() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let refused = record_timeline(
+            &context,
+            &caller,
+            tasks(json!([{"op": "remove", "id": "ghost"}])),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(refused.code, Code::Invalid);
+        assert!(refused.message.contains("ghost"), "{}", refused.message);
+        let kept = context
+            .store
+            .lock()
+            .unwrap()
+            .timeline_of(&caller.code)
+            .unwrap();
+        assert!(kept.is_empty());
     }
 
     fn note_of(answer: Value) -> Option<String> {

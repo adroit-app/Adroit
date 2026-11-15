@@ -282,6 +282,14 @@ pub async fn notes_at(root: &Path, record: SessionId) -> Vec<crate::details::Not
     .unwrap_or_default()
 }
 
+/// The journal of the session with `code`, oldest call first.
+pub async fn timeline_at(
+    root: &Path,
+    code: adroit_model::SessionCode,
+) -> Result<Vec<adroit_model::timeline::Entry>> {
+    with_store(root, move |store| store.timeline_of(&code)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -110,6 +110,8 @@ pub struct SessionRead {
     /// What it sent and received through Adroit.
     pub notes: Option<Vec<Note>>,
     pub processes: Option<Vec<Process>>,
+    /// The journal of what its agent recorded of its work, oldest first.
+    pub timeline: Option<Vec<adroit_model::timeline::Entry>>,
 }
 
 /// What a conversation says of itself, with the conversation's id, which
@@ -180,6 +182,10 @@ pub enum DetailsChange {
         session: String,
         processes: Vec<Process>,
     },
+    Timeline {
+        session: String,
+        entries: Vec<adroit_model::timeline::Entry>,
+    },
     /// The host no longer reads `session`; what it read is gone.
     SessionLeft {
         session: String,
@@ -223,6 +229,9 @@ impl DetailsWork {
             }
             DetailsChange::Processes { session, processes } => {
                 set(&mut self.session(session).processes, Some(processes))
+            }
+            DetailsChange::Timeline { session, entries } => {
+                set(&mut self.session(session).timeline, Some(entries))
             }
             DetailsChange::SessionLeft { session } => self.sessions.remove(&session).is_some(),
             DetailsChange::Repository { worktree, read } => {

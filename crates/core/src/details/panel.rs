@@ -13,12 +13,14 @@ use adroit_protocol::{
 };
 
 use super::{
-    Drill, Entry, Fact, Gauge, Group, Listing, Related, Sheet, Shot, Source, View, about, agents,
-    capped, context_gauge, file_link, gauges, newest_first, related, resources, running,
+    Drill, Entry, Fact, Gauge, Group, Listing, Progress, Related, Sheet, Shot, Source, TaskDetail,
+    TreeCard, View, about, agents, capped, context_gauge, file_link, gauges, newest_first,
+    progress, related, resources, running, task_detail, timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
+use adroit_model::timeline::{Status, Timeline};
 
 /// What the window shows that the details panel reads by.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -55,6 +57,9 @@ pub struct Details {
     pub folded: HashSet<Group>,
     /// The entries' groups shown whole, past their first few.
     pub opened: HashSet<Group>,
+    /// The timeline's trees the user folded or unfolded against how they
+    /// show at first, by the session and the tree.
+    pub trees: HashSet<(String, String)>,
     pub shown: Shown,
     /// The work and the spot the selection was last brought in line with.
     refreshed: Option<(Seq, Option<Spot>)>,
@@ -67,6 +72,7 @@ impl Default for Details {
             // What changes little stays out of the way until it is asked for.
             folded: HashSet::from([Group::About]),
             opened: HashSet::new(),
+            trees: HashSet::new(),
             shown: Shown::default(),
             refreshed: None,
         }
@@ -226,6 +232,10 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             fold(details, *group, !folded);
             Vec::new()
         }
+        Some(Entry::Tree(card)) => {
+            fold_tree(details, card, !card.folded);
+            Vec::new()
+        }
         Some(entry @ Entry::Image(_)) => opened(details, &l, entry, Opening::Preview),
         Some(entry) => opened(details, &l, entry, Opening::Existing),
         None => Vec::new(),
@@ -296,6 +306,9 @@ fn pressed_on_entries(
 ) -> Vec<Effect> {
     // A heading folds and unfolds as a workspace's row does; a row folds the
     // group it is listed under.
+    if let Some(effects) = pressed_on_timeline(details, work, l, chosen, key) {
+        return effects;
+    }
     let folds = match (chosen, key) {
         (
             Some(Entry::Heading { group, folded, .. }),
@@ -344,12 +357,88 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Ve
             details.opened.insert(*group);
             Vec::new()
         }
-        Entry::Agent(_) | Entry::Message(_) | Entry::Process(_) => {
+        Entry::Agent(_) | Entry::Message(_) | Entry::Process(_) | Entry::Task(_) => {
             details.drill.open(l);
+            Vec::new()
+        }
+        Entry::Progress(p) => {
+            show_timeline(details, p);
+            Vec::new()
+        }
+        Entry::Tree(card) => {
+            fold_tree(details, card, !card.folded);
             Vec::new()
         }
         entry => used(details, entry, Use::Open(how)),
     }
+}
+
+/// Keys on the timeline's rows: a tree's card folds and unfolds as a
+/// heading does, and the keys that fold fold the tree a task is in; none
+/// for the keys that do as they do on any row.
+fn pressed_on_timeline(
+    details: &mut Details,
+    work: Option<&WorkSnapshot>,
+    l: &Listing,
+    chosen: Option<&Entry>,
+    key: Key,
+) -> Option<Vec<Effect>> {
+    let Listing::Entries(entries) = l else {
+        return None;
+    };
+    let at = details.drill.selected(l)?;
+    let (card, shut) = match (chosen?, key) {
+        (Entry::Tree(card), Key::Open | Key::OpenIn(Opening::Existing | Opening::Preview)) => {
+            (card.clone(), !card.folded)
+        }
+        (Entry::Tree(_) | Entry::Task(_), Key::Fold) => (tree_at(entries, at)?.clone(), true),
+        _ => return None,
+    };
+    fold_tree(details, &card, shut);
+    details.drill.aim(&card.key);
+    if let Some(now) = entry_listing(details, work) {
+        details.drill.refreshed(&now);
+    }
+    Some(Vec::new())
+}
+
+/// The tree of `card` folded, when `shut`, or unfolded.
+fn fold_tree(details: &mut Details, card: &TreeCard, shut: bool) {
+    let Some(session) = details.shown.session.clone() else {
+        return;
+    };
+    let key = (session, card.id.clone());
+    if shut == (card.status == Status::Completed) {
+        details.trees.remove(&key);
+    } else {
+        details.trees.insert(key);
+    }
+}
+
+/// The timeline shown from the overview's summary `p`, with the task it
+/// names selected in its tree, unfolded.
+fn show_timeline(details: &mut Details, p: &Progress) {
+    fold_tree(details, &p.tree, false);
+    details.drill = Drill::new(Sheet::Timeline);
+    details
+        .drill
+        .aim(p.focus.as_ref().map_or(&p.tree.key, |f| &f.id));
+}
+
+/// What the agent of a session recorded, replayed from what was `read`.
+fn timeline_of(read: Option<&SessionRead>) -> Timeline {
+    Timeline::replay(read.and_then(|r| r.timeline.as_deref()).unwrap_or_default())
+}
+
+/// The trees of the session shown the user folded or unfolded.
+fn toggled(details: &Details) -> HashSet<String> {
+    let session = details.shown.session.as_deref();
+    details
+        .trees
+        .iter()
+        .filter(|(s, _)| Some(s.as_str()) == session)
+        .map(|(_, tree)| tree.clone())
+        .collect()
 }
 
 /// `group` folded, when `shut`, or unfolded. A folded group forgets it was
@@ -382,6 +471,9 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
             &a.prompt,
             format!("Copied the prompt of {}", a.description),
         ),
+        Entry::Progress(p) => copied(how, &p.tree.title, format!("Copied {}", p.tree.title)),
+        Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
+        Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
         Entry::Heading { .. } | Entry::More { .. } => Vec::new(),
     }
 }
@@ -495,14 +587,18 @@ pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<L
             let processes = read
                 .and_then(|r| r.processes.as_deref())
                 .unwrap_or_default();
-            let mut entries = running(
+            let mut entries: Vec<Entry> = progress(&timeline_of(read))
+                .map(Entry::Progress)
+                .into_iter()
+                .collect();
+            entries.extend(running(
                 &ties()?,
                 &links.agents,
                 processes,
                 folded,
                 opened,
                 d.links_shown,
-            );
+            ));
             entries.extend(about(&details.shown.about, folded));
             entries
         }
@@ -529,6 +625,7 @@ pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<L
                 d.links_shown,
             )
         }
+        Sheet::Timeline => timeline_entries(&timeline_of(read), &toggled(details)),
         Sheet::Changes | Sheet::Log => return None,
     };
     (!entries.is_empty()).then_some(Listing::Entries(entries))
@@ -646,6 +743,12 @@ pub fn opened_process(details: &Details, work: Option<&WorkSnapshot>) -> Option<
         .cloned()
 }
 
+/// The task opened.
+pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<TaskDetail> {
+    let id = details.drill.task()?;
+    task_detail(&timeline_of(session_read(details, work)), id)
+}
+
 /// What the host keeps read for the panel: the shown session's
 /// conversation and processes, the spot of the worktree shown, or the
 /// change it is on for the overview, and the account's usage.
@@ -696,7 +799,10 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
         !read
             .and_then(|r| r.processes.as_ref())
             .is_some_and(|rows| rows.iter().any(|p| p.key == key))
-    });
+    }) || details
+        .drill
+        .task()
+        .is_some_and(|id| timeline_of(read).task(id).is_none());
     if gone {
         details.drill.back();
     }
@@ -916,12 +1022,9 @@ mod tests {
             (vec![], Sheet::Overview),
             (vec![Msg::DetailsSheet(Sheet::Changes)], Sheet::Changes),
             (vec![Msg::DetailsSheetStep(1)], Sheet::Changes),
-            (vec![Msg::DetailsSheetStep(-1)], Sheet::Resources),
+            (vec![Msg::DetailsSheetStep(-1)], Sheet::Timeline),
             (
-                vec![
-                    Msg::DetailsSheet(Sheet::Resources),
-                    Msg::DetailsSheetStep(1),
-                ],
+                vec![Msg::DetailsSheet(Sheet::Timeline), Msg::DetailsSheetStep(1)],
                 Sheet::Overview,
             ),
         ];
@@ -1321,6 +1424,143 @@ mod tests {
         };
         let at = back.state().details.drill.selected(l).unwrap();
         assert!(matches!(&entries[at], Entry::Message(n) if n.id == "n1"));
+    }
+
+    fn journal(ops: serde_json::Value) -> Vec<adroit_model::timeline::Entry> {
+        vec![adroit_model::timeline::Entry {
+            at_ms: 1,
+            ops: serde_json::from_value(ops).unwrap(),
+        }]
+    }
+
+    /// A tree `goal` whose task `a` is done, `b` in progress and `c` to do.
+    fn working() -> SessionRead {
+        SessionRead {
+            links: Some(Links::default()),
+            timeline: Some(journal(serde_json::json!([
+                {"op": "add", "id": "goal", "title": "Goal"},
+                {"op": "add", "id": "a", "parent": "goal", "title": "A", "status": "completed"},
+                {"op": "add", "id": "b", "parent": "goal", "title": "B", "status": "in_progress"},
+                {"op": "add", "id": "c", "parent": "goal", "title": "C"},
+            ]))),
+            ..Default::default()
+        }
+    }
+
+    fn selected_key(run: &Scenario) -> Option<String> {
+        let Some(ref l @ Listing::Entries(ref entries)) = entries_of(run) else {
+            return None;
+        };
+        let at = run.state().details.drill.selected(l)?;
+        Some(match &entries[at] {
+            Entry::Tree(card) => format!("tree {}", card.id),
+            Entry::Task(line) => line.id.clone(),
+            Entry::Progress(_) => "progress".into(),
+            other => format!("{other:?}"),
+        })
+    }
+
+    fn timeline_rows(run: &Scenario) -> usize {
+        match entries_of(run) {
+            Some(Listing::Entries(entries)) => entries.len(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn a_task_of_the_timeline_opens_its_history_and_the_keys_that_go_back_leave_it_for_its_tree() {
+        let shown_tree = Scenario::new()
+            .event(work(read("a", working())))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)]);
+        assert_eq!(timeline_rows(&shown_tree), 4);
+        let opened = shown_tree.send_all([
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Open),
+        ]);
+        assert_eq!(opened.state().details.drill.task(), Some("b"));
+        let detail = opened_task(
+            &opened.state().details,
+            opened.state().hosts.own().work.as_ref(),
+        )
+        .unwrap();
+        assert_eq!(
+            (detail.tree.as_str(), detail.task.title.as_str()),
+            ("Goal", "B")
+        );
+        let back = opened.send(Msg::DetailsKey(Key::Fold));
+        assert_eq!(back.state().details.drill.task(), None);
+        assert_eq!(selected_key(&back).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn a_tree_folds_from_its_card_and_from_its_tasks() {
+        let shown_tree = Scenario::new()
+            .event(work(read("a", working())))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)]);
+        let folded = shown_tree.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(timeline_rows(&folded), 1);
+        let unfolded = folded.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(timeline_rows(&unfolded), 4);
+        let from_task = unfolded.send_all([Msg::DetailsKey(Key::Last), Msg::DetailsKey(Key::Fold)]);
+        assert_eq!(timeline_rows(&from_task), 1);
+        assert_eq!(selected_key(&from_task).as_deref(), Some("tree goal"));
+        let clicked = from_task.send(Msg::DetailsClick(0));
+        assert_eq!(timeline_rows(&clicked), 4);
+    }
+
+    #[test]
+    fn the_overview_sums_up_the_timeline_first_and_opens_it_at_the_task_in_progress() {
+        let overview = Scenario::new()
+            .event(work(read("a", working())))
+            .send(shown(Some("a"), None));
+        assert_eq!(selected_key(&overview).as_deref(), Some("progress"));
+        let Some(Listing::Entries(entries)) = entries_of(&overview) else {
+            panic!("the overview lists its rows");
+        };
+        let Entry::Progress(p) = &entries[0] else {
+            panic!("{:?}", entries[0]);
+        };
+        assert_eq!(p.tree.bar.percent(), "33.33%");
+        assert_eq!(p.focus.as_ref().map(|f| f.id.as_str()), Some("b"));
+        let timeline = overview.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(timeline.state().details.drill.sheet(), Sheet::Timeline);
+        assert_eq!(selected_key(&timeline).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn the_overview_says_nothing_of_a_timeline_its_agent_never_recorded() {
+        let overview = Scenario::new()
+            .event(work(read(
+                "a",
+                SessionRead {
+                    links: Some(Links::default()),
+                    ..Default::default()
+                },
+            )))
+            .send(shown(Some("a"), None));
+        let listed = entries_of(&overview);
+        let has_progress = matches!(&listed, Some(Listing::Entries(e)) if e.iter().any(|e| matches!(e, Entry::Progress(_))));
+        assert!(!has_progress);
+    }
+
+    #[test]
+    fn a_task_opened_that_is_removed_meanwhile_is_gone_back_from() {
+        let opened = Scenario::new()
+            .event(work(read("a", working())))
+            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)])
+            .send_all([Msg::DetailsKey(Key::Last), Msg::DetailsKey(Key::Open)]);
+        assert_eq!(opened.state().details.drill.task(), Some("c"));
+        let mut entries = working().timeline.unwrap();
+        entries.push(adroit_model::timeline::Entry {
+            at_ms: 2,
+            ops: serde_json::from_value(serde_json::json!([{"op": "remove", "id": "c"}])).unwrap(),
+        });
+        let gone = opened.event(patch(2).change(DetailsChange::Timeline {
+            session: "a".into(),
+            entries,
+        }));
+        assert_eq!(gone.state().details.drill.task(), None);
     }
 
     #[test]

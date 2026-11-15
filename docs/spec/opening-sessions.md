@@ -57,6 +57,19 @@ cannot act as another.
 - **`close_session`** ends the caller's own session a moment after it
   answers, as ending it from Adroit does
   ([sessions](sessions.md#when-a-task-is-done)).
+- **`timeline_tasks`** records the plan and progress of the caller's work on
+  its timeline ([details](details.md#the-timeline)), as a list of changes
+  made in order: `add` a task with its id, the task it is a step of (none for
+  a new tree), a title, and optionally a weight (1 when omitted), a status
+  (`pending`, `in_progress`, `completed` or `blocked`; `pending` when
+  omitted), a description and a note; `update` a task's status, title,
+  weight, description or note; `remove` a task with every step under it. A
+  change that cannot be made, such as one naming a task that does not exist,
+  is skipped and named in the answer, and the others are made; a call none of
+  whose changes can be made is refused and leaves the timeline as it was. It
+  returns every tree as it now stands.
+- **`timeline`** returns every tree of the caller's timeline with its tasks'
+  statuses, weights and notes, and each tree's progress.
 - **`sessions`** lists the sessions Adroit runs, each with its id, code, name,
   workspace, the directory it runs in, how it stands and which session opened
   it. It can be narrowed to one repository or directory.
