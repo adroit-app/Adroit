@@ -105,6 +105,112 @@ pub(super) fn TabsBar(
         .map(|(place, at)| (place, at, rows[at].clone()))
         .collect();
     let hosts = app.hosts.read();
+    // Every tab is made here, outside `rsx!`, where the preview's and an
+    // ordinary one are alike the closure's value: within `rsx!` a block's
+    // value is wrapped in a node without the tab's key, and the bar's
+    // tabs must all be keyed or none.
+    let tabs: Vec<Element> = laid
+        .into_iter()
+        .map(|(place, at, (tab, name, code, state, mark, count, preview, focused))| {
+            let is_active = at == shown_at;
+            let shell = match &tab {
+                Tab::Terminal(environment, id) => Some(runs_of(
+                    tree_view::terminals(hosts.work(environment)),
+                    *id,
+                )),
+                _ => None,
+            };
+            let class = [
+                Some("tab"),
+                is_active.then_some("active"),
+                shell.is_some().then_some("shell"),
+                preview.then_some("preview"),
+                (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
+                (ghost == Some(at)).then_some("ghost"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
+            let glyph_class = state.as_ref().map(glyph);
+            let target = Target::Tab(tab.clone());
+            let closing = Target::Tab(tab.clone());
+            let has_draft = drafted.read().contains(&tab);
+            let number = place + 1;
+            let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
+            // The preview is no tab of its own yet: unnumbered, after
+            // a rule, and named as what it only shows.
+            if preview {
+                return rsx! {
+                    span {
+                        key: "{at}",
+                        class: "{class}",
+                        title: "Preview: what is looked at next takes its place; open it to keep it",
+                        onclick: move |_| app.dispatch(Msg::TabShow(at)),
+                        onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
+                        onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
+                        oncontextmenu: menu_opener(app, target),
+                        IconView { icon: Icon::Eye, size: 13 }
+                        span { class: "tab-preview-label", "Preview" }
+                        if let Some((g, icon, tip)) = glyph_class {
+                            StateGlyph { class: g, icon, size: 13, title: tip }
+                        }
+                        if let Some(runs) = shell { TerminalMark { runs } }
+                        span { class: "tab-preview-name", "{name}" }
+                        span {
+                            class: "tab-close",
+                            title: "Close the preview; what it shows runs on",
+                            onclick: move |e: Event<MouseData>| {
+                                e.stop_propagation();
+                                app.dispatch(Msg::TabShow(at));
+                                onclose.call(closing.clone());
+                            },
+                            IconView { icon: Icon::X, size: 12 }
+                        }
+                    }
+                };
+            }
+            rsx! {
+                span {
+                    key: "{at}",
+                    class: "{class}",
+                    onclick: move |_| app.dispatch(Msg::TabShow(at)),
+                    onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
+                    onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
+                    oncontextmenu: menu_opener(app, target),
+                    span { class: "tab-number", "{number}" }
+                    if let Some((g, icon, tip)) = glyph_class {
+                        StateGlyph { class: g, icon, size: 13, title: tip }
+                    }
+                    if let Some(runs) = shell { TerminalMark { runs } }
+                    if matches!(tab, Tab::Draft { .. }) { PlaceMark { icon: Icon::MessagePlus, size: 13 } }
+                    if let (Tab::Session(environment, id), true) = (&tab, is_active) {
+                        SessionName {
+                            environment: environment.clone(), id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
+                        }
+                    } else { "{name}" }
+                    if let Some(code) = code {
+                        span { class: "tab-code", title: "The code it keeps", "{code}" }
+                    }
+                    SessionMark { mark }
+                    span { class: "tab-count", title: "{windows}", "{count}" }
+                    if has_draft {
+                        DraftMark {}
+                    }
+                    span {
+                        class: "tab-close",
+                        title: "Close the tab; what its windows show runs on",
+                        onclick: move |e: Event<MouseData>| {
+                            e.stop_propagation();
+                            app.dispatch(Msg::TabShow(at));
+                            onclose.call(closing.clone());
+                        },
+                        IconView { icon: Icon::X, size: 12 }
+                    }
+                }
+            }
+        })
+        .collect();
     rsx! {
         div { class: "tabs",
             // The worktree by name only: the header above holds its whole
@@ -114,106 +220,8 @@ pub(super) fn TabsBar(
                     "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
                 }
             }
-            for (place , at , (tab , name , code , state , mark , count , preview , focused)) in laid {
-                {
-                    let is_active = at == shown_at;
-                    let shell = match &tab {
-                        Tab::Terminal(environment, id) => Some(runs_of(
-                            tree_view::terminals(hosts.work(environment)),
-                            *id,
-                        )),
-                        _ => None,
-                    };
-                    let class = [
-                        Some("tab"),
-                        is_active.then_some("active"),
-                        shell.is_some().then_some("shell"),
-                        preview.then_some("preview"),
-                        (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
-                        (ghost == Some(at)).then_some("ghost"),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                    let glyph_class = state.as_ref().map(glyph);
-                    let target = Target::Tab(tab.clone());
-                    let closing = Target::Tab(tab.clone());
-                    let has_draft = drafted.read().contains(&tab);
-                    let number = place + 1;
-                    let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
-                    // The preview is no tab of its own yet: unnumbered, after
-                    // a rule, and named as what it only shows.
-                    if preview {
-                        return rsx! {
-                            span {
-                                key: "{at}",
-                                class: "{class}",
-                                title: "Preview: what is looked at next takes its place; open it to keep it",
-                                onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                                onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
-                                onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
-                                oncontextmenu: menu_opener(app, target),
-                                IconView { icon: Icon::Eye, size: 13 }
-                                span { class: "tab-preview-label", "Preview" }
-                                if let Some((g, icon, tip)) = glyph_class {
-                                    StateGlyph { class: g, icon, size: 13, title: tip }
-                                }
-                                if let Some(runs) = shell { TerminalMark { runs } }
-                                span { class: "tab-preview-name", "{name}" }
-                                span {
-                                    class: "tab-close",
-                                    title: "Close the preview; what it shows runs on",
-                                    onclick: move |e: Event<MouseData>| {
-                                        e.stop_propagation();
-                                        app.dispatch(Msg::TabShow(at));
-                                        onclose.call(closing.clone());
-                                    },
-                                    IconView { icon: Icon::X, size: 12 }
-                                }
-                            }
-                        };
-                    }
-                    rsx! {
-                        span {
-                            key: "{at}",
-                            class: "{class}",
-                            onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                            onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
-                            onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
-                            oncontextmenu: menu_opener(app, target),
-                            span { class: "tab-number", "{number}" }
-                            if let Some((g, icon, tip)) = glyph_class {
-                                StateGlyph { class: g, icon, size: 13, title: tip }
-                            }
-                            if let Some(runs) = shell { TerminalMark { runs } }
-                            if matches!(tab, Tab::Draft { .. }) { PlaceMark { icon: Icon::MessagePlus, size: 13 } }
-                            if let (Tab::Session(environment, id), true) = (&tab, is_active) {
-                                SessionName {
-                                    environment: environment.clone(), id: id.clone(), name: name.clone(), place: RenamePlace::Tab,
-                                }
-                            } else { "{name}" }
-                            if let Some(code) = code {
-                                span { class: "tab-code", title: "The code it keeps", "{code}" }
-                            }
-                            SessionMark { mark }
-                            span { class: "tab-count", title: "{windows}", "{count}" }
-                            if has_draft {
-                                DraftMark {}
-                            }
-                            span {
-                                class: "tab-close",
-                                title: "Close the tab; what its windows show runs on",
-                                onclick: move |e: Event<MouseData>| {
-                                    e.stop_propagation();
-                                    app.dispatch(Msg::TabShow(at));
-                                    onclose.call(closing.clone());
-                                },
-                                IconView { icon: Icon::X, size: 12 }
-                            }
-                        }
-                    }
-                }
+            for tab in tabs {
+                {tab}
             }
         }
     }
