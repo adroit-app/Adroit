@@ -287,6 +287,8 @@ type Refusal = std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>
 
 /// A terminal agent owns its arguments, environment and optional integrations.
 pub trait AgentAdapter: Sync {
+    /// The agent this adapter starts, asks and reads.
+    fn agent(&self) -> Agent;
     fn conversation_title_needs_lookup(&self, _title: &str) -> bool {
         false
     }
@@ -506,8 +508,9 @@ pub trait AgentAdapter: Sync {
     fn history(&self, _context: &AgentContext, _home: &Path, _project: &Path) -> Vec<String> {
         Vec::new()
     }
-    fn dialog_open(&self, _screen: &[String]) -> bool {
-        false
+    /// Whether a dialog holds the keys on `screen`, by its agent's rules.
+    fn dialog_open(&self, screen: &[String]) -> bool {
+        rules::dialog_open(self.agent(), screen)
     }
     /// Whether a session just started is ready for its first prompt, as its
     /// screen shows, and by which rule; by default as [`readiness`] tells
@@ -515,9 +518,10 @@ pub trait AgentAdapter: Sync {
     fn judge_startup(&self, screen: &[String]) -> Judgement<adroit_model::StartupReadiness> {
         self.judge_state(screen).then(readiness)
     }
-    /// How a session stands by its screen, and by which rule.
+    /// How a session stands by its screen, and by which rule, by its agent's
+    /// rules.
     fn judge_state(&self, screen: &[String]) -> Judgement<adroit_model::State> {
-        Judgement::new(None, Verdict::defaulted("unread", screen, []))
+        rules::judge_state(self.agent(), screen)
     }
     fn startup_readiness(&self, screen: &[String]) -> Option<adroit_model::StartupReadiness> {
         self.judge_startup(screen).value
@@ -567,7 +571,15 @@ mod tests {
     use adroit_model::Agent;
 
     #[test]
+    fn each_agent_s_adapter_names_its_agent() {
+        for agent in [Agent::Claude, Agent::Codex, Agent::Pi, Agent::OpenCode] {
+            assert_eq!(adapter(agent).agent(), agent);
+        }
+    }
+
+    #[test]
     fn a_variable_is_the_launch_s_before_adroit_s_own() {
+
         let mut context = AgentContext::builtin(Agent::Codex);
         assert_eq!(
             context.variable("HOME"),

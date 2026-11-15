@@ -61,6 +61,10 @@ fn provider(model: &str) -> Option<&str> {
 }
 
 impl AgentAdapter for Pi {
+    fn agent(&self) -> Agent {
+        Agent::Pi
+    }
+
     fn instruction_args(&self, instructions: &str) -> Vec<String> {
         vec!["--append-system-prompt".into(), instructions.into()]
     }
@@ -234,16 +238,8 @@ impl AgentAdapter for Pi {
         sessions::history(&sessions::root(context, home), project)
     }
 
-    fn dialog_open(&self, screen: &[String]) -> bool {
-        screen::dialog_open(screen)
-    }
-
     fn judge_startup(&self, screen: &[String]) -> crate::Judgement<adroit_model::StartupReadiness> {
         screen::judge_startup(screen)
-    }
-
-    fn judge_state(&self, screen: &[String]) -> crate::Judgement<adroit_model::State> {
-        screen::judge_state(screen)
     }
 
     fn rename_command(&self, name: &str) -> Option<String> {

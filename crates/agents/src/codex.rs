@@ -6,7 +6,6 @@ mod metrics;
 mod models;
 mod past;
 mod rpc;
-mod screen;
 mod transcript;
 mod usage;
 
@@ -18,6 +17,10 @@ fn app_server(context: &AgentContext) -> crate::Started {
 }
 
 impl AgentAdapter for Codex {
+    fn agent(&self) -> Agent {
+        Agent::Codex
+    }
+
     fn conversation_title_needs_lookup(&self, title: &str) -> bool {
         identity::prefix(title).is_some()
     }
@@ -186,12 +189,6 @@ impl AgentAdapter for Codex {
         Box::pin(async move {
             usage::probe(app_server(&context), &home, crate::usage::PROBE_TIMEOUT).await
         })
-    }
-    fn dialog_open(&self, screen: &[String]) -> bool {
-        screen::dialog_open(screen)
-    }
-    fn judge_state(&self, screen: &[String]) -> crate::Judgement<adroit_model::State> {
-        screen::judge_state(screen)
     }
     fn past(
         &self,

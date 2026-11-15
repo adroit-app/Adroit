@@ -3,24 +3,19 @@
 //! it asks for in the prompt's place, as the rules in force for OpenCode
 //! read them.
 
-use adroit_model::{Agent, State};
-
-use crate::Judgement;
-
-pub(super) fn dialog_open(screen: &[String]) -> bool {
-    crate::rules::dialog_open(Agent::OpenCode, screen)
-}
-
-pub(super) fn judge_state(screen: &[String]) -> Judgement<State> {
-    crate::rules::judge_state(Agent::OpenCode, screen)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::AgentAdapter;
     use crate::testing::{recorded, screen};
-    use adroit_model::Wait;
+    use crate::{AgentAdapter, Judgement};
+    use adroit_model::{State, Wait};
+
+    fn dialog_open(screen: &[String]) -> bool {
+        super::super::OpenCode.dialog_open(screen)
+    }
+
+    fn judge_state(screen: &[String]) -> Judgement<State> {
+        super::super::OpenCode.judge_state(screen)
+    }
 
     fn state_of(screen: &[String]) -> Option<State> {
         judge_state(screen).value

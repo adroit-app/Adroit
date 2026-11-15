@@ -4,6 +4,10 @@ use adroit_model::config::SessionOptions;
 pub struct Claude;
 
 impl AgentAdapter for Claude {
+    fn agent(&self) -> Agent {
+        Agent::Claude
+    }
+
     fn judge_startup(&self, screen: &[String]) -> Judgement<adroit_model::StartupReadiness> {
         crate::rules::judge_startup(Agent::Claude, screen)
     }
@@ -189,12 +193,6 @@ impl AgentAdapter for Claude {
     }
     fn history(&self, context: &AgentContext, home: &Path, project: &Path) -> Vec<String> {
         super::history::read(context, home, project)
-    }
-    fn dialog_open(&self, screen: &[String]) -> bool {
-        super::dialog::dialog_open(screen)
-    }
-    fn judge_state(&self, screen: &[String]) -> Judgement<adroit_model::State> {
-        super::dialog::judge_state(screen)
     }
     fn rename_command(&self, name: &str) -> Option<String> {
         Some(format!("/rename {name}"))

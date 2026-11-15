@@ -9,6 +9,7 @@ use super::*;
 
 mod cli;
 mod plugin;
+#[cfg(test)]
 mod screen;
 mod sessions;
 mod transcript;
@@ -180,6 +181,10 @@ const ROOTS: [(&str, &str); 5] = [
 const ROOT_NAMES: [&str; 5] = [ROOTS[0].0, ROOTS[1].0, ROOTS[2].0, ROOTS[3].0, ROOTS[4].0];
 
 impl AgentAdapter for OpenCode {
+    fn agent(&self) -> Agent {
+        Agent::OpenCode
+    }
+
     fn instruction_args(&self, instructions: &str) -> Vec<String> {
         match plugin::instructions(&plugin::instance_dir(), instructions) {
             Ok(path) => config_args(json!({ "instructions": [path] })),
@@ -379,14 +384,6 @@ impl AgentAdapter for OpenCode {
             })),
             Err(_) => Vec::new(),
         }
-    }
-
-    fn dialog_open(&self, screen: &[String]) -> bool {
-        screen::dialog_open(screen)
-    }
-
-    fn judge_state(&self, screen: &[String]) -> crate::Judgement<adroit_model::State> {
-        screen::judge_state(screen)
     }
 }
 

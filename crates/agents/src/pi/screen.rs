@@ -3,27 +3,28 @@
 //! status, and the editor, pickers and working rule of the interface, as
 //! the rules in force for Pi read them.
 
-use adroit_model::{Agent, StartupReadiness, State};
+use adroit_model::{Agent, StartupReadiness};
 
 use crate::Judgement;
-
-pub(super) fn dialog_open(screen: &[String]) -> bool {
-    crate::rules::dialog_open(Agent::Pi, screen)
-}
 
 pub(super) fn judge_startup(screen: &[String]) -> Judgement<StartupReadiness> {
     crate::rules::judge_startup(Agent::Pi, screen)
 }
 
-pub(super) fn judge_state(screen: &[String]) -> Judgement<State> {
-    crate::rules::judge_state(Agent::Pi, screen)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AgentAdapter;
     use crate::testing::{recorded, screen};
-    use adroit_model::Wait;
+    use adroit_model::{State, Wait};
+
+    fn dialog_open(screen: &[String]) -> bool {
+        super::super::Pi.dialog_open(screen)
+    }
+
+    fn judge_state(screen: &[String]) -> Judgement<State> {
+        super::super::Pi.judge_state(screen)
+    }
 
     fn startup_readiness(screen: &[String]) -> Option<StartupReadiness> {
         judge_startup(screen).value
