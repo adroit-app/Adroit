@@ -54,6 +54,9 @@ cannot act as another.
   ([renaming](sessions.md#renaming-a-session)), and returns the name it
   took, numbered when another session has it. It is refused for a name you
   gave and while renaming is switched off, telling the agent to keep the name.
+- **`close_session`** ends the caller's own session a moment after it
+  answers, as ending it from Adroit does
+  ([sessions](sessions.md#when-a-task-is-done)).
 - **`sessions`** lists the sessions Adroit runs, each with its id, code, name,
   workspace, the directory it runs in, how it stands and which session opened
   it. It can be narrowed to one repository or directory.

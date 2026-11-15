@@ -196,6 +196,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
         Command::Rename(asked) => rename(context, &caller, asked).await,
+        Command::Close => close(context, &caller).await,
         Command::Naming { cleared } => naming(context, &caller, cleared).await,
         Command::Send(send) => {
             let id = context
@@ -339,6 +340,33 @@ async fn rename(context: &Context, caller: &Session, asked: protocol::Rename) ->
         .call(move |store| store.rename(id, &kept, false))
         .await?;
     Ok(json!({"name": name}))
+}
+
+/// How long a session closing itself runs on once it is answered, for its
+/// agent to take the answer in.
+const CLOSING: Duration = Duration::from_secs(1);
+
+/// End the caller's session as the user ends one, a moment after it is
+/// answered: ending it at once would cut its agent off before the answer
+/// reached it, and the agent would show the call as failed.
+async fn close(context: &Context, caller: &Session) -> Result<Value> {
+    let terminal = caller
+        .terminal
+        .ok_or_else(|| Error::new(Code::Refused, "the session has no terminal yet"))?;
+    let (context, id) = (context.clone(), caller.id);
+    crate::environment::spawn(async move {
+        tokio::time::sleep(CLOSING).await;
+        if let Err(error) = context.daemon.end(terminal).await {
+            eprintln!("adroit: cannot end the session {id}, which closed itself: {error}");
+            return;
+        }
+        if let Err(error) = context.call(move |store| store.end(id)).await {
+            eprintln!(
+                "adroit: cannot record the session {id}, which closed itself, as ended: {error}"
+            );
+        }
+    });
+    Ok(json!({"closing": true}))
 }
 
 /// What the caller's agent is told of its session's name: once its
@@ -1053,6 +1081,96 @@ mod tests {
             .unwrap();
         assert!(known.is_some());
         assert_eq!(record.conversation, known);
+    }
+
+    /// A terminal host serving in `dir`, and a terminal running there.
+    async fn serving(dir: &Path) -> (Daemon, u128) {
+        let socket = dir.join("daemon.sock");
+        let serving = socket.clone();
+        crate::environment::spawn(async move {
+            Daemon::serve(&serving, Duration::from_millis(20), |_| {})
+                .await
+                .unwrap()
+        });
+        let daemon = Daemon::new(socket);
+        for _ in 0..100 {
+            if daemon.sessions().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let terminal = daemon
+            .spawn(adroit_term::Spawn {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "read answer".into()],
+                cwd: dir.into(),
+                env: Vec::new(),
+                tags: Vec::new(),
+                cols: 80,
+                rows: 24,
+            })
+            .await
+            .unwrap();
+        (daemon, terminal)
+    }
+
+    #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs its terminal's program with /bin/sh")]
+    async fn a_session_closing_itself_is_answered_before_it_ends_and_is_recorded_ended() {
+        let dir = tempfile::Builder::new()
+            .prefix("adroit-")
+            .tempdir_in(adroit_sys::local::temp_dir())
+            .unwrap();
+        adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
+        let (_state, mut context, caller, _) = conversation_watch("review");
+        let (daemon, terminal) = serving(dir.path()).await;
+        context.daemon = daemon.clone();
+        context
+            .store
+            .lock()
+            .unwrap()
+            .attach(caller.id, terminal, None)
+            .unwrap();
+        let caller = context.store.lock().unwrap().known(caller.id).unwrap();
+
+        close(&context, &caller).await.unwrap();
+
+        let runs = |sessions: &[adroit_term::Session]| {
+            sessions.iter().any(|s| s.id == terminal && !s.exited)
+        };
+        assert!(runs(&daemon.sessions().await.unwrap()));
+        let mut ended = false;
+        for _ in 0..200 {
+            let gone = !runs(&daemon.sessions().await.unwrap());
+            if gone
+                && context
+                    .store
+                    .lock()
+                    .unwrap()
+                    .known(caller.id)
+                    .unwrap()
+                    .ended
+            {
+                ended = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(ended, "the session still runs or is not recorded ended");
+    }
+
+    #[tokio::test]
+    async fn a_session_with_no_terminal_yet_cannot_close_itself() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let refused = close(&context, &caller).await.unwrap_err();
+
+        assert_eq!(refused.code, Code::Refused);
+    }
+
+    #[test]
+    fn a_codex_subagent_cannot_close_its_session() {
+        assert!(Command::Close.acts());
     }
 
     fn renaming(name: &str) -> protocol::Rename {

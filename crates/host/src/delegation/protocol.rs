@@ -60,6 +60,8 @@ pub enum Command {
     Models,
     /// Name the caller's own session anew.
     Rename(Rename),
+    /// End the caller's own session, once its user agreed.
+    Close,
     /// What the caller's agent is to weigh of its session's name as a prompt
     /// arrives, or once its conversation was cleared.
     Naming {
@@ -77,7 +79,7 @@ impl Command {
     pub fn acts(&self) -> bool {
         matches!(
             self,
-            Self::StartSession(_) | Self::Send(_) | Self::Rename(_)
+            Self::StartSession(_) | Self::Send(_) | Self::Rename(_) | Self::Close
         )
     }
 }

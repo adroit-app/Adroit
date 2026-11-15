@@ -249,6 +249,16 @@ build. On a work machine its gateway keeps the hosts running
 A session ends when its program exits or when it is ended from Adroit. Its
 console then says so, and it is listed no more.
 
+### When a task is done
+
+A session does not sit waiting once its task is done or it has handed what is
+left to another session. Its agent shows a summary of where things stand, then
+asks you whether to close the session, the way that agent asks you anything.
+When you agree, the session ends itself as ending it from Adroit would: its
+worktree stays, and its conversation can be resumed
+([resuming](#resuming-a-past-conversation)). Otherwise it goes on, to tell you
+what it did, do the work again, or take more.
+
 ## When the terminal host goes
 
 When the terminal host goes, restarted, crashed or with the machine, the

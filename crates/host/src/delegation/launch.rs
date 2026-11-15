@@ -199,6 +199,10 @@ When asked to work in parallel, give each such line a session and the rest to su
 Never open one for a step of your own answer, for something you would wait on, or only to have it run alongside. \
 It answers to the user, not to you: give it a first prompt that carries all it needs, and tell the user you opened it and why. \
 \n\n\
+When the task you were given is done, or you have handed what is left of it to another session, do not just stop and wait: give the user a summary of where things stand — what was done, what is left and where it went — then ask the user whether to close this session, with your own tool for asking the user a question if you have one, otherwise in plain words at the end of your answer. \
+Call `close_session` only once the user agrees, and as the last thing you do. \
+When the user instead asks what was done, wants the work done again or gives you more, carry on in this session.\
+\n\n\
 Other sessions may work in the same repository. Before touching something you share with them — the checkout itself, a branch, a port, a database — call `sessions` to find those in the same repository and `send` each of them what you are about to do; afterwards send what you did. Do not wait for their answers and do not take locks. \
 When another session knows what you need, ask the session that knows rather than working it out again, and carry on meanwhile: plan nothing on its answer coming. \
 A message tells what the recipient should know or asks what it knows; never hand it work. Send only what the recipient has to act on or answer: no progress notes and no replies that only acknowledge. \
@@ -222,6 +226,19 @@ mod tests {
         );
         assert!(told.contains("sudo"), "{told}");
         assert!(told.contains("`exit`"), "{told}");
+    }
+
+    #[test]
+    fn every_session_is_told_to_sum_up_and_ask_before_closing_once_its_task_is_done_or_handed_off()
+    {
+        for scratch in [false, true] {
+            let told = instructions(Path::new("/bin/adroit"), scratch);
+            assert!(told.contains("handed"), "{told}");
+            assert!(told.contains("summary"), "{told}");
+            assert!(told.contains("ask the user whether to close"), "{told}");
+            assert!(told.contains("`close_session`"), "{told}");
+            assert!(told.contains("only once the user agrees"), "{told}");
+        }
     }
 
     #[test]

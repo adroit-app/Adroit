@@ -84,6 +84,11 @@ fn tools() -> Vec<Value> {
             schemars::schema_for!(Rename),
         ),
         json!({
+            "name": "close_session",
+            "description": "End your own session, as the user can from Adroit; its conversation stays and can be resumed. Call it only once the user has agreed to close it, after you showed them a summary of where things stand, and as the last thing you do: the session ends a moment after this answers.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+        }),
+        json!({
             "name": "models",
             "description": "List the profiles a session can start from, each with its agent, the folder of its own its login is kept in, if any, and the models it accepts, and which profile a session starts from by default.",
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
@@ -107,6 +112,7 @@ fn command(name: &str, arguments: Value) -> std::result::Result<Command, String>
         "sessions" => Command::Sessions(serde_json::from_value(arguments).map_err(parsed)?),
         "models" => Command::Models,
         "rename_session" => Command::Rename(serde_json::from_value(arguments).map_err(parsed)?),
+        "close_session" => Command::Close,
         _ => return Err(format!("unknown tool {name}")),
     })
 }
@@ -514,9 +520,27 @@ mod tests {
                 "send",
                 "sessions",
                 "rename_session",
+                "close_session",
                 "models"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn closing_asks_the_daemon_to_close_the_caller_s_own_session() {
+        let daemon = Fake::new();
+        let out = exchange(
+            daemon.clone(),
+            false,
+            &[
+                rpc(1, "initialize", json!({})),
+                rpc(2, "tools/call", json!({"name": "close_session"})),
+            ],
+            Duration::from_millis(100),
+        )
+        .await;
+        assert_eq!(out[1]["result"]["isError"], false);
+        assert_eq!(*daemon.asked.lock().unwrap(), ["context", "close"]);
     }
 
     #[tokio::test]
