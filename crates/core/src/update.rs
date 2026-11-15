@@ -98,6 +98,7 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             take_keys,
         } => content::open_row(state, item, how, take_keys),
         Msg::EditFile(environment, path) => content::edit_file(state, environment, path),
+        Msg::OpenFile(environment, path) => content::open_file(state, environment, path),
         Msg::RowClicked(item) => content::open_row(state, item, Some(Opening::Existing), true),
         Msg::Window(action) => content::act(state, action),
         Msg::WindowFocus(id) => content::focus_window(state, id),

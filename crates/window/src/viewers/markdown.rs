@@ -2,9 +2,11 @@
 //! viewer's frame by Arto's frontend.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
+use adroit_core::settings::ThemeKind;
 use arto_frontend::{Highlighting, Libraries};
 use arto_markdown::{ImageResolution, RenderOptions};
 use dioxus::desktop::use_asset_handler;
@@ -133,21 +135,76 @@ pub fn library_names(libraries: Libraries) -> Vec<&'static str> {
     .collect()
 }
 
+/// The theme of Arto's that a theme of `kind` is drawn beside.
+pub fn arto_theme(kind: ThemeKind) -> &'static str {
+    match kind {
+        ThemeKind::Light => "light",
+        ThemeKind::Dark => "dark",
+    }
+}
+
 /// The document the viewer's frame is given: `fragment` in Arto's viewer,
-/// after Arto's stylesheet, its runtime and the bundles `libraries` names.
-pub fn markdown_document(fragment: &str, libraries: Libraries) -> String {
+/// painted in `theme`, after Arto's stylesheet, its runtime and the bundles
+/// `libraries` names.
+pub fn markdown_document(fragment: &str, libraries: Libraries, theme: &str) -> String {
     let scripts: String = std::iter::once("embed.js")
         .chain(library_names(libraries))
         .map(|name| format!("<script src=\"{}\"></script>", arto_url(name)))
         .collect();
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\">\
+        "<!doctype html><html data-adroit-theme=\"{theme}\"><head><meta charset=\"utf-8\">\
          <link rel=\"stylesheet\" href=\"{css}\">{page}{scripts}<script>{own}</script></head>\
          <body><div class=\"markdown-viewer\"><article class=\"markdown-body\">{fragment}</article></div></body></html>",
         css = arto_url("embed.css"),
         page = serve::PAGE_SCRIPT,
         own = DOCUMENT_SCRIPT,
     )
+}
+
+/// The message that puts `rendered` in place of what the frame shows, with
+/// the bundles it needs that the frame may not have loaded yet.
+pub fn update_message(rendered: &Rendered) -> String {
+    let scripts: Vec<String> = library_names(rendered.libraries)
+        .into_iter()
+        .map(arto_url)
+        .collect();
+    serde_json::json!({ "markdown": rendered.html, "scripts": scripts }).to_string()
+}
+
+/// The message that paints the frame's document in `theme`.
+pub fn theme_message(theme: &str) -> String {
+    serde_json::json!({ "theme": theme }).to_string()
+}
+
+/// What tells one state of the file at `path` from the next: its length and
+/// when it was last written; none while it cannot be read.
+pub fn stamp(path: impl AsRef<Path>) -> Option<(u64, SystemTime)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
+/// The file a link the document at `document` writes as `written` leads to:
+/// relative to the document's folder, without the place within it. None for
+/// a link to the document's own places, or to an address.
+pub fn link_target(document: impl AsRef<Path>, written: impl AsRef<str>) -> Option<PathBuf> {
+    let written = written.as_ref();
+    let file = written.split(['#', '?']).next().unwrap_or_default();
+    if file.is_empty() || file.contains("://") {
+        return None;
+    }
+    let file = serve::decode(file).unwrap_or_else(|| file.to_string());
+    let folder = document.as_ref().parent()?;
+    let mut out = PathBuf::new();
+    for part in folder.join(file).components() {
+        match part {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            part => out.push(part),
+        }
+    }
+    Some(out)
 }
 
 /// Arto's file `rel`, as served under [`ARTO_PREFIX`], with its media type.
@@ -246,7 +303,7 @@ mod tests {
 
     #[test]
     fn the_document_places_the_fragment_in_arto_s_viewer() {
-        let doc = markdown_document("<p>hi</p>", none());
+        let doc = markdown_document("<p>hi</p>", none(), "light");
         assert!(doc.contains(
             "<div class=\"markdown-viewer\"><article class=\"markdown-body\"><p>hi</p></article></div>"
         ));
@@ -255,12 +312,12 @@ mod tests {
 
     #[test]
     fn the_runtime_loads_before_the_bundles_the_fragment_needs_and_no_others() {
-        let doc = markdown_document("<p>hi</p>", every());
+        let doc = markdown_document("<p>hi</p>", every(), "light");
         let at = |name: &str| doc.find(&format!("{ARTO_PREFIX}/{name}")).unwrap();
         assert!(at("embed.js") < at("mermaid.js"));
         assert!(at("mermaid.js") < at("math.js"));
         assert!(at("math.js") < at("hljs-all.js"));
-        let prose = markdown_document("<p>hi</p>", none());
+        let prose = markdown_document("<p>hi</p>", none(), "light");
         for name in ["mermaid.js", "math.js", "hljs-common.js", "hljs-all.js"] {
             assert!(!prose.contains(name), "{name}");
         }
@@ -351,5 +408,63 @@ mod tests {
             image_response(images.get(image_id("other.png"))).status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[test]
+    fn the_document_is_painted_in_the_theme_of_the_kind_in_force() {
+        assert_eq!(arto_theme(ThemeKind::Light), "light");
+        assert_eq!(arto_theme(ThemeKind::Dark), "dark");
+        let doc = markdown_document("<p>hi</p>", none(), "dark");
+        assert!(doc.contains("data-adroit-theme=\"dark\""));
+        let message: serde_json::Value = serde_json::from_str(&theme_message("dark")).unwrap();
+        assert_eq!(message["theme"], "dark");
+    }
+
+    #[test]
+    fn a_document_rendered_again_reaches_the_frame_with_the_bundles_it_needs() {
+        let rendered = Rendered {
+            html: "<p>\"new\"</p>".into(),
+            libraries: Libraries {
+                mermaid: true,
+                ..none()
+            },
+            images: BTreeMap::new(),
+        };
+        let message: serde_json::Value = serde_json::from_str(&update_message(&rendered)).unwrap();
+        assert_eq!(message["markdown"], "<p>\"new\"</p>");
+        assert_eq!(
+            message["scripts"],
+            serde_json::json!([format!("{ORIGIN}{ARTO_PREFIX}/mermaid.js")])
+        );
+    }
+
+    #[test]
+    fn a_file_written_again_is_told_apart_and_one_gone_has_no_stamp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "a").unwrap();
+        let before = stamp(&path);
+        std::fs::write(&path, "ab").unwrap();
+        assert_ne!(stamp(&path), before);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(stamp(&path), None);
+    }
+
+    #[test]
+    fn a_link_leads_to_a_file_beside_the_document_without_the_place_in_it() {
+        let doc = "/w/docs/guide/a.md";
+        for (written, file) in [
+            ("b.md", "/w/docs/guide/b.md"),
+            ("./b.md#setup", "/w/docs/guide/b.md"),
+            ("../api/c.md", "/w/docs/api/c.md"),
+            ("../../README.md?plain=1", "/w/README.md"),
+            ("my%20notes.md", "/w/docs/guide/my notes.md"),
+            ("/etc/hosts", "/etc/hosts"),
+        ] {
+            assert_eq!(link_target(doc, written), Some(file.into()), "{written}");
+        }
+        for written in ["#setup", "", "https://example.com/a.md"] {
+            assert_eq!(link_target(doc, written), None, "{written}");
+        }
     }
 }

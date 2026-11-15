@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use adroit_core::completion::Completions;
 use adroit_core::msg::Msg;
+use adroit_core::settings::ThemeKind;
 use adroit_core::tree as tree_view;
 use dioxus::prelude::*;
 
@@ -39,6 +40,16 @@ pub(crate) fn ContentPanel(
     ontabclose: EventHandler<Target>,
 ) -> Element {
     let app = use_context::<AppCtx>();
+    // A document is painted light or dark as the theme in force is.
+    let theme = use_memo(move || {
+        let config = app.config.read();
+        let system = config
+            .files()
+            .configured
+            .as_ref()
+            .map_or(ThemeKind::Light, |c| c.system);
+        viewers::arto_theme(config.settings.kind_in(system))
+    });
     // How large the content's windows are drawn, which a border's drag is
     // measured against.
     let mut drawn = use_signal(|| (0.0f64, 0.0f64));
@@ -88,7 +99,8 @@ pub(crate) fn ContentPanel(
                 let strip = window_strip(t, terms, &completions.read(), settings, &shows);
                 // A viewer is drawn the same focused or not, so it keeps its
                 // zoom, page and playback as the focus moves.
-                let body = if let Tab::Viewer(_, path) = &shows {
+                let body = if let Tab::Viewer(environment, path) = &shows {
+                    let environment = environment.clone();
                     // A document shows images from the worktree it is in,
                     // or else from its own folder.
                     let root = tree_view::place_of_tab(t, terms, &shows)
@@ -101,8 +113,12 @@ pub(crate) fn ContentPanel(
                             window: id,
                             path: path.clone(),
                             root,
+                            theme,
                             commands: viewer_command,
                             on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
+                            on_link: move |file| {
+                                app.dispatch(Msg::OpenFile(environment.clone(), file))
+                            },
                         }
                     }
                 } else if let Tab::Drawn {

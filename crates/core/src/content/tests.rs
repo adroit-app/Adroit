@@ -1068,6 +1068,33 @@ fn a_viewer_of_a_work_machine_s_file_is_refused_and_one_of_this_computer_s_opens
 }
 
 #[test]
+fn a_file_a_document_links_to_opens_by_its_kind_in_the_worktree_it_is_in() {
+    let run = || listed_with([session("a").cwd("/r/a")]).send(show(session_tab("a")));
+    let picture = run().send(Msg::OpenFile(here(), "/r/a/docs/shot.png".into()));
+    assert_eq!(
+        active(&picture),
+        Some(Tab::Viewer(here(), "/r/a/docs/shot.png".into()))
+    );
+    assert_eq!(picture.state().content.place, place("/r/a"));
+    let source = run().send(Msg::OpenFile(here(), "/r/a/src/main.rs".into()));
+    assert_eq!(
+        source.last_effects(),
+        [Effect::StartTerminal(TerminalAsk {
+            place: place("/r/a").unwrap(),
+            runs: TerminalProgram::Neovim,
+            file: Some("/r/a/src/main.rs".into()),
+            opening: Opening::Existing,
+            focus: true,
+        })]
+    );
+    let elsewhere = run().send(Msg::OpenFile(here(), "/tmp/notes/b.rs".into()));
+    assert!(elsewhere.last_effects().iter().any(|e| matches!(
+        e,
+        Effect::StartTerminal(TerminalAsk { place, .. }) if place.worktree == std::path::Path::new("/tmp/notes")
+    )));
+}
+
+#[test]
 fn a_file_asked_to_be_edited_in_another_environment_starts_its_neovim_there() {
     let run = shows_there(listed_with([session("a").cwd("/r")]), [session("b")])
         .send(Msg::EditFile(there(), "/c/prompt/nvim/init.lua".into()));

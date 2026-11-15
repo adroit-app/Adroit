@@ -10,7 +10,10 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::{Response, StatusCode, header};
 use dioxus::prelude::*;
 
-use super::markdown::{Images, Unshown, image_id, image_response, markdown_document, render};
+use super::markdown::{
+    Images, Unshown, image_id, image_response, link_target, markdown_document, render, stamp,
+    theme_message, update_message,
+};
 use super::pdf;
 use super::serve::{self, Scope};
 use adroit_core::viewers::FileKind;
@@ -31,18 +34,22 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 
 /// The file at `path` in the viewer of its kind. Actions arrive through
 /// `command`; `on_close` is called when one asks for the viewer to close.
-/// A document reads the images it shows from under `root` alone.
+/// A document reads the images it shows from under `root` alone, is painted
+/// in Arto's `theme`, and calls `on_link` with the file a link it shows
+/// leads to.
 #[component]
 pub fn Viewer(
     path: PathBuf,
     root: PathBuf,
+    theme: ReadSignal<&'static str>,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
+    on_link: EventHandler<PathBuf>,
 ) -> Element {
     let key = path.to_string_lossy().into_owned();
     match ViewerState::new(FileKind::of(&path)) {
         Some(_) => rsx! {
-            ViewerOf { key: "{key}", path, root, command, on_close }
+            ViewerOf { key: "{key}", path, root, theme, command, on_close, on_link }
         },
         None => rsx! {
             div { class: "viewer",
@@ -148,8 +155,10 @@ fn answer(scope: &Scope, kind: FileKind, rel: &str, range: Option<&str>) -> Resp
 fn ViewerOf(
     path: PathBuf,
     root: PathBuf,
+    theme: ReadSignal<&'static str>,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
+    on_link: EventHandler<PathBuf>,
 ) -> Element {
     let kind = FileKind::of(&path);
     let prefix = use_hook(|| format!("adroit-viewer-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
@@ -206,24 +215,25 @@ fn ViewerOf(
     let mut page = use_signal(|| None::<Option<String>>);
     // The frame's document is set once: a frame given another reloads and
     // loses its scroll, so what changes later reaches it by message.
-    let mut frame_doc = use_signal(|| None::<Result<String, Unshown>>);
+    let frame_doc = use_signal(|| None::<Result<String, Unshown>>);
+    let gone = use_signal(|| false);
+    let box_id = format!("{prefix}-box");
+    let media_id = format!("{prefix}-media");
     use_hook(|| {
         let path = path.clone();
         match kind {
             FileKind::Markdown => {
-                let (root, images) = (root.clone(), images.clone());
-                let base = format!("{}{prefix}/img", serve::ORIGIN);
-                spawn(async move {
-                    let rendered = tokio::task::spawn_blocking(move || render(&path, &root, base))
-                        .await
-                        .unwrap_or(Err(Unshown::Unrenderable));
-                    frame_doc.set(Some(rendered.map(|r| {
-                        if let Ok(mut i) = images.lock() {
-                            *i = r.images;
-                        }
-                        markdown_document(&r.html, r.libraries)
-                    })));
-                });
+                spawn(follow_markdown(Followed {
+                    path: path.clone(),
+                    root: root.clone(),
+                    image_base: format!("{}{prefix}/img", serve::ORIGIN),
+                    images: images.clone(),
+                    frame: media_id.clone(),
+                    theme,
+                    shown: frame_doc,
+                    gone,
+                }));
+                spawn(follow_links(path, media_id.clone(), on_link));
             }
             FileKind::Pdf => {
                 spawn(async move {
@@ -251,8 +261,16 @@ fn ViewerOf(
         }
     });
 
-    let box_id = format!("{prefix}-box");
-    let media_id = format!("{prefix}-media");
+    use_effect({
+        let media_id = media_id.clone();
+        move || {
+            let theme = theme();
+            if kind == FileKind::Markdown {
+                document::eval(&frame_script(&media_id, &theme_message(theme)));
+            }
+        }
+    });
+
     use_effect({
         let (box_id, media_id, path) = (box_id.clone(), media_id.clone(), path.clone());
         move || {
@@ -313,6 +331,7 @@ fn ViewerOf(
     let detail = match now {
         ViewerState::Image(s) => format!("{}%", s.zoom.percent()),
         ViewerState::Html(s) => format!("{}%", s.zoom.percent()),
+        ViewerState::Markdown(s) if gone() => format!("deleted · {}%", s.zoom.percent()),
         ViewerState::Markdown(s) => format!("{}%", s.zoom.percent()),
         ViewerState::Pdf(s) => match s.pages {
             Some(n) => format!("{} / {} · {}%", s.page + 1, n, s.zoom.percent()),
@@ -411,6 +430,95 @@ fn ViewerOf(
                 span { class: "name", "{name}" }
                 span { "{detail}" }
             }
+        }
+    }
+}
+
+/// What the Markdown viewer follows of its file, and where it shows it.
+struct Followed {
+    path: PathBuf,
+    root: PathBuf,
+    image_base: String,
+    images: Images,
+    /// The frame's element id.
+    frame: String,
+    theme: ReadSignal<&'static str>,
+    /// The frame's document, set once it is first rendered.
+    shown: Signal<Option<Result<String, Unshown>>>,
+    /// The file was removed after it was shown.
+    gone: Signal<bool>,
+}
+
+/// How often the viewer looks whether its file changed.
+const LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Render the document whenever its file changes, for as long as the viewer
+/// is open. The first render becomes the frame's document; later ones reach
+/// the frame by message, so it keeps the place read. A file that cannot be
+/// rendered again, or is removed, leaves what was shown last.
+async fn follow_markdown(mut f: Followed) {
+    let mut seen = None;
+    loop {
+        let now = {
+            let path = f.path.clone();
+            tokio::task::spawn_blocking(move || stamp(&path))
+                .await
+                .ok()
+                .flatten()
+        };
+        if now != seen {
+            let shown = matches!(*f.shown.peek(), Some(Ok(_)));
+            match now {
+                None if shown => f.gone.set(true),
+                None => f.shown.set(Some(Err(Unshown::Unreadable))),
+                Some(_) => {
+                    f.gone.set(false);
+                    let rendered = {
+                        let (path, root, base) =
+                            (f.path.clone(), f.root.clone(), f.image_base.clone());
+                        tokio::task::spawn_blocking(move || render(&path, &root, base))
+                            .await
+                            .unwrap_or(Err(Unshown::Unrenderable))
+                    };
+                    match rendered {
+                        Ok(r) => {
+                            if shown {
+                                document::eval(&frame_script(&f.frame, &update_message(&r)));
+                            } else {
+                                let doc = markdown_document(&r.html, r.libraries, (f.theme)());
+                                f.shown.set(Some(Ok(doc)));
+                            }
+                            if let Ok(mut i) = f.images.lock() {
+                                *i = r.images;
+                            }
+                        }
+                        Err(_) if shown => {}
+                        Err(why) => f.shown.set(Some(Err(why))),
+                    }
+                }
+            }
+            seen = now;
+        }
+        tokio::time::sleep(LOOK_EVERY).await;
+    }
+}
+
+/// Hand `on_link` the file each link pressed in the frame `frame`, which
+/// shows the document at `path`, leads to, when there is one.
+async fn follow_links(path: PathBuf, frame: String, on_link: EventHandler<PathBuf>) {
+    let mut heard = document::eval(&format!(
+        "window.addEventListener('message', (e) => {{
+           const f = document.getElementById({frame:?});
+           if (!f || e.source !== f.contentWindow) return;
+           const m = e.data;
+           if (!m || m.adroitViewerLink !== 1 || typeof m.path !== 'string') return;
+           dioxus.send(m.path);
+         }});
+         await new Promise(() => {{}});"
+    ));
+    while let Ok(written) = heard.recv::<String>().await {
+        if let Some(file) = link_target(&path, &written).filter(|f| f.is_file()) {
+            on_link.call(file);
         }
     }
 }

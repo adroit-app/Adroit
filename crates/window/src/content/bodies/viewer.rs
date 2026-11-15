@@ -15,13 +15,15 @@ pub(crate) fn ViewerWindow(
     window: WindowId,
     path: PathBuf,
     root: PathBuf,
+    theme: ReadSignal<&'static str>,
     commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
     on_close: EventHandler<()>,
+    on_link: EventHandler<PathBuf>,
 ) -> Element {
     let command = use_memo(move || commands().filter(|(w, _)| *w == window).map(|(_, c)| c));
     rsx! {
         div { class: "win-viewer",
-            viewers::Viewer { path, root, command, on_close }
+            viewers::Viewer { path, root, theme, command, on_close, on_link }
         }
     }
 }

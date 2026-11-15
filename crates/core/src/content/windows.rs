@@ -320,6 +320,48 @@ pub(crate) fn edit_file(
     }
 }
 
+/// Open the file at `path` of `environment` as its row in the tree opens, in
+/// the worktree it lies in or else its own folder, where a thing already
+/// shown opens, with the keys; the tree's selection stays where it is.
+pub(crate) fn open_file(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    path: std::path::PathBuf,
+) -> Vec<Effect> {
+    let work = state.hosts.work(&environment);
+    let listed = tree::listed(work);
+    let worktree = adroit_model::innermost(listed.worktrees().map(|w| &w.worktree.path), &path)
+        .cloned()
+        .or_else(|| path.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_default();
+    let item = Item::File {
+        environment: environment.clone(),
+        worktree: worktree.clone(),
+        path,
+        dir: false,
+    };
+    let local = state.hosts.is_local(&environment);
+    let opens = nav::opens(&item, listed, tree::terminals(work), local);
+    let content = &mut state.content;
+    match opens {
+        nav::Opens::Shows(thing, place) => {
+            content.place = place.or(Some(Place::at(&environment, worktree)));
+            content.windows.open_in(thing, Opening::Existing);
+            content.focus = Area::Console;
+            Vec::new()
+        }
+        nav::Opens::Edit(worktree, file) => vec![Effect::StartTerminal(TerminalAsk {
+            place: Place::at(&environment, worktree),
+            runs: TerminalProgram::Neovim,
+            file: Some(file),
+            opening: Opening::Existing,
+            focus: true,
+        })],
+        nav::Opens::Unavailable => vec![Effect::Notice(super::REMOTE_PREVIEW.into())],
+        nav::Opens::Fold | nav::Opens::Draft(_) => Vec::new(),
+    }
+}
+
 /// Open a row where `how` says, or as anything else opens a thing when it
 /// says nothing. Only the keys that open or look rather than split fold a row, and on a
 /// folded one they unfold it first. With `take_keys`, the keys go to what

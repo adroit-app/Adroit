@@ -79,6 +79,7 @@ pub fn launch(path: PathBuf) {
 fn TrialWindow() -> Element {
     let path: PathBuf = use_context();
     let mut command = use_signal(|| None::<Command>);
+    let theme = use_signal(|| "light");
     let mut pending = use_signal(Vec::<String>::new);
     // Tried without a work host, in adroit's own colours.
     let root_style = use_hook(|| {
@@ -118,8 +119,10 @@ fn TrialWindow() -> Element {
             Viewer {
                 root: path.parent().map(PathBuf::from).unwrap_or_default(),
                 path,
+                theme,
                 command,
                 on_close: move |_| dioxus::desktop::window().close(),
+                on_link: |_| {},
             }
         }
     }

@@ -156,6 +156,10 @@ pub enum Msg {
     /// Edit the file at this path in a Neovim started in its folder in the
     /// environment, or in the one already on it; the keys go to that Neovim.
     EditFile(EnvironmentId, PathBuf),
+    /// Open the file at this path of the environment as its row in the tree
+    /// opens, in the worktree it lies in or else its own folder: a document
+    /// shown links to it.
+    OpenFile(EnvironmentId, PathBuf),
     /// A row was clicked: it opens as `cursor.go` opens it.
     RowClicked(Item),
     /// A key or a menu asked the content to do this.
