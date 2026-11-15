@@ -115,7 +115,6 @@ enum Pane {
     General,
     Appearance,
     Console,
-    Prompt,
     Agents,
     Programs,
     Keys,
@@ -137,12 +136,11 @@ impl Pane {
     /// The panes of this computer, for every environment, in the order the
     /// sidebar lists them below the environment's; About is set apart below
     /// them.
-    const EVERY_ENVIRONMENT: [Pane; 8] = [
-        Pane::Window,
-        Pane::Details,
-        Pane::Console,
-        Pane::Prompt,
+    const EVERY_ENVIRONMENT: [Pane; 7] = [
         Pane::Appearance,
+        Pane::Window,
+        Pane::Console,
+        Pane::Details,
         Pane::Keys,
         Pane::Serving,
         Pane::Removed,
@@ -176,8 +174,7 @@ impl Pane {
             Pane::Details => "Details panel",
             Pane::General => "General",
             Pane::Appearance => "Appearance",
-            Pane::Console => "Console",
-            Pane::Prompt => "Prompt",
+            Pane::Console => "Console panel",
             Pane::Agents => "Agents",
             Pane::Programs => "Programs",
             Pane::Keys => "Keys",
@@ -201,7 +198,6 @@ impl Pane {
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Appearance => Icon::SunMoon,
             Pane::Console => Icon::Terminal,
-            Pane::Prompt => Icon::Pencil,
             Pane::Agents => Icon::Message,
             Pane::Programs => Icon::Terminal2,
             Pane::Keys => Icon::Keyboard,
@@ -379,8 +375,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                         Pane::Details => rsx! { details::DetailsPane { now: now(), change } },
                         Pane::General => rsx! { General { now: now(), change } },
                         Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
-                        Pane::Console => rsx! { ConsolePane { now: now(), change } },
-                        Pane::Prompt => rsx! { PromptPane { now: now(), change } },
+                        Pane::Console => rsx! { ConsolePanelPane { now: now(), change } },
                         Pane::Agents => rsx! {
                             profiles::AgentsPane {
                                 page: page.clone(),
@@ -645,6 +640,17 @@ fn ThemeSelect(themes: Vec<String>, now: String, onchange: Callback<String>) -> 
     }
 }
 
+/// The console panel: the console's settings, then the prompt's.
+#[component]
+fn ConsolePanelPane(now: Settings, change: Callback<Change>) -> Element {
+    rsx! {
+        h2 { class: "settings-part-title", "Console" }
+        ConsolePane { now: now.clone(), change }
+        h2 { class: "settings-part-title", "Prompt" }
+        PromptPane { now, change }
+    }
+}
+
 #[component]
 fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
     let installed = use_resource(|| async {
@@ -882,5 +888,14 @@ mod tests {
         assert!(!listed.contains(&Pane::About));
         assert!(Pane::EVERY_ENVIRONMENT.contains(&Pane::Keys));
         assert!(Pane::EVERY_ENVIRONMENT.contains(&Pane::Appearance));
+    }
+
+    #[test]
+    fn every_environment_s_panes_start_with_the_appearance_then_the_window_s_panels_left_to_right()
+    {
+        assert_eq!(Pane::EVERY_ENVIRONMENT[0], Pane::Appearance);
+        let at = |p| Pane::EVERY_ENVIRONMENT.iter().position(|q| *q == p);
+        assert!(at(Pane::Window) < at(Pane::Console));
+        assert_eq!(at(Pane::Console).map(|c| c + 1), at(Pane::Details));
     }
 }

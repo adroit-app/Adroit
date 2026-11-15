@@ -257,3 +257,5 @@ button.about-link:hover { background: var(--raised); border-color: var(--line-st
 .dl-card-mark { display: inline-flex; color: var(--done); }
 .dl-card-about { color: var(--text-3); font-size: 11px; line-height: 1.35; margin-top: 1px; }
 .dl-card.placed .dl-card-title { color: var(--text-2); }
+.settings-part-title { font-size: 15px; font-weight: 600; color: var(--text); margin: 6px 0 12px; padding: 0 2px; }
+.settings-part-title ~ .settings-part-title { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }

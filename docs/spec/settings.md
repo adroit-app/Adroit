@@ -9,10 +9,10 @@ there. Environments are added below the main window's tree.
 
 Its sidebar lists that environment's work settings under the environment's
 name, and below them, under All environments, what belongs to this computer
-for every environment: the window, what the details panel is made of, the
-console, the prompt and their embedded Neovims, the appearance and
-its themes, the key bindings, accepting connections from other computers, and
-the removed environments. These stay editable while the environment cannot be
+for every environment: the appearance and its themes, the window, the
+console panel's console and prompt with their embedded Neovims, what the
+details panel is made of, the key bindings, accepting connections from
+other computers, and the removed environments. These stay editable while the environment cannot be
 reached. Changes apply to windows using the same settings owner and remain
 for the next run. A stale save is refused rather than overwriting newer work
 settings.
@@ -367,7 +367,7 @@ it starts; their other files are kept in `adroit/prompt/nvim` and
 `adroit/console/nvim` under Neovim's data and state folders. Each has its
 `'background'` set to the theme's, light or dark, as it starts and whenever
 the theme changes, so its colour scheme draws text that shows on the theme.
-The Settings window's Prompt and Console pages name each configuration's
+The Settings window's Console panel page names each configuration's
 folder, copy its path, show it in the Finder, and edit its `init.lua` in a
 Neovim of the main window, as a file of the tree is edited; the folder is made
 when it is not there yet.
