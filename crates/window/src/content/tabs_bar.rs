@@ -13,10 +13,11 @@ use dioxus::prelude::*;
 use super::short;
 use crate::bridge::AppCtx;
 use crate::components::{
-    DraftMark, PlaceMark, SessionMark, StateGlyph, TerminalMark, glyph, runs_of, session_mark,
+    DraftMark, IconButton, PlaceMark, SessionMark, StateGlyph, TerminalMark, glyph, runs_of,
+    session_mark,
 };
 use crate::content::{DropAt, Tab, WindowId, thing_code, thing_name};
-use crate::icons::{Icon, IconView};
+use crate::icons::Icon;
 use crate::nav;
 use crate::rename::{Place as RenamePlace, SessionName};
 use crate::shell::overlays::menu_opener;
@@ -162,15 +163,15 @@ pub(super) fn TabsBar(
                     if has_draft {
                         DraftMark {}
                     }
-                    span {
-                        class: "tab-close",
+                    IconButton {
+                        icon: Icon::X,
+                        place: "tab-close",
                         title: "Close the tab; what its windows show runs on",
                         onclick: move |e: Event<MouseData>| {
                             e.stop_propagation();
                             app.dispatch(Msg::TabShow(at));
                             onclose.call(closing.clone());
                         },
-                        IconView { icon: Icon::X, size: 12 }
                     }
                 }
             }

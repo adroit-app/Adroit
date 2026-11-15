@@ -8,18 +8,12 @@
   background: transparent; color: var(--text-2); font-size: 15px; line-height: 1; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }
 .sidebar-tools { display: inline-flex; gap: 2px; margin-left: auto; }
-.list-row-start { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: auto;
-  flex: none; border-radius: 4px; color: var(--text-3); }
-.list-row-start:hover { background: var(--line-strong); color: var(--text); }
-.list-row-close { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: -6px;
-  flex: none; border-radius: 4px; color: var(--text-3); }
-.list-row:hover .list-row-close, .list-row.selected .list-row-close { display: inline-flex; }
-.list-row-close:hover { background: var(--line-strong); color: var(--text); }
+.icon-button.list-row-start { margin-left: auto; }
+.icon-button.list-row-close { display: none; margin-left: -6px; }
+.list-row:hover .icon-button.list-row-close, .list-row.selected .icon-button.list-row-close { display: inline-flex; }
 .sidebar-tool.on { background: var(--select); color: var(--text); }
-.tab-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--text-3); border-radius: 4px; margin-right: -6px; }
-.tab-close:hover { background: var(--line-strong); color: var(--text); }
-.win-close { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; color: var(--text-3); border-radius: 4px; margin-right: -4px; }
-.win-close:hover { background: var(--line-strong); color: var(--text); }
+.icon-button.tab-close { margin-right: -6px; }
+.icon-button.win-close { margin-right: -4px; }
 .context-menu-shade { position: fixed; inset: 0; z-index: 30; }
 .context-menu { position: fixed; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--raised);
   border: 1px solid var(--line-strong); box-shadow: 0 8px 24px var(--shadow);

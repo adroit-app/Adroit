@@ -10,10 +10,12 @@ use dioxus::prelude::*;
 
 use super::short;
 use crate::bridge::AppCtx;
-use crate::components::{AgentBadge, FileGlyph, Spacer, StateGlyph, TerminalMark, glyph, runs_of};
+use crate::components::{
+    AgentBadge, FileGlyph, IconButton, Spacer, StateGlyph, TerminalMark, glyph, runs_of,
+};
 use crate::content::{Axis, Border, Dir, DropAt, Rect, Tab, WindowId, side_at, thing_name};
 use crate::file_icons;
-use crate::icons::{Icon, IconView};
+use crate::icons::Icon;
 use crate::nav;
 use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
@@ -118,15 +120,15 @@ fn WindowStrip(id: WindowId, strip: Strip) -> Element {
                     "{w.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(w))}"
                 }
             }
-            span {
-                class: "win-close",
+            IconButton {
+                icon: Icon::X,
+                place: "win-close",
                 title: "Close the window; what it shows runs on",
                 onclick: move |e: Event<MouseData>| {
                     e.stop_propagation();
                     app.dispatch(Msg::WindowFocus(id));
                     app.dispatch(Msg::Window(Action::WindowQuit));
                 },
-                IconView { icon: Icon::X, size: 12 }
             }
         }
     }

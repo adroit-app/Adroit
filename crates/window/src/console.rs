@@ -15,7 +15,7 @@ use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use tokio::sync::mpsc;
 
-use crate::components::{EmptyState, Hint, KeyHint, Spacer};
+use crate::components::{EmptyState, Hint, IconButton, KeyHint, Spacer};
 use crate::content::Tab;
 use crate::icons::{Icon, IconView};
 use crate::style::use_cell_height;
@@ -522,14 +522,13 @@ pub fn Composer(
                                 },
                                 None => rsx! {},
                             }
-                            button {
-                                class: "attachment-remove",
-                                r#type: "button",
+                            IconButton {
+                                icon: Icon::X,
+                                place: "attachment-remove",
                                 aria_label: "Remove attached image {path.file_name().unwrap_or_default().to_string_lossy()}",
                                 title: "Remove image",
-                                onmousedown: move |e: Event<MouseData>| { e.stop_propagation(); e.prevent_default(); },
+                                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
                                 onclick: { let path = path.clone(); move |e: Event<MouseData>| { e.stop_propagation(); onremoveimage.call(path.clone()); } },
-                                "×"
                             }
                         }
                     }

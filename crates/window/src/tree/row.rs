@@ -15,8 +15,8 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use crate::completion::Completions;
 use crate::components::{
-    AgentBadge, DraftMark, FileLook, FileRow, ListRow, PlaceMark, SessionMark, StateGlyph,
-    TerminalMark, glyph, runs_of, session_mark,
+    AgentBadge, DraftMark, FileLook, FileRow, IconButton, ListRow, PlaceMark, SessionMark,
+    StateGlyph, TerminalMark, glyph, runs_of, session_mark,
 };
 use crate::connection;
 use crate::content::Tab;
@@ -248,11 +248,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 if waiting > 0 {
                     span { class: "waiting-count", title: "Sessions waiting on you", "{waiting}" }
                 }
-                span {
-                    class: "list-row-start",
+                IconButton {
+                    icon: Icon::Plus,
+                    place: "list-row-start",
                     title: "Start work here: a session, a shell, Neovim, or a directory added to the tree",
                     onclick: start_menu(app, it.clone()),
-                    IconView { icon: Icon::Plus, size: 13 }
                 }
             }
         };
@@ -485,25 +485,25 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 AgentBadge { label }
             }
             if starts {
-                span {
-                    class: "list-row-start",
+                IconButton {
+                    icon: Icon::Plus,
+                    place: "list-row-start",
                     title: "Start a session here",
                     onclick: move |e: Event<MouseData>| {
                         e.stop_propagation();
                         on.onstart.call(start.clone());
                     },
-                    IconView { icon: Icon::Plus, size: 13 }
                 }
             }
             if let Some(tip) = closes {
-                span {
-                    class: "list-row-close",
+                IconButton {
+                    icon: Icon::X,
+                    place: "list-row-close",
                     title: tip,
                     onclick: move |e: Event<MouseData>| {
                         e.stop_propagation();
                         on.onclose.call(close.clone());
                     },
-                    IconView { icon: Icon::X, size: 13 }
                 }
             }
         }

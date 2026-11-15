@@ -13,6 +13,7 @@ use adroit_term::picture::data_url;
 use dioxus::prelude::*;
 
 use super::ui::Ui;
+use crate::components::IconButton;
 use crate::icons::{Icon, IconView};
 use crate::pictures;
 
@@ -72,21 +73,18 @@ fn LightboxOf(shown: Shown) -> Element {
                         span { class: "lightbox-count", "{counter}" }
                     }
                     span { class: "lightbox-spacer" }
-                    button { class: "lightbox-button", title: "Zoom out",
+                    IconButton { icon: Icon::ZoomOut, size: 14, place: "lightbox-button", title: "Zoom out",
                         onclick: move |_| act(Action::LightboxZoomOut),
-                        IconView { icon: Icon::ZoomOut, size: 14 }
                     }
                     button { class: "lightbox-button lightbox-zoom", title: "Fit to the lightbox",
                         onclick: move |_| act(Action::LightboxZoomFit),
                         "{percent}%"
                     }
-                    button { class: "lightbox-button", title: "Zoom in",
+                    IconButton { icon: Icon::ZoomIn, size: 14, place: "lightbox-button", title: "Zoom in",
                         onclick: move |_| act(Action::LightboxZoomIn),
-                        IconView { icon: Icon::ZoomIn, size: 14 }
                     }
-                    button { class: "lightbox-button", title: "Close",
+                    IconButton { icon: Icon::X, size: 14, place: "lightbox-button", title: "Close",
                         onclick: move |_| act(Action::LightboxClose),
-                        IconView { icon: Icon::X, size: 14 }
                     }
                 }
                 div { class: "lightbox-stage",

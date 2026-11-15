@@ -12,7 +12,7 @@ use adroit_core::config::Config;
 use adroit_protocol::FileText;
 
 use crate::actions::Action;
-use crate::components::{Button, Keys, SettingsError};
+use crate::components::{Button, IconButton, Keys, SettingsError};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
@@ -280,14 +280,14 @@ fn ActionRow(
                                             span { class: "chip-where", "{titles(&bound.areas)}" }
                                         }
                                     }
-                                    button {
-                                        class: "chip-remove",
+                                    IconButton {
+                                        icon: Icon::X,
+                                        place: "chip-remove",
                                         title: "Take it away",
                                         aria_label: "Take {bound.keys} away",
                                         onclick: move |_| on_apply.call(
                                             keys_by_action::remove(&text, &action, &r.keys, &r.areas).map_err(|e| e.to_string()),
                                         ),
-                                        IconView { icon: Icon::X, size: 11 }
                                     }
                                 }
                             }

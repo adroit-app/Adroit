@@ -107,7 +107,7 @@ button:disabled { opacity: 0.45; }
 .key-chip button:hover { background: var(--select); }
 .key-chip kbd { margin-right: 0; }
 .chip-where { font-size: 10.5px; color: var(--text-3); }
-.chip-remove { color: var(--text-3); border-left: 1px solid var(--line) !important; }
+.chip-remove { width: auto; height: auto; color: var(--text-3); border-left: 1px solid var(--line) !important; }
 .chip-remove:hover { color: var(--fail); }
 button.chip-add { display: inline-flex; align-items: center; padding: 3px 6px; background: transparent; border: 1px dashed var(--line-strong); color: var(--text-3); }
 button.chip-add:hover { color: var(--text); background: var(--select); }
