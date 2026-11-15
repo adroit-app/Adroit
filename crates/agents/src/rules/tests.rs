@@ -1,3 +1,5 @@
+use super::compile::{MAX_DEPTH, MAX_PATTERN, MAX_RULES};
+use super::load::BUNDLED;
 use super::*;
 use crate::testing::screen;
 use adroit_model::{Agent, StartupReadiness, State, Wait};
