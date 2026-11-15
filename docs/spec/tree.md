@@ -84,8 +84,9 @@ conversation: its title, how it stands, who opened it and, of a pull
 request, the branches it merges; then a card for its body and for every
 comment and review that says something, oldest first, each drawn as a
 Markdown document is, with the images it shows, those of a private
-repository too, and from a work machine too. A link in it opens in the
-browser. The tab takes the viewer's keys, reads it again every minute while
+repository too, and from a work machine too. A pull request's tab shows,
+in turn, the files it changes with their diffs and the checks run on its
+head, those that failed first. A link in it opens in the browser. The tab takes the viewer's keys, reads it again every minute while
 it is shown and whenever the work is read again, and is not kept for the
 next run. `g x` on its row or in its tab opens it on GitHub in the browser
 instead, from a work machine too.

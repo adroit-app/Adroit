@@ -230,6 +230,16 @@ mod tests {
                         mime: "image/png".into(),
                         data: "iVBORw0K".into(),
                     }],
+                    files: vec![adroit_model::github::FileChange {
+                        path: "a.rs".into(),
+                        patch: Some("@@ -1 +1 @@\n-a\n+b".into()),
+                        ..Default::default()
+                    }],
+                    checks: vec![adroit_model::github::Check {
+                        name: "lint".into(),
+                        outcome: adroit_model::github::Outcome::Failed,
+                        ..Default::default()
+                    }],
                     ..Default::default()
                 }),
             },

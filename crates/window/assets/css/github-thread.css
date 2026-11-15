@@ -11,8 +11,9 @@
 .gh-ref{font-family:var(--fontStack-monospace,ui-monospace,monospace);font-size:12px;padding:1px 6px;border-radius:6px;background:var(--bgColor-muted);color:var(--fgColor-accent)}
 .gh-labels{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .gh-label{padding:0 8px;border-radius:999px;font-size:12px;line-height:20px;font-weight:500;border:1px solid color-mix(in srgb,var(--label) 60%,transparent);background:color-mix(in srgb,var(--label) 18%,transparent)}
-.gh-tabs{display:flex;gap:4px;margin:0 0 16px;border-bottom:1px solid var(--borderColor-default)}
-.gh-tab{padding:8px 12px;font-size:14px;color:var(--fgColor-muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.gh-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 16px;border-bottom:1px solid var(--borderColor-default)}
+.gh-tab{white-space:nowrap;padding:8px 12px;font:inherit;font-size:14px;color:var(--fgColor-muted);background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.gh-tab-fail{margin-left:4px;color:#cf222e}
 .gh-tab.on{color:var(--fgColor-default);font-weight:600;border-bottom-color:#fd8c73}
 .gh-count{display:inline-block;min-width:18px;margin-left:4px;padding:0 6px;border-radius:999px;font-size:12px;line-height:18px;text-align:center;background:var(--bgColor-neutral-muted,rgba(175,184,193,.2))}
 .gh-post{margin:0 0 16px;border:1px solid var(--borderColor-default);border-radius:6px;overflow:hidden}
@@ -29,3 +30,35 @@
 .gh-post-changes .gh-post-mark{color:#fff;background:#cf222e}
 .gh-post-plain .gh-post-head{border-bottom:0}
 .gh-empty{color:var(--fgColor-muted);font-style:italic}
+.gh-file{margin:0 0 16px;border:1px solid var(--borderColor-default);border-radius:6px;overflow:hidden}
+.gh-file-head{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;background:var(--bgColor-muted);border-bottom:1px solid var(--borderColor-default)}
+.gh-file-path{flex:1;min-width:0;overflow-wrap:anywhere;font-family:var(--fontStack-monospace,ui-monospace,monospace);font-size:12px}
+.gh-file-status{flex:none;width:18px;text-align:center;font-weight:600;font-size:12px;border-radius:4px}
+.gh-file-added{color:#1a7f37}
+.gh-file-removed{color:#cf222e}
+.gh-file-renamed{color:#8250df}
+.gh-file-modified{color:#9a6700}
+.gh-file-count{flex:none;font-size:12px}
+.gh-add{color:#1a7f37}
+.gh-del{color:#cf222e}
+.gh-file-none{margin:0;padding:12px}
+.markdown-body table.gh-diff{display:table;width:100%;margin:0;border-collapse:collapse;font-family:var(--fontStack-monospace,ui-monospace,monospace);font-size:12px;line-height:20px}
+.markdown-body .gh-diff td{padding:0 8px;border:0;vertical-align:top}
+.markdown-body .gh-diff tr,.markdown-body .gh-diff tr:nth-child(2n){background:none;border:0}
+.gh-num{width:1%;min-width:40px;text-align:right;color:var(--fgColor-muted);user-select:none;white-space:nowrap}
+.gh-code{white-space:pre-wrap;overflow-wrap:anywhere}
+.markdown-body .gh-diff tr.gh-line-add{background:rgba(46,160,67,.15)}
+.markdown-body .gh-diff tr.gh-line-del{background:rgba(248,81,73,.15)}
+.gh-line-note .gh-code{color:var(--fgColor-muted)}
+.markdown-body .gh-diff .gh-hunk td{color:var(--fgColor-muted);background:rgba(84,174,255,.12)}
+.gh-checks-summary{color:var(--fgColor-muted)}
+.markdown-body ul.gh-checks{list-style:none;margin:0;padding:0;border:1px solid var(--borderColor-default);border-radius:6px}
+.markdown-body .gh-check{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0;padding:8px 12px;border-top:1px solid var(--borderColor-default)}
+.markdown-body .gh-check:first-child{border-top:0}
+.gh-check-mark{flex:none;width:14px;text-align:center;font-weight:700}
+.gh-check-failed .gh-check-mark{color:#cf222e}
+.gh-check-pending .gh-check-mark{color:#9a6700}
+.gh-check-passed .gh-check-mark{color:#1a7f37}
+.gh-check-skipped .gh-check-mark{color:var(--fgColor-muted)}
+.gh-check-name{font-weight:600}
+.gh-check-by,.gh-check-said{color:var(--fgColor-muted);font-size:13px}

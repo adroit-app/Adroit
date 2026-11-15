@@ -136,6 +136,12 @@ pub struct Thread {
     /// post writes it with.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<Image>,
+    /// Of a pull request, the files it changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<FileChange>,
+    /// Of a pull request, the checks on its head, those that failed first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<Check>,
 }
 
 /// Something written on a pull request or an issue: its body, a comment or
@@ -182,6 +188,50 @@ pub struct Image {
     pub address: String,
     pub mime: String,
     pub data: String,
+}
+
+/// A file a pull request changes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChange {
+    pub path: String,
+    /// `added`, `removed`, `modified`, `renamed` or another word GitHub uses.
+    pub status: String,
+    /// The path it had, when it was renamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
+    pub additions: u64,
+    pub deletions: u64,
+    /// Its unified diff's hunks, none when GitHub gives none: a binary file,
+    /// or one too large.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch: Option<String>,
+}
+
+/// A check run on a pull request's head, or a status set on it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Check {
+    pub name: String,
+    /// What ran it: an app's name, or empty for a status.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub by: String,
+    pub outcome: Outcome,
+    /// Where it tells more, on GitHub or elsewhere.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
+    /// What it said of itself, in a line.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub said: String,
+}
+
+/// How a check ended, or that it has not.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Failed,
+    #[default]
+    Pending,
+    Passed,
+    Skipped,
 }
 
 /// What came of reading one listing: what is open, or why `gh` could not

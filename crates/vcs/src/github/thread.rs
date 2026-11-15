@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use adroit_model::github::{Did, Image, Item, Label, Listing, Post, Pull, Thread};
+use adroit_model::github::{
+    Check, Did, FileChange, Image, Item, Label, Listing, Outcome, Post, Pull, Thread,
+};
 use base64::Engine;
 use serde::Deserialize;
 
@@ -24,26 +26,40 @@ pub async fn thread(root: &Path, listing: Listing, number: u64) -> Result<Thread
         .await
         .ok_or("the repository has no remote on GitHub")?;
     let slug = &remote.slug;
-    let issue = api(root, &format!("repos/{slug}/issues/{number}"), false).await?;
+    let issue = api(root, &format!("repos/{slug}/issues/{number}"), None).await?;
     let comments = api(
         root,
         &format!("repos/{slug}/issues/{number}/comments?per_page=100"),
-        true,
+        Some(".[]"),
     )
     .await?;
     let (pull, reviews) = match listing {
         Listing::Pulls => (
-            Some(api(root, &format!("repos/{slug}/pulls/{number}"), false).await?),
+            Some(api(root, &format!("repos/{slug}/pulls/{number}"), None).await?),
             api(
                 root,
                 &format!("repos/{slug}/pulls/{number}/reviews?per_page=100"),
-                true,
+                Some(".[]"),
             )
             .await?,
         ),
         Listing::Issues => (None, String::new()),
     };
     let (mut thread, texts) = read(&issue, pull.as_deref(), &comments, &reviews)?;
+    if let Some(sha) = pull.as_deref().and_then(head_of) {
+        // What cannot be read of them leaves them unlisted, not the thread
+        // unread.
+        let files_path = format!("repos/{slug}/pulls/{number}/files?per_page=100");
+        let runs_path = format!("repos/{slug}/commits/{sha}/check-runs?per_page=100");
+        let statuses_path = format!("repos/{slug}/commits/{sha}/status");
+        let (files_read, runs, statuses) = tokio::join!(
+            api(root, &files_path, Some(".[]")),
+            api(root, &runs_path, Some(".check_runs[]")),
+            api(root, &statuses_path, Some(".statuses[]")),
+        );
+        thread.files = files(&files_read.unwrap_or_default());
+        thread.checks = checks(&runs.unwrap_or_default(), &statuses.unwrap_or_default());
+    }
     let mut wanted: Vec<(String, String)> = Vec::new();
     for (written, fetched) in texts.iter().flat_map(images) {
         if !wanted.iter().any(|(w, _)| *w == written) {
@@ -61,17 +77,17 @@ pub async fn thread(root: &Path, listing: Listing, number: u64) -> Result<Thread
 }
 
 /// What GitHub's API answers at `path`, the body of each text rendered as
-/// HTML beside its Markdown; with `many`, each item of every page, one JSON
-/// value after another.
-async fn api(root: &Path, path: &str, many: bool) -> Result<String, String> {
+/// HTML beside its Markdown; with `items`, what that jq expression picks of
+/// every page, one JSON value after another.
+async fn api(root: &Path, path: &str, items: Option<&str>) -> Result<String, String> {
     let mut args = vec![
         "api",
         "-H",
         "Accept: application/vnd.github.full+json",
         path,
     ];
-    if many {
-        args.extend(["--paginate", "--jq", ".[]"]);
+    if let Some(items) = items {
+        args.extend(["--paginate", "--jq", items]);
     }
     match run("gh", &args, Some(root)).await {
         Ok(out) => Ok(out),
@@ -249,8 +265,118 @@ fn read(
             })
             .collect(),
         images: Vec::new(),
+        files: Vec::new(),
+        checks: Vec::new(),
     };
     Ok((thread, texts))
+}
+
+/// The commit a pull request GitHub's API answered ends at.
+fn head_of(pull: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Head {
+        sha: String,
+    }
+    #[derive(Deserialize)]
+    struct Pull {
+        head: Head,
+    }
+    serde_json::from_str::<Pull>(pull).ok().map(|p| p.head.sha)
+}
+
+/// The files a pull request changes, as GitHub's API lists them, one JSON
+/// value after another.
+fn files(out: &str) -> Vec<FileChange> {
+    #[derive(Deserialize)]
+    struct Listed {
+        filename: String,
+        #[serde(default)]
+        status: String,
+        previous_filename: Option<String>,
+        #[serde(default)]
+        additions: u64,
+        #[serde(default)]
+        deletions: u64,
+        patch: Option<String>,
+    }
+    serde_json::Deserializer::from_str(out)
+        .into_iter::<Listed>()
+        .map_while(Result::ok)
+        .map(|f| FileChange {
+            path: f.filename,
+            status: f.status,
+            previous: f.previous_filename,
+            additions: f.additions,
+            deletions: f.deletions,
+            patch: f.patch,
+        })
+        .collect()
+}
+
+/// The checks on a pull request's head: its check runs and the statuses
+/// set on it, as GitHub's API lists them, each one JSON value after
+/// another; those that failed first, then those still running, then the
+/// rest, each by name.
+fn checks(runs: &str, statuses: &str) -> Vec<Check> {
+    #[derive(Deserialize)]
+    struct App {
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Output {
+        title: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Run {
+        name: String,
+        #[serde(default)]
+        status: String,
+        conclusion: Option<String>,
+        html_url: Option<String>,
+        details_url: Option<String>,
+        app: Option<App>,
+        output: Option<Output>,
+    }
+    #[derive(Deserialize)]
+    struct Status {
+        context: String,
+        #[serde(default)]
+        state: String,
+        target_url: Option<String>,
+        description: Option<String>,
+    }
+    let ran = serde_json::Deserializer::from_str(runs)
+        .into_iter::<Run>()
+        .map_while(Result::ok)
+        .map(|r| Check {
+            outcome: match (r.status.as_str(), r.conclusion.as_deref()) {
+                ("completed", Some("success" | "neutral")) => Outcome::Passed,
+                ("completed", Some("skipped")) => Outcome::Skipped,
+                ("completed", _) => Outcome::Failed,
+                _ => Outcome::Pending,
+            },
+            name: r.name,
+            by: r.app.map(|a| a.name).unwrap_or_default(),
+            link: r.html_url.or(r.details_url).unwrap_or_default(),
+            said: r.output.and_then(|o| o.title).unwrap_or_default(),
+        });
+    let set = serde_json::Deserializer::from_str(statuses)
+        .into_iter::<Status>()
+        .map_while(Result::ok)
+        .map(|s| Check {
+            outcome: match s.state.as_str() {
+                "success" => Outcome::Passed,
+                "pending" => Outcome::Pending,
+                _ => Outcome::Failed,
+            },
+            name: s.context,
+            by: String::new(),
+            link: s.target_url.unwrap_or_default(),
+            said: s.description.unwrap_or_default(),
+        });
+    let mut all: Vec<Check> = ran.chain(set).collect();
+    all.sort_by(|a, b| a.outcome.cmp(&b.outcome).then_with(|| a.name.cmp(&b.name)));
+    all
 }
 
 /// Each image of `fetched`, in the order the posts show them, as far as
@@ -572,6 +698,62 @@ mod tests {
         assert_eq!(addresses, ["https://x/a", "https://x/c"]);
         assert_eq!(carried[1].mime, "image/gif");
         assert_eq!(carried[1].data, "AQEB");
+    }
+
+    #[test]
+    fn a_pull_request_s_files_read_with_their_diffs_and_where_a_renamed_one_was() {
+        let out = concat!(
+            r#"{"filename": "src/a.rs", "status": "modified", "additions": 2, "deletions": 1, "patch": "@@ -1 +1,2 @@\n-a\n+b\n+c"}"#,
+            "\n",
+            r#"{"filename": "img.png", "status": "added", "additions": 0, "deletions": 0}"#,
+            "\n",
+            r#"{"filename": "new.rs", "status": "renamed", "previous_filename": "old.rs", "additions": 0, "deletions": 0}"#,
+        );
+        let read = files(out);
+        assert_eq!(read.len(), 3);
+        assert_eq!(read[0].patch.as_deref(), Some("@@ -1 +1,2 @@\n-a\n+b\n+c"));
+        assert_eq!((read[0].additions, read[0].deletions), (2, 1));
+        assert_eq!(read[1].patch, None);
+        assert_eq!(read[2].previous.as_deref(), Some("old.rs"));
+    }
+
+    #[test]
+    fn checks_list_those_that_failed_then_those_running_then_the_rest() {
+        let runs = concat!(
+            r#"{"name": "lint", "status": "completed", "conclusion": "failure", "html_url": "https://x/1", "app": {"name": "GitHub Actions"}, "output": {"title": "2 errors"}}"#,
+            "\n",
+            r#"{"name": "build", "status": "completed", "conclusion": "success", "html_url": "https://x/2"}"#,
+            "\n",
+            r#"{"name": "docs", "status": "completed", "conclusion": "skipped"}"#,
+            "\n",
+            r#"{"name": "test", "status": "in_progress", "conclusion": null}"#,
+        );
+        let statuses = r#"{"context": "ci/old", "state": "error", "target_url": "https://y", "description": "broke"}"#;
+        let read = checks(runs, statuses);
+        let named: Vec<_> = read.iter().map(|c| (c.name.as_str(), c.outcome)).collect();
+        assert_eq!(
+            named,
+            [
+                ("ci/old", Outcome::Failed),
+                ("lint", Outcome::Failed),
+                ("test", Outcome::Pending),
+                ("build", Outcome::Passed),
+                ("docs", Outcome::Skipped),
+            ]
+        );
+        assert_eq!(read[1].by, "GitHub Actions");
+        assert_eq!(read[1].said, "2 errors");
+        assert_eq!(read[1].link, "https://x/1");
+        assert_eq!(read[0].said, "broke");
+    }
+
+    #[test]
+    fn a_pull_request_ends_at_its_head() {
+        assert_eq!(
+            head_of(r#"{"head": {"sha": "abc"}}"#).as_deref(),
+            Some("abc")
+        );
+        assert_eq!(head_of("{}"), None);
     }
 
     #[test]
