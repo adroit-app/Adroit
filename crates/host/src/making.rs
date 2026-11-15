@@ -7,9 +7,14 @@ use std::path::Path;
 /// Make `path`, a directory when `dir` or else an empty file, with the
 /// directories it passes through. One already there is left as it is.
 pub(crate) fn make(path: &Path, dir: bool) -> Result<(), String> {
-    let failed = |e: std::io::Error| match e.kind() {
-        ErrorKind::AlreadyExists => format!("{} is there already", path.display()),
-        _ => format!("{} could not be made: {e}", path.display()),
+    // Windows refuses to open a directory as a new file with Access is
+    // denied, not AlreadyExists, so what stands at the path is asked too.
+    let failed = |e: std::io::Error| {
+        if e.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(path).is_ok() {
+            format!("{} is there already", path.display())
+        } else {
+            format!("{} could not be made: {e}", path.display())
+        }
     };
     if dir {
         return fs::create_dir(path)
