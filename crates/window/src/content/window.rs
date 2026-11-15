@@ -79,10 +79,9 @@ pub(super) fn window_strip(
 }
 
 /// The strip on top of a window: what it shows, by its state, name and
-/// agent, the worktree it is in, and a button that closes the window `id`;
-/// in the `preview`, a badge saying it is only looked at.
+/// agent, the worktree it is in, and a button that closes the window `id`.
 #[component]
-fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
+fn WindowStrip(id: WindowId, strip: Strip) -> Element {
     let app = use_context::<AppCtx>();
     let (g, icon, tip) = match &strip.mark {
         StripMark::State(state) => glyph(state),
@@ -109,14 +108,6 @@ fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
                 AgentBadge { label }
             }
             Spacer {}
-            if preview {
-                span {
-                    class: "win-preview",
-                    title: "Only looked at: what is looked at next takes its place; open it to keep it",
-                    IconView { icon: Icon::Eye, size: 12 }
-                    "Preview"
-                }
-            }
             if let Some(w) = &strip.worktree {
                 span { class: "win-where", title: "{short(w)}",
                     "{w.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(w))}"
@@ -137,14 +128,13 @@ fn WindowStrip(id: WindowId, strip: Strip, preview: bool) -> Element {
 }
 
 /// The window `id`, where its share `r` of the content puts it, with its
-/// strip and `body`, drawn apart in the `preview` and `marked` while it has
-/// the keys; pressing it gives it the focus.
+/// strip and `body`, marked while it has the keys; pressing it gives it the
+/// focus.
 #[component]
 pub(super) fn ContentWindow(
     id: WindowId,
     r: Rect,
     marked: bool,
-    preview: bool,
     strip: Strip,
     body: Element,
 ) -> Element {
@@ -158,15 +148,10 @@ pub(super) fn ContentWindow(
     );
     rsx! {
         div {
-            class: match (marked, preview) {
-                (true, true) => "win focused preview",
-                (true, false) => "win focused",
-                (false, true) => "win preview",
-                (false, false) => "win",
-            },
+            class: if marked { "win focused" } else { "win" },
             style: "{style}",
             onmousedown: move |_| app.dispatch(Msg::WindowFocus(id)),
-            WindowStrip { id, strip, preview }
+            WindowStrip { id, strip }
             {body}
         }
     }

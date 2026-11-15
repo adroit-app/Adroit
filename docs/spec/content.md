@@ -12,15 +12,7 @@ its focused window shows, with how many windows it holds, and keeps its own
 focused window while another tab is shown. A tab holds whatever was opened in
 it, from any worktree. Closing a tab closes every window in it. The tab shown
 is moved a place to either side by keys ([keys](reference/keys.md#actions)),
-and any tab is dragged to another place among the tabs; the preview stays
-after them.
-
-Besides the tabs there may be one **preview**. It comes after every tab,
-without a number, and is drawn apart from them, as is its window, so it is
-not taken for a tab. It shows what was looked at last without being opened,
-and the next thing looked at takes its place. It becomes a tab like any other
-once what it shows is opened, once it is split, once keys are sent to what it
-shows, or once the prompt takes the keys to write to it.
+and any tab is dragged to another place among the tabs.
 
 ## Windows
 
@@ -55,19 +47,14 @@ prompt and takes the `viewer` area's keys.
 
 ## Opening
 
-Nothing opened takes the place of what a window shows, but for the preview
-and a document switched between its viewer and its Neovim
-([viewers](#viewers)). Opening something
-moves the focus to a window of any tab already showing it, and turns that tab
-into an ordinary one when it is the preview; when no window shows it, it opens
-in a new tab after the one shown.
-
-Looking at something shows the tab already showing it, and closes the
-preview, or else shows it in the preview. Going to the next or previous
-session, workspace or waiting session looks at it.
+Nothing opened takes the place of what a window shows, but for a document
+switched between its viewer and its Neovim ([viewers](#viewers)). Opening
+something moves the focus to a window of any tab already showing it; when no
+window shows it, it opens in a new tab after the one shown. Going to the next
+or previous session, workspace or waiting session opens it so too.
 
 From the tree, the key says how a row opens and the row says what: opened,
-looked at with the keys staying in the tree, in a new window split below or beside the focused one, or in a new
+in a new window split below or beside the focused one, or in a new
 tab though a window shows it already ([keys](reference/keys.md#actions)). A
 row clicked is opened. A file opened from the tree opens by its kind, in a
 viewer or in Neovim ([viewers](#viewers)).
@@ -194,7 +181,7 @@ drawn by the window itself: images, movies, HTML pages, Markdown documents and
 PDFs. Every other file, including one of a kind Adroit does not know, opens in
 Neovim.
 
-A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
+A file is opened from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
 for in the tree. A file already open in a Neovim started on it opens that Neovim
 again, a Markdown document included. A viewer ends with the windows showing it; it keeps its zoom, page and
 playback while the focus moves between windows. A viewer reads the files of
@@ -271,6 +258,6 @@ The images a session's console drew are listed in the Resources sheet
 of the details panel, and stay listed after the console lets them go
 ([details](details.md)). Opened from there, one is shown in the image viewer
 like an image file, in a window of the content; its tab is not kept for the
-next run. A click on an image in a session's console looks at it in the image
-viewer in the preview, as a click on it in Resources does, and does not reach
+next run. A click on an image in a session's console opens it in the image
+viewer, as a click on it in Resources does, and does not reach
 the program.

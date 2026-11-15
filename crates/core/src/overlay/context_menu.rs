@@ -60,7 +60,6 @@ pub fn entries(
         Action::CursorSplit,
         Action::CursorVsplit,
         Action::CursorTab,
-        Action::CursorShow,
     ]
     .map(offer);
     // What is copied, and what going to a row that folds does, depend on
@@ -241,12 +240,11 @@ mod tests {
     }
 
     /// What every row that opens offers first: where to open it.
-    const OPENS: [Action; 5] = [
+    const OPENS: [Action; 4] = [
         Action::CursorGo,
         Action::CursorSplit,
         Action::CursorVsplit,
         Action::CursorTab,
-        Action::CursorShow,
     ];
 
     fn session() -> Session {

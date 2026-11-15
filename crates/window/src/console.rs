@@ -197,7 +197,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let rows = screen.rows as f64;
     let mut frame = frame;
     let mut rest = use_signal(|| 0.0);
-    // An image the session drew is looked at whole rather than clicked
+    // An image the session drew is opened whole rather than clicked
     // through to the program, which a picture gives nothing to point at.
     let onclick = {
         let (pane, pictures) = (pane.clone(), pictures.clone());
@@ -205,7 +205,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
             Some(thing) => app.dispatch(Msg::Show {
                 thing,
                 place: None,
-                how: Some(Opening::Preview),
+                how: Some(Opening::Existing),
             }),
             None => pane.click(at.0, at.1),
         }

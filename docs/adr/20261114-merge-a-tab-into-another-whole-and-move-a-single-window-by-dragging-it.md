@@ -30,7 +30,7 @@ moves.
   Neovim, and reaching a tab further away would take several presses.
 - Let a window dropped in the middle of another take its place. Nothing
   opened replaces what a window shows, as recorded in
-  `20261024-open-in-a-tab-of-its-own-and-look-in-one-preview-tab.md`.
+  `20261115-open-everything-in-a-tab-of-its-own-with-no-preview.md`.
 
 ## Consequences
 

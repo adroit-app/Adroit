@@ -15,7 +15,6 @@ use crate::{chrome, console, content, details, host, picker, prompt, tree};
 pub fn step(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
     let mut effects = update(state, msg);
     effects.extend(settle(state));
-    content::keep_worked_in(&mut state.content, &effects);
     effects
 }
 

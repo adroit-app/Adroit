@@ -286,79 +286,27 @@ fn a_viewer_shown_takes_the_viewer_s_actions() {
     ));
 }
 
-/// The session `a` shown, `b` listed beside it, and the keys in the tree on
-/// `b`'s row.
-fn on_the_row_of_b() -> Scenario {
-    Scenario::new()
-        .event(snapshot().listed(listed().session(session("a")).session(session("b"))))
-        .send(Msg::ShowSession(here(), "a".into()))
-        .send(Msg::Focus(Area::Sidebar))
-        .send(Msg::OpenRow {
-            item: Item::Session(here(), "b".into()),
-            how: Some(Opening::Preview),
-            take_keys: false,
-        })
-        .send(Msg::Focus(Area::Sidebar))
-}
-
-fn previewing(run: &Scenario) -> Vec<bool> {
-    let windows = &run.state().content.windows;
-    windows.tabs().iter().map(|t| t.is_preview()).collect()
-}
-
 #[test]
-fn looking_at_a_row_shows_it_in_the_preview_with_the_keys_staying_in_the_tree() {
-    let run = on_the_row_of_b().send(perform(Action::CursorShow, None, Probe::default()));
-    assert_eq!(previewing(&run), [false, true]);
-    assert_eq!(run.state().content.active(), Some(&session_tab("b")));
-    assert_eq!(run.state().content.focus, Area::Sidebar);
-}
-
-#[test]
-fn opening_the_row_the_preview_shows_keeps_it_and_takes_the_keys() {
-    let run = on_the_row_of_b().send(perform(Action::CursorGo, None, Probe::default()));
-    assert_eq!(previewing(&run), [false, false]);
-    assert_eq!(run.state().content.active(), Some(&session_tab("b")));
-    assert_eq!(run.state().content.focus, Area::Console);
-}
-
-#[test]
-fn keys_sent_to_what_the_preview_shows_keep_it() {
-    let send = Action::ConsoleSend(None);
-    let run = on_the_row_of_b()
-        .send(Msg::Focus(Area::Console))
-        .send(perform(send, Some("x"), with_pane()));
-    assert_eq!(previewing(&run), [false, false]);
-}
-
-#[test]
-fn the_preview_waits_while_the_keys_only_move_into_it() {
-    let run = on_the_row_of_b().send(Msg::Focus(Area::Console));
-    assert_eq!(previewing(&run), [false, true]);
-    let run = run.send(Msg::Focus(Area::Prompt));
-    assert_eq!(previewing(&run), [false, false]);
-}
-
-#[test]
-fn going_to_the_next_session_looks_at_it_in_the_preview() {
+fn going_to_the_next_session_opens_it_in_a_tab_or_goes_to_the_one_showing_it() {
     let run = Scenario::new()
         .event(snapshot().listed(listed().session(session("a")).session(session("b"))))
         .send(Msg::ShowSession(here(), "a".into()))
         .send(Msg::Window(Action::SessionNext));
-    assert_eq!(previewing(&run), [false, true]);
-    // Back on a session a tab shows, the preview goes.
+    let tabs = |run: &Scenario| run.state().content.windows.tabs().len();
+    assert_eq!(tabs(&run), 2);
+    assert_eq!(run.state().content.active(), Some(&session_tab("b")));
     let run = run.send(Msg::Window(Action::SessionNext));
-    assert_eq!(previewing(&run), [false]);
+    assert_eq!(tabs(&run), 2);
     assert_eq!(run.state().content.active(), Some(&session_tab("a")));
 }
 
 #[test]
-fn looking_at_a_row_that_folds_goes_into_it_rather_than_folding_it() {
+fn going_into_a_row_that_folds_unfolds_it_and_goes_to_its_first_row() {
     use crate::tree::nav::Heading;
     let heading = Item::Across(here(), "/r".into(), Heading::Sessions);
     let run = showing(Area::Sidebar)
         .send(Msg::TreeSelect(Some(heading.clone())))
-        .send(perform(Action::CursorShow, None, Probe::default()));
+        .send(perform(Action::FilerInto, None, Probe::default()));
     assert!(run.state().tree.folds.is_open(&heading));
     assert_eq!(
         run.state().tree.selected,
@@ -438,7 +386,6 @@ fn in_the_details_panel_the_tree_s_ways_of_opening_open_the_row_the_same_ways() 
     // (action, the key it presses on the panel's list)
     let cases = [
         (Action::CursorGo, details::Key::Open),
-        (Action::CursorShow, details::Key::OpenIn(Opening::Preview)),
         (
             Action::CursorSplit,
             details::Key::OpenIn(Opening::Split(Axis::Column)),

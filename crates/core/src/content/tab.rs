@@ -397,7 +397,6 @@ pub fn read_kept(text: &str) -> Kept<String> {
             tabs: vec![KeptTab {
                 root: KeptNode::Window(text.trim().to_string()),
                 focus: 0,
-                preview: false,
             }],
             current: 0,
         },
@@ -530,7 +529,6 @@ mod tests {
             tabs: vec![KeptTab {
                 root: KeptNode::Window("session:a".to_string()),
                 focus: 0,
-                preview: false,
             }],
             current: 0,
         };

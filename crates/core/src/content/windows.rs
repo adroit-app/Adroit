@@ -208,7 +208,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 action == Action::SessionNext,
             );
             match next {
-                Some(id) => look_at_session(state, environment, id),
+                Some(id) => show_session(state, environment, id),
                 None => Vec::new(),
             }
         }
@@ -222,7 +222,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 action == Action::WorkspaceNext,
             );
             match next {
-                Some(id) => look_at_session(state, environment, id),
+                Some(id) => show_session(state, environment, id),
                 None => Vec::new(),
             }
         }
@@ -251,20 +251,6 @@ pub(crate) fn show_session(
     environment: EnvironmentId,
     id: String,
 ) -> Vec<Effect> {
-    show_session_in(state, environment, id, Opening::Existing)
-}
-
-/// Look at a session as [`show_session`] opens it, in the preview tab.
-fn look_at_session(state: &mut ViewState, environment: EnvironmentId, id: String) -> Vec<Effect> {
-    show_session_in(state, environment, id, Opening::Preview)
-}
-
-fn show_session_in(
-    state: &mut ViewState,
-    environment: EnvironmentId,
-    id: String,
-    how: Opening,
-) -> Vec<Effect> {
     let work = state.hosts.work(&environment);
     let Some((p, _)) = nav::find(tree::listed(work), &id) else {
         return Vec::new();
@@ -281,7 +267,7 @@ fn show_session_in(
         state.tree.selected = Some(row);
     }
     state.content.place = Some(p);
-    state.content.windows.open_in(tab, how);
+    state.content.windows.open(tab);
     Vec::new()
 }
 
@@ -366,7 +352,7 @@ pub(crate) fn open_file(
 }
 
 /// Open a row where `how` says, or as anything else opens a thing when it
-/// says nothing. Only the keys that open or look rather than split fold a row, and on a
+/// says nothing. Only the keys that open rather than split fold a row, and on a
 /// folded one they unfold it first. With `take_keys`, the keys go to what
 /// opened: the prompt of a draft, or the console.
 pub(crate) fn open_row(
@@ -379,7 +365,7 @@ pub(crate) fn open_row(
     let terminals = tree::terminals(work);
     let view = &mut state.tree;
     view.selected = Some(item.clone());
-    let in_place = matches!(how, None | Some(Opening::Existing | Opening::Preview));
+    let in_place = matches!(how, None | Some(Opening::Existing));
     let unfolds = nav::unfolds(&item, &view.folds);
     if in_place && unfolds {
         view.folds.set(&item, true);

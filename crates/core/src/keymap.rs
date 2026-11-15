@@ -563,8 +563,8 @@ mod tests {
             ("ArrowUp", Action::CursorUp),
             ("G", Action::CursorLast),
             ("Enter", Action::CursorGo),
-            ("l", Action::CursorShow),
-            ("Shift+Enter", Action::CursorShow),
+            ("l", Action::CursorGo),
+            ("Shift+Enter", Action::CursorGo),
             ("h", Action::CursorFold),
             ("Escape", Action::CursorFold),
             ("Backspace", Action::CursorFold),
@@ -861,6 +861,7 @@ mod tests {
         assert!(!Action::names().any(|n| n == "sidebar.toggle"));
     }
 
+
     #[test]
     fn a_binding_to_the_workspace_picker_earlier_versions_had_is_dropped() {
         let map = Keymap::with_user("[global]\n\"Cmd+y\" = \"workspace.pick\"\n").unwrap();
@@ -995,13 +996,13 @@ mod tests {
     }
 
     #[test]
-    fn in_the_sidebar_l_and_enter_with_shift_or_ctrl_look_at_the_row_and_keep_the_keys() {
+    fn in_the_sidebar_l_and_enter_with_shift_or_ctrl_open_the_row_as_enter_does() {
         let map = Keymap::defaults();
         let sidebar = [Context::Tree, Context::Global];
         for k in ["l", "L", "Shift+Enter", "Ctrl+Enter"] {
             assert_eq!(
                 step(&map, &sidebar, &[], k),
-                Step::Run(Action::CursorShow),
+                Step::Run(Action::CursorGo),
                 "{k}"
             );
         }
@@ -1047,7 +1048,7 @@ mod tests {
         for (key, action) in [
             ("Enter", Action::CursorGo),
             ("o", Action::CursorGo),
-            ("l", Action::CursorShow),
+            ("l", Action::CursorGo),
             ("s", Action::CursorSplit),
             ("v", Action::CursorVsplit),
             ("t", Action::CursorTab),

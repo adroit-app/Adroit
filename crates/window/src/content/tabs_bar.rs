@@ -68,7 +68,6 @@ pub(super) fn TabsBar(
                     state,
                     mark,
                     tab.windows().len(),
-                    tab.is_preview(),
                     tab.focused().id,
                 )
             })
@@ -89,10 +88,9 @@ pub(super) fn TabsBar(
     // A tab dragged among the tabs is drawn where it would land, the others
     // making room, so the order it leaves is seen before it is let go.
     let rows = tabs();
-    let ordinary = rows.iter().filter(|r| !r.6).count();
     let mut order: Vec<usize> = (0..rows.len()).collect();
     let ghost = match (dropping, from) {
-        (Some(Some(DropAt::Place(to))), Some(from)) if from < ordinary && to < ordinary => {
+        (Some(Some(DropAt::Place(to))), Some(from)) if from < rows.len() && to < rows.len() => {
             let tab = order.remove(from);
             order.insert(to, tab);
             Some(from)
@@ -105,13 +103,9 @@ pub(super) fn TabsBar(
         .map(|(place, at)| (place, at, rows[at].clone()))
         .collect();
     let hosts = app.hosts.read();
-    // Every tab is made here, outside `rsx!`, where the preview's and an
-    // ordinary one are alike the closure's value: within `rsx!` a block's
-    // value is wrapped in a node without the tab's key, and the bar's
-    // tabs must all be keyed or none.
     let tabs: Vec<Element> = laid
         .into_iter()
-        .map(|(place, at, (tab, name, code, state, mark, count, preview, focused))| {
+        .map(|(place, at, (tab, name, code, state, mark, count, focused))| {
             let is_active = at == shown_at;
             let shell = match &tab {
                 Tab::Terminal(environment, id) => Some(runs_of(
@@ -124,7 +118,6 @@ pub(super) fn TabsBar(
                 Some("tab"),
                 is_active.then_some("active"),
                 shell.is_some().then_some("shell"),
-                preview.then_some("preview"),
                 (dropping == Some(Some(DropAt::Tab(at)))).then_some("drop"),
                 (ghost == Some(at)).then_some("ghost"),
             ]
@@ -138,38 +131,6 @@ pub(super) fn TabsBar(
             let has_draft = drafted.read().contains(&tab);
             let number = place + 1;
             let windows = if count == 1 { "1 window".to_string() } else { format!("{count} windows") };
-            // The preview is no tab of its own yet: unnumbered, after
-            // a rule, and named as what it only shows.
-            if preview {
-                return rsx! {
-                    span {
-                        key: "{at}",
-                        class: "{class}",
-                        title: "Preview: what is looked at next takes its place; open it to keep it",
-                        onclick: move |_| app.dispatch(Msg::TabShow(at)),
-                        onmousedown: move |e: Event<MouseData>| press(app, e, at, focused),
-                        onmousemove: move |e: Event<MouseData>| hover(app, e, place, dragging),
-                        oncontextmenu: menu_opener(app, target),
-                        IconView { icon: Icon::Eye, size: 13 }
-                        span { class: "tab-preview-label", "Preview" }
-                        if let Some((g, icon, tip)) = glyph_class {
-                            StateGlyph { class: g, icon, size: 13, title: tip }
-                        }
-                        if let Some(runs) = shell { TerminalMark { runs } }
-                        span { class: "tab-preview-name", "{name}" }
-                        span {
-                            class: "tab-close",
-                            title: "Close the preview; what it shows runs on",
-                            onclick: move |e: Event<MouseData>| {
-                                e.stop_propagation();
-                                app.dispatch(Msg::TabShow(at));
-                                onclose.call(closing.clone());
-                            },
-                            IconView { icon: Icon::X, size: 12 }
-                        }
-                    }
-                };
-            }
             rsx! {
                 span {
                     key: "{at}",

@@ -44,35 +44,34 @@ changes them ([keys](../keys.md)).
 | `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
 | `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
 | `tab.last` | Tab Before | show the content's tab shown before the one shown now | `global`: `Ctrl+q g Tab` |
-| `tab.move_prev` |  | move the content's tab shown one place toward the first, the preview staying after every tab; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g <`, `Ctrl+Shift+PageUp` |
-| `tab.move_next` |  | move the content's tab shown one place toward the last, the preview staying after every tab; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g >`, `Ctrl+Shift+PageDown` |
+| `tab.move_prev` |  | move the content's tab shown one place toward the first; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g <`, `Ctrl+Shift+PageUp` |
+| `tab.move_next` |  | move the content's tab shown one place toward the last; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g >`, `Ctrl+Shift+PageDown` |
 | `cursor.down` |  | move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `j`, `ArrowDown`<br>`details`: `j`, `ArrowDown` |
 | `cursor.up` |  | move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `k`, `ArrowUp`<br>`details`: `k`, `ArrowUp` |
 | `cursor.first` |  | move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `g g`<br>`details`: `g g` |
 | `cursor.last` |  | move the selection in the tree to the last row; in the details panel, in the list it shows, or scroll what else it shows | `tree`: `G`<br>`details`: `G` |
-| `cursor.go` |  | open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row, an image of Resources as a file is opened, the keys staying in the panel | `tree`: `Enter`, `o` |
+| `cursor.go` |  | open the selected session, shell, worktree or file: go to a window showing it, in any tab, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row, an image of Resources as a file is opened, the keys staying in the panel | `tree`: `Enter`, `o`, `l`, `L`, `Shift+Enter`, `Ctrl+Enter` |
 | `cursor.split` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, below it; in the details panel, the selected image of Resources | `tree`: `s` |
 | `cursor.vsplit` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, beside it; in the details panel, the selected image of Resources | `tree`: `v` |
 | `cursor.tab` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already; in the details panel, the selected image of Resources | `tree`: `t` |
-| `cursor.show` |  | look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, look at the selected image of Resources in the preview, the keys staying in the panel, or open any other row | `tree`: `l`, `L`, `Shift+Enter`, `Ctrl+Enter` |
 | `cursor.fold` |  | fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from | `tree`: `h`<br>`details`: `Escape`, `Backspace` |
 | `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `x` |
 | `cursor.copy` |  | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path | `tree`: `y`<br>`details`: `y` |
 | `cursor.reveal` |  | in the details panel, show the selected file of the overview in the Finder |  |
 | `filer.down` |  | move to the next file or directory, in the tree's files or the picker's directories | `filer`: `j`, `ArrowDown` |
 | `filer.up` |  | move to the previous file or directory | `filer`: `k`, `ArrowUp` |
-| `filer.into` |  | open the directory selected and go to its first entry once it is read; on a file of the tree, look at it as `cursor.show` does | `filer`: `l`, `ArrowRight` |
+| `filer.into` |  | open the directory selected and go to its first entry once it is read; on a file of the tree, open it as `cursor.go` does | `filer`: `l`, `ArrowRight` |
 | `filer.out` |  | close the directory selected when it is open, or else the one it is in, going there | `filer`: `h`, `ArrowLeft` |
 | `filer.open` |  | in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected | `filer`: `Enter` |
 | `filer.hidden` |  | show or hide the files and directories whose names start with `.` | `filer`: `!` |
 | `file.new` |  | in the tree's files, type the name of a file to make in the directory selected, in the one the file selected is in, or at the top of the worktree from its Files heading; a name with `/` makes the directories it passes through too, one ending in `/` makes a directory, and one already there is left as it is | `tree`: `N` |
 | `directory.new` |  | type the name of a directory to make, where `file.new` makes a file | `tree`: `K` |
-| `waiting.next` | Next Waiting | look at the next session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
-| `waiting.prev` | Previous Waiting | look at the previous session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
-| `session.next` | Next Session | look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
-| `session.prev` | Previous Session | look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
-| `workspace.next` | Next Workspace | look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q }`<br>`tree`: `}` |
-| `workspace.prev` | Previous Workspace | look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q {`<br>`tree`: `{` |
+| `waiting.next` | Next Waiting | open the next session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
+| `waiting.prev` | Previous Waiting | open the previous session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
+| `session.next` | Next Session | open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, as `cursor.go` does; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
+| `session.prev` | Previous Session | open the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, as `cursor.go` does; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
+| `workspace.next` | Next Workspace | open a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, as `cursor.go` does; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q }`<br>`tree`: `}` |
+| `workspace.prev` | Previous Workspace | open a session of the workspace before the one shown, as `workspace.next` does, going round at the start; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q {`<br>`tree`: `{` |
 | `session.pick` | Go to or Start Session… | open the picker, to go to a session or choose where a new one works ([details](../tree.md#going-to-a-session-or-starting-one)) | `global`: `Mod+p`<br>`tree`: `w` |
 | `session.new` | New Session | start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere | `global`: `Mod+t`<br>`tree`: `n` |
 | `session.scratch` | New Scratch Session | start a scratch session, with the prompt ready: one that runs in the scratch folder, for talking about something no project holds ([details](../tree.md#scratch-sessions)) |  |
@@ -260,13 +259,13 @@ changes them ([keys](../keys.md)).
 "G" = "cursor.last"
 "Enter" = "cursor.go"
 "o" = "cursor.go"
-"l" = "cursor.show"
+"l" = "cursor.go"
 "s" = "cursor.split"
 "v" = "cursor.vsplit"
 "t" = "cursor.tab"
-"L" = "cursor.show"
-"Shift+Enter" = "cursor.show"
-"Ctrl+Enter" = "cursor.show"
+"L" = "cursor.go"
+"Shift+Enter" = "cursor.go"
+"Ctrl+Enter" = "cursor.go"
 "h" = "cursor.fold"
 "n" = "session.new"
 "$" = "shell.open"

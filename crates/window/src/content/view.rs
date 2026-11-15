@@ -80,7 +80,6 @@ pub(crate) fn ContentPanel(
     let windows_el: Vec<Element> = match windows.current() {
         None => vec![rsx! { FocusedBody {} }],
         Some(tab) => {
-            let preview = tab.is_preview();
             let hosts = app.hosts.read();
             let mut out = Vec::new();
             for (id, r) in tab.rects() {
@@ -146,7 +145,7 @@ pub(crate) fn ContentPanel(
                     }
                 };
                 out.push(rsx! {
-                    ContentWindow { key: "{id}", id, r, marked, preview, strip, body }
+                    ContentWindow { key: "{id}", id, r, marked, strip, body }
                 });
             }
             for b in tab.borders() {

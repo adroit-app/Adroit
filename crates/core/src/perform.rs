@@ -275,7 +275,6 @@ pub(crate) fn perform(
         | Action::CursorVsplit
         | Action::CursorTab
         | Action::CursorClose
-        | Action::CursorShow
         | Action::CursorFold
         | Action::CursorCopy
         | Action::CursorReveal
@@ -304,9 +303,13 @@ pub(crate) fn perform(
             };
             open(state, item, Some(how), true)
         }
-        Action::CursorShow => match cur {
+        Action::CursorFold => step(state, Msg::TreeKey(TreeKey::Fold)),
+        // On the tree's files, the filer's actions are the tree's own.
+        Action::FilerDown => perform(state, Action::CursorDown, key, probe),
+        Action::FilerUp => perform(state, Action::CursorUp, key, probe),
+        Action::FilerInto => match cur {
             // A row that only folds, or one folded, is gone into: what it
-            // holds is what there is to look at.
+            // holds is what there is to go to.
             Some(item)
                 if matches!(
                     nav::opens(
@@ -320,14 +323,9 @@ pub(crate) fn perform(
             {
                 step(state, Msg::TreeKey(TreeKey::Into))
             }
-            Some(item) => open(state, item, Some(Opening::Preview), false),
+            Some(_) => perform(state, Action::CursorGo, key, probe),
             None => Vec::new(),
         },
-        Action::CursorFold => step(state, Msg::TreeKey(TreeKey::Fold)),
-        // On the tree's files, the filer's actions are the tree's own.
-        Action::FilerDown => perform(state, Action::CursorDown, key, probe),
-        Action::FilerUp => perform(state, Action::CursorUp, key, probe),
-        Action::FilerInto => perform(state, Action::CursorShow, key, probe),
         Action::FilerOut => perform(state, Action::CursorFold, key, probe),
         Action::FilerOpen => perform(state, Action::CursorGo, key, probe),
         Action::FilerHidden => step(state, Msg::TreeKey(TreeKey::Hidden)),
@@ -360,7 +358,7 @@ pub(crate) fn perform(
                 return Vec::new();
             };
             let waiting = Item::Waiting(environment, id);
-            let mut effects = open(state, waiting, Some(Opening::Preview), false);
+            let mut effects = open(state, waiting, Some(Opening::Existing), false);
             // It waits on an answer, given in the console.
             effects.extend(step(state, Msg::Focus(Area::Console)));
             effects
@@ -525,7 +523,6 @@ fn details_key(action: Action) -> Option<details::Key> {
         Action::CursorFirst => details::Key::First,
         Action::CursorLast => details::Key::Last,
         Action::CursorGo => details::Key::Open,
-        Action::CursorShow => details::Key::OpenIn(Opening::Preview),
         Action::CursorSplit => details::Key::OpenIn(Opening::Split(Axis::Column)),
         Action::CursorVsplit => details::Key::OpenIn(Opening::Split(Axis::Row)),
         Action::CursorTab => details::Key::OpenIn(Opening::Tab),

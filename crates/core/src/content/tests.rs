@@ -1471,13 +1471,13 @@ fn a_neovim_started_after_its_window_moved_on_opens_beside_what_it_shows_now() {
     let run = document_work(false).send(Msg::Show {
         thing: readme(),
         place: None,
-        how: Some(Opening::Preview),
+        how: Some(Opening::Existing),
     });
     let window = focused_window(&run);
     let moved_on = run.send(edit()).send(Msg::Show {
         thing: session_tab("a"),
         place: None,
-        how: Some(Opening::Preview),
+        how: Some(Opening::InWindow(window)),
     });
     let started = moved_on.send(Msg::Show {
         thing: Tab::Terminal(here(), 9),

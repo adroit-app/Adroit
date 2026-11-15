@@ -33,7 +33,6 @@ Neovim is asked to quit as any Neovim no window shows is.
 
 - One window can stand for a running program it does not draw, which the
   rule that a hidden Neovim quits has to except.
-- Switching is the one way something takes the place of what a window shows
-  other than the preview.
+- Switching is the one way something takes the place of what a window shows.
 - A Neovim is started for a window that may show something else by the time
   it runs; it then opens as anything else opens.

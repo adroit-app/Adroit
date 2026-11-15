@@ -204,9 +204,8 @@ program in the console or prompt.
 
 ### Tree and files
 
-Use `j`/`k` and `gg`/`G` to move. `Enter` or `o` opens a row, returning to a
-window already showing it or opening a new tab. `l` previews it while the keys
-stay in the tree. `s`, `v` and `t` open it in a split below, a split beside or
+Use `j`/`k` and `gg`/`G` to move. `Enter`, `o` or `l` opens a row, returning to a
+window already showing it or opening a new tab. `s`, `v` and `t` open it in a split below, a split beside or
 a new tab. Directories and headings fold and unfold; `h` goes back out.
 
 Files open in Neovim or a viewer for their kind. `x` closes what a row shows

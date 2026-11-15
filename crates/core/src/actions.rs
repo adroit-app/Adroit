@@ -57,7 +57,6 @@ pub enum Action {
     CursorSplit,
     CursorVsplit,
     CursorTab,
-    CursorShow,
     CursorFold,
     CursorClose,
     CursorCopy,
@@ -294,13 +293,13 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(Steps::Tabs),
     S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(Steps::Tabs),
     S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
-    S::new(A::TabMovePrev, "tab.move_prev", "move the content's tab shown one place toward the first, the preview staying after every tab").says("Move the tab left").repeats(Steps::TabOrder),
-    S::new(A::TabMoveNext, "tab.move_next", "move the content's tab shown one place toward the last, the preview staying after every tab").says("Move the tab right").repeats(Steps::TabOrder),
+    S::new(A::TabMovePrev, "tab.move_prev", "move the content's tab shown one place toward the first").says("Move the tab left").repeats(Steps::TabOrder),
+    S::new(A::TabMoveNext, "tab.move_next", "move the content's tab shown one place toward the last").says("Move the tab right").repeats(Steps::TabOrder),
     S::new(A::CursorDown, "cursor.down", "move the selection in the tree to the next row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the next row"),
     S::new(A::CursorUp, "cursor.up", "move the selection in the tree to the previous row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the previous row"),
     S::new(A::CursorFirst, "cursor.first", "move the selection in the tree to the first row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the first row"),
     S::new(A::CursorLast, "cursor.last", "move the selection in the tree to the last row; in the details panel, in the list it shows, or scroll what else it shows").says("Select the last row"),
-    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, keeping the preview when that shows it, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row, an image of Resources as a file is opened, the keys staying in the panel")
+    S::new(A::CursorGo, "cursor.go", "open the selected session, shell, worktree or file: go to a window showing it, in any tab, or else open it in a new tab after the one shown, and move to it, or to the prompt of a session not started yet; on a folded row, a worktree or a session holding others too, unfold it instead; fold or unfold a workspace, a heading or a directory; in the details panel, open the selected row, an image of Resources as a file is opened, the keys staying in the panel")
         .says("Open it")
         .icon(Icon::ArrowRight)
         .row("Open", Go),
@@ -313,10 +312,6 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorTab, "cursor.tab", "open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already; in the details panel, the selected image of Resources")
         .icon(Icon::BrowserPlus)
         .row("Open in a new tab", Go),
-    S::new(A::CursorShow, "cursor.show", "look at the selected session, shell, worktree or file: show the tab already showing it and close the preview, or else show it in the preview, with the keys staying in the tree; go into a workspace, a heading, a directory or a folded row instead: unfold it and go to its first row once it is listed; in the details panel, look at the selected image of Resources in the preview, the keys staying in the panel, or open any other row")
-        .says("Look at it in the preview")
-        .icon(Icon::Eye)
-        .row("Preview", Go),
     S::new(A::CursorFold, "cursor.fold", "fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from").says("Fold, or go back"),
     S::new(A::CursorClose, "cursor.close", "close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on")
         .icon(Icon::SquareMinus)
@@ -329,7 +324,7 @@ pub static ACTIONS: &[ActionSpec] = &[
         .row("Reveal in Finder", Go),
     S::new(A::FilerDown, "filer.down", "move to the next file or directory, in the tree's files or the picker's directories").says("Next entry"),
     S::new(A::FilerUp, "filer.up", "move to the previous file or directory").says("Previous entry"),
-    S::new(A::FilerInto, "filer.into", "open the directory selected and go to its first entry once it is read; on a file of the tree, look at it as `cursor.show` does").says("Go into"),
+    S::new(A::FilerInto, "filer.into", "open the directory selected and go to its first entry once it is read; on a file of the tree, open it as `cursor.go` does").says("Go into"),
     S::new(A::FilerOut, "filer.out", "close the directory selected when it is open, or else the one it is in, going there").says("Close the directory"),
     S::new(A::FilerOpen, "filer.open", "in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected").says("Open"),
     S::new(A::FilerHidden, "filer.hidden", "show or hide the files and directories whose names start with `.`").says("Show or hide the hidden"),
@@ -339,12 +334,12 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::DirectoryNew, "directory.new", "type the name of a directory to make, where `file.new` makes a file")
         .icon(Icon::FolderPlus)
         .row("New directory…", Start),
-    S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown).repeats(Steps::Waiting),
-    S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp).repeats(Steps::Waiting),
-    S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown).repeats(Steps::Sessions),
-    S::new(A::SessionPrev, "session.prev", "look at the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, in the preview; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp).repeats(Steps::Sessions),
-    S::new(A::WorkspaceNext, "workspace.next", "look at a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, in the preview; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown).repeats(Steps::Workspaces),
-    S::new(A::WorkspacePrev, "workspace.prev", "look at a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp).repeats(Steps::Workspaces),
+    S::new(A::WaitingNext, "waiting.next", "open the next session waiting on you as `cursor.go` does, with the keys in its console").bar("Next Waiting", Icon::BellDown).repeats(Steps::Waiting),
+    S::new(A::WaitingPrev, "waiting.prev", "open the previous session waiting on you as `cursor.go` does, with the keys in its console").bar("Previous Waiting", Icon::BellUp).repeats(Steps::Waiting),
+    S::new(A::SessionNext, "session.next", "open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, as `cursor.go` does; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown).repeats(Steps::Sessions),
+    S::new(A::SessionPrev, "session.prev", "open the session before the one shown, in the tree's order over every session, folded away or filtered out too, going round at the start, as `cursor.go` does; the keys stay in the area they are in").bar("Previous Session", Icon::MessageUp).repeats(Steps::Sessions),
+    S::new(A::WorkspaceNext, "workspace.next", "open a session of the workspace after the one shown, in the tree's order over every workspace holding a session, folded away or filtered out too, going round at the end: the session last shown there since the window opened, or else its first, as `cursor.go` does; the keys stay in the area they are in").bar("Next Workspace", Icon::FolderDown).repeats(Steps::Workspaces),
+    S::new(A::WorkspacePrev, "workspace.prev", "open a session of the workspace before the one shown, as `workspace.next` does, going round at the start").bar("Previous Workspace", Icon::FolderUp).repeats(Steps::Workspaces),
     S::new(A::SessionPick, "session.pick", "open the picker, to go to a session or choose where a new one works ([details](tree.md#going-to-a-session-or-starting-one))").bar("Go to or Start Session…", Icon::Search),
     S::new(A::SessionNew, "session.new", "start a session, with the prompt ready to write its first message: in the selected row's worktree or directory from the tree, in the one the focused window shows from elsewhere")
         .bar("New Session", Icon::MessagePlus)
@@ -619,7 +614,6 @@ mod tests {
             CursorSplit,
             CursorVsplit,
             CursorTab,
-            CursorShow,
             CursorFold,
             CursorClose,
             CursorCopy,
