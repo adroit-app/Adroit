@@ -28,6 +28,7 @@ pub const CSS: &str = concat!(
     include_str!("../assets/css/prompt.css"),
     include_str!("../assets/css/details.css"),
     include_str!("../assets/css/footer.css"),
+    include_str!("../assets/css/controls-base.css"),
     include_str!("../assets/css/controls.css"),
     include_str!("../assets/css/launch.css"),
     include_str!("../assets/css/picker.css"),
@@ -41,6 +42,7 @@ pub const CSS: &str = concat!(
 /// is drawn as the panel is.
 pub const SETTINGS_CSS: &str = concat!(
     include_str!("../assets/css/tokens.css"),
+    include_str!("../assets/css/controls-base.css"),
     include_str!("../assets/css/settings.css"),
     "@scope (.dl-preview) {\n",
     include_str!("../assets/css/base.css"),

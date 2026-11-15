@@ -16,8 +16,8 @@ use dioxus::desktop::{
 use dioxus::prelude::*;
 
 use crate::components::{
-    NumberField, SettingGroup, SettingRow, SettingsError, SettingsFileError, TextArea, TextField,
-    Toggle,
+    Button, NumberField, SettingGroup, SettingRow, SettingsError, SettingsFileError, TextArea,
+    TextField, Toggle,
 };
 use crate::feed::{root_style, use_config};
 use crate::fonts;
@@ -607,7 +607,7 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
             SettingRow { label: "Themes folder", hint: if remote { themes_dir.display().to_string() } else { tilde(&themes_dir, &home()) },
-                button {
+                Button {
                     disabled: remote,
                     title: if remote { "Manage themes on the work machine" } else { "Open the themes folder" },
                     onclick: move |_| {

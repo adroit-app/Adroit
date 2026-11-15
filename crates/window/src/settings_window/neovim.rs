@@ -13,7 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::{open_with, run_open};
 use crate::bridge::AppCtx;
-use crate::components::{SettingGroup, SettingRow};
+use crate::components::{Button, SettingGroup, SettingRow};
 use crate::icons::{Icon, IconView};
 use crate::link::Link;
 use crate::paths::home;
@@ -70,7 +70,7 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
     rsx! {
         SettingGroup { title: "Neovim",
             SettingRow { label: "Configuration on this computer", hint: "{shown}",
-                button {
+                Button {
                     title: "Copy the folder's path",
                     onclick: {
                         let dir = dir.clone();
@@ -82,7 +82,7 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
                     IconView { icon: Icon::Copy, size: 13 }
                     if copied() { "Copied" } else { "Copy path" }
                 }
-                button {
+                Button {
                     onclick: {
                         let dir = dir.clone();
                         move |_| {
@@ -93,7 +93,7 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
                     IconView { icon: Icon::FolderOpen, size: 14 }
                     "Show in Finder"
                 }
-                button {
+                Button {
                     title: "Edit init.lua in a Neovim of the main window",
                     onclick: move |_| {
                         // Neovim starts in the folder, which has to be there.

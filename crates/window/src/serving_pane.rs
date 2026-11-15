@@ -7,7 +7,7 @@ use std::time::Duration;
 use adroit_connect::serving::{Asking, Client, Serving, ThisComputer};
 use dioxus::prelude::*;
 
-use crate::components::{SettingGroup, SettingRow, SettingsError, Toggle};
+use crate::components::{Button, SettingGroup, SettingRow, SettingsError, Toggle};
 
 /// How often the pane asks the gateway again, so a request a client just
 /// sent shows without the operator reaching for a button.
@@ -115,7 +115,7 @@ pub(crate) fn ServingPane() -> Element {
                 match &*serving.read() {
                     None => rsx! { span { class: "settings-hint", "Checking…" } },
                     Some(None) => rsx! {
-                        button { r#type: "button", class: "primary", disabled: busy(), onclick: {
+                        Button { kind: "primary", disabled: busy(), onclick: {
                             let here = here.clone();
                             move |_| {
                                 busy.set(true); error.set(None); notice.set(None);
@@ -132,7 +132,7 @@ pub(crate) fn ServingPane() -> Element {
                         }, if busy() { "Starting…" } else { "Turn on" } }
                     },
                     Some(Some(_)) => rsx! {
-                        button { r#type: "button", disabled: busy(), onclick: move |_| {
+                        Button { disabled: busy(), onclick: move |_| {
                             busy.set(true); error.set(None); notice.set(None);
                             spawn(async move {
                                 if let Err(why) = adroit_connect::serving::disable().await { error.set(Some(why)); }
@@ -166,12 +166,12 @@ pub(crate) fn ServingPane() -> Element {
                 SettingRow { label: if pairing { "Waiting for requests" } else { "Allow pairing" },
                     hint: if pairing { "On the other computer, choose Add environment below the main window's tree and pick this computer or type its address." } else { "Accept pairing requests for the next ten minutes." },
                     if pairing {
-                        button { r#type: "button", onclick: {
+                        Button { onclick: {
                             let here = here.clone();
                             move |_| { let here = here.clone(); spawn(async move { error.set(here.close_pairing().await.err()); }); }
                         }, "Stop" }
                     } else {
-                        button { r#type: "button", class: "primary", onclick: {
+                        Button { kind: "primary", onclick: {
                             let here = here.clone();
                             move |_| { let here = here.clone(); notice.set(None); spawn(async move { error.set(here.open_pairing().await.err()); }); }
                         }, "Allow pairing" }
@@ -187,11 +187,11 @@ pub(crate) fn ServingPane() -> Element {
                             value: codes.read().get(&request.id).cloned().unwrap_or_default(),
                             oninput: move |e| { codes.write().insert(request.id, e.value()); },
                         }
-                        button { r#type: "button", onclick: {
+                        Button { onclick: {
                             let here = here.clone();
                             move |_| { let here = here.clone(); spawn(async move { error.set(here.refuse(request.id).await.err()); }); }
                         }, "Refuse" }
-                        button { r#type: "button", class: "primary", disabled: codes.read().get(&request.id).is_none_or(|code| code.trim().is_empty()), onclick: {
+                        Button { kind: "primary", disabled: codes.read().get(&request.id).is_none_or(|code| code.trim().is_empty()), onclick: {
                             let here = here.clone();
                             let name = request.name.clone();
                             move |_| {
@@ -217,7 +217,7 @@ pub(crate) fn ServingPane() -> Element {
             }
             for client in clients.read().clone() {
                 SettingRow { key: "{client.fingerprint}", label: named(&client.name, client.this_computer), hint: format!("Paired {} · Key {}", since(client.paired_at, now()), short(&client.fingerprint)),
-                    button { r#type: "button", class: "danger", onclick: {
+                    Button { kind: "danger", onclick: {
                         let here = here.clone();
                         let client = client.clone();
                         move |_| {

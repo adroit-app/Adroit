@@ -7,7 +7,7 @@ use adroit_model::paths::tilde;
 
 use super::{KEYS_STARTER, open_with, run_open};
 use crate::build::build;
-use crate::components::{SettingGroup, SettingRow};
+use crate::components::{Button, SettingGroup, SettingRow};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::link::Link;
@@ -63,7 +63,7 @@ pub(super) fn AboutPane() -> Element {
         SettingGroup { title: "Files",
             for (name, path, starter, remote) in files {
                 SettingRow { key: "{name}", label: name, hint: if remote { path.display().to_string() } else { tilde(&path, &home()) },
-                    button {
+                    Button {
                         disabled: remote,
                         title: "Open in the text editor",
                         onclick: {
@@ -73,7 +73,7 @@ pub(super) fn AboutPane() -> Element {
                         IconView { icon: Icon::FilePencil, size: 14 }
                         "Open"
                     }
-                    button {
+                    Button {
                         disabled: remote,
                         onclick: move |_| if !remote { open_with("-R", &path, starter); },
                         IconView { icon: Icon::FolderOpen, size: 14 }

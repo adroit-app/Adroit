@@ -8,7 +8,7 @@ use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
 
 use super::Edited;
-use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
+use crate::components::{Button, SettingGroup, SettingRow, SettingsError, TextField};
 use crate::environments::{self, fresh_name};
 
 /// What `target` is called where a connection is chosen.
@@ -110,8 +110,7 @@ pub(super) fn EnvironmentPane() -> Element {
             }
         }
         div { class: "settings-page-actions",
-            button {
-                r#type: "button",
+            Button {
                 disabled: busy(),
                 onclick: {
                     let target = shown.clone();
@@ -135,9 +134,8 @@ pub(super) fn EnvironmentPane() -> Element {
                 if busy() { "Checking…" } else { "Test connection" }
             }
             if moving {
-                button {
-                    r#type: "button",
-                    class: "primary",
+                Button {
+                    kind: "primary",
                     disabled: busy(),
                     onclick: {
                         let name = kept.name.clone();
@@ -169,7 +167,7 @@ pub(super) fn EnvironmentPane() -> Element {
         if removable {
             SettingGroup { title: "Remove",
                 SettingRow { label: "Remove {kept.name}", hint: "Every window stops listing it. Its sessions keep running on its host, and it can be restored from Settings.",
-                    button { r#type: "button", class: "danger", onclick: move |_| removing.set(true), "Remove…" }
+                    Button { kind: "danger", onclick: move |_| removing.set(true), "Remove…" }
                 }
             }
         }
@@ -180,9 +178,8 @@ pub(super) fn EnvironmentPane() -> Element {
                     "Every window stops listing it. Its sessions keep running on its host, and it can be restored from Settings."
                 }
                 div { class: "settings-page-actions",
-                    button {
-                        r#type: "button",
-                        class: "danger",
+                    Button {
+                        kind: "danger",
                         onclick: move |_| match environments::archive(&Catalog::path(), &id) {
                             // Nothing is left here to configure.
                             Ok(()) => super::close(),
@@ -193,7 +190,7 @@ pub(super) fn EnvironmentPane() -> Element {
                         },
                         "Remove"
                     }
-                    button { r#type: "button", onclick: move |_| removing.set(false), "Keep" }
+                    Button { onclick: move |_| removing.set(false), "Keep" }
                 }
             }
         }
@@ -236,8 +233,7 @@ pub(super) fn RemovedPane() -> Element {
             }
             for environment in removed {
                 SettingRow { key: "{environment.id}", label: environment.name.clone(), hint: connection_name(&environment.target),
-                    button {
-                        r#type: "button",
+                    Button {
                         onclick: {
                             let id = EnvironmentId::new(&environment.id);
                             move |_| {

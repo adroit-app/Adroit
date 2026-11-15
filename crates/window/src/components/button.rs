@@ -5,15 +5,27 @@ use crate::icons::{Icon, IconView};
 
 /// A button of the windows' own look, `kind` naming one of its colours,
 /// such as `primary` or `danger`; `children` say what it does.
+///
+/// It is never a form's submit button: pressing it only calls `onclick`.
 #[component]
 pub fn Button(
     #[props(default)] kind: String,
     #[props(default)] title: Option<String>,
+    #[props(default)] aria_label: Option<String>,
+    #[props(default)] disabled: bool,
     onclick: EventHandler<MouseEvent>,
     children: Element,
 ) -> Element {
     rsx! {
-        button { class: classes("button", &kind), title, onclick: move |e| onclick.call(e), {children} }
+        button {
+            r#type: "button",
+            class: classes("button", &kind),
+            title,
+            aria_label,
+            disabled,
+            onclick: move |e| onclick.call(e),
+            {children}
+        }
     }
 }
 

@@ -4,9 +4,6 @@
 .dialog-title { color: var(--text); font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .dialog-title .icon { color: var(--text-2); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
-.button { display: inline-flex; border: 0; font: inherit; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; background: var(--select); color: var(--text); cursor: default; }
-.button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
-.button.danger { color: var(--fail); background: var(--fail-tint); }
 .sidebar-tool { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
   background: transparent; color: var(--text-2); font-size: 15px; line-height: 1; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }

@@ -12,7 +12,7 @@ use adroit_core::config::Config;
 use adroit_protocol::FileText;
 
 use crate::actions::Action;
-use crate::components::{Keys, SettingsError};
+use crate::components::{Button, Keys, SettingsError};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
@@ -111,10 +111,10 @@ pub fn KeysPane() -> Element {
                 value: "{filter}",
                 oninput: move |e| filter.set(e.value()),
             }
-            button { title: "Open the keys file", onclick: move |_| crate::settings_window::open_with("-t", &path, crate::client_keys::STARTER), "Open keys.toml" }
+            Button { title: "Open the keys file", onclick: move |_| crate::settings_window::open_with("-t", &path, crate::client_keys::STARTER), "Open keys.toml" }
             if confirm_reset() {
-                button {
-                    class: "danger",
+                Button {
+                    kind: "danger",
                     onclick: move |_| {
                         confirm_reset.set(false);
                         let t = text.peek().clone();
@@ -122,9 +122,9 @@ pub fn KeysPane() -> Element {
                     },
                     "Reset every binding"
                 }
-                button { onclick: move |_| confirm_reset.set(false), "Keep them" }
+                Button { onclick: move |_| confirm_reset.set(false), "Keep them" }
             } else {
-                button { onclick: move |_| confirm_reset.set(true), "Reset all…" }
+                Button { onclick: move |_| confirm_reset.set(true), "Reset all…" }
             }
         }
         p { class: "keys-lead", "{view().lead()}" }
@@ -430,13 +430,13 @@ fn ActionForm(
                 }
             }
             div { class: "binding-actions",
-                button {
-                    class: "primary",
+                Button {
+                    kind: "primary",
                     disabled: !valid || same || recording(),
                     onclick: move |_| save.clone()(),
                     if old.is_some() { "Save" } else { "Add" }
                 }
-                button { onclick: move |_| on_close.call(()), "Cancel" }
+                Button { onclick: move |_| on_close.call(()), "Cancel" }
             }
         }
     }
@@ -505,8 +505,8 @@ fn KeyField(typed: Signal<String>, recording: Signal<bool>, on_enter: EventHandl
                 },
             }
             if recording() {
-                button { onclick: move |_| recording.set(false), "Done" }
-                button {
+                Button { onclick: move |_| recording.set(false), "Done" }
+                Button {
                     onclick: move |_| {
                         typed.set(before.peek().clone());
                         recording.set(false);
@@ -514,7 +514,7 @@ fn KeyField(typed: Signal<String>, recording: Signal<bool>, on_enter: EventHandl
                     "Cancel"
                 }
             } else {
-                button { title: "Press the keys to bind", onclick: move |_| start(),
+                Button { title: "Press the keys to bind", onclick: move |_| start(),
                     IconView { icon: Icon::Keyboard, size: 14 }
                     "Record"
                 }
@@ -767,17 +767,17 @@ fn BindingForm(
                 div { class: "binding-note warn", "{c}" }
             }
             div { class: "binding-actions",
-                button {
-                    class: "primary",
+                Button {
+                    kind: "primary",
                     disabled: !valid || same || recording(),
                     onclick: move |_| save.clone()(),
                     if was_keys.is_some() { "Save" } else { "Add" }
                 }
-                button { onclick: move |_| on_close.call(()), "Cancel" }
+                Button { onclick: move |_| on_close.call(()), "Cancel" }
                 div { class: "binding-actions-spacer" }
                 if let Some(old) = was_keys.clone() {
-                    button {
-                        class: "danger",
+                    Button {
+                        kind: "danger",
                         onclick: move |_| on_apply.call(keys_edit::unbind(&text, area, &old).map_err(|e| e.to_string())),
                         "Delete"
                     }

@@ -29,7 +29,7 @@
 .adding-address { display: flex; gap: 8px; }
 .adding-input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: 6px; background: var(--raised); border: 1px solid var(--line-strong);
   color: var(--text); font: 12px var(--mono); outline: none; }
-.adding-input:focus { border-color: var(--focus-border); }
+.adding-input:focus { border-color: var(--input-focus); }
 .adding-note { margin: 0; color: var(--text-2); }
 .adding-waiting, .adding-paired { display: flex; align-items: center; gap: 8px; }
 .adding-paired .icon { color: var(--done); }

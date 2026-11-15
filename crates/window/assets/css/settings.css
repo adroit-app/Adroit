@@ -19,7 +19,6 @@ button.settings-nav-item.on { background: var(--select); }
 .settings-agent-note { color: var(--text-3); font-size: 12px; line-height: 1.5; margin: 12px 0 18px; }
 /* The page about adroit is not a page of settings, so it sits apart at the foot. */
 .settings-nav-spacer { flex: 1; min-height: 12px; }
-button:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .settings-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 0 32px 32px; }
 .settings-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 /* Addresses and keys are typed or compared on another machine, so they can be selected. */
@@ -54,10 +53,9 @@ input[type=number] { width: 72px; }
 input.settings-command { width: 260px; font-family: var(--mono); font-size: 12px; }
 textarea.settings-env { width: 260px; height: 64px; resize: vertical; font-family: var(--mono); font-size: 12px; }
 input[type=checkbox] { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--run); }
-select:focus, input:focus, textarea:focus { border-color: var(--run); }
+select:focus, input:focus, textarea:focus { border-color: var(--input-focus); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: var(--line-strong); }
-button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 500; }
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
 @media (max-width: 760px) {
   .settings-nav { width: 155px; }
@@ -69,8 +67,7 @@ button.primary { background: var(--wait-tint); color: var(--wait); font-weight: 
 }
 .keys-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .keys-bar-search { flex: 1; min-width: 0; }
-kbd { font-family: var(--mono); font-size: 10.5px; color: var(--kbd-text); background: var(--raised); border: 1px solid var(--line-strong);
-  border-radius: 4px; padding: 0 5px; margin-right: 3px; }
+kbd { margin-right: 3px; }
 .keys-area { padding: 4px 0 6px; }
 .keys-area-head { padding: 8px 14px 6px; }
 .keys-area-head h2 { padding: 0; margin: 0; }
@@ -83,7 +80,6 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: var(--kbd-text); backg
 .binding.gone .binding-mark { color: var(--text-3); background: var(--raised); }
 button.settings-link { background: none; border: none; color: var(--run); padding: 2px 4px; }
 button.settings-link:hover { background: none; text-decoration: underline; }
-button.danger { color: var(--fail); background: var(--fail-tint); }
 button:disabled { opacity: 0.45; }
 .binding-add { border-top: 1px solid var(--line); padding: 4px 10px 0; }
 .binding-form { border-top: 1px solid var(--line); background: var(--raised); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }

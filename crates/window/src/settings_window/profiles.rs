@@ -16,7 +16,7 @@ use dioxus::prelude::*;
 
 use super::agents::{CodexGroup, OpenCodeGroup, PiGroup, SessionGroup};
 use super::{Change, LaunchGroup};
-use crate::components::{SettingGroup, SettingRow, SettingsError, TextField};
+use crate::components::{Button, SettingGroup, SettingRow, SettingsError, TextField};
 use crate::icons::{Icon, IconView};
 use crate::link::{Link, failure, refusal};
 use crate::logins;
@@ -271,9 +271,8 @@ fn ProfilePage(
         }
         div { class: "settings-page-actions",
             if !default {
-                button {
-                    r#type: "button",
-                    class: "primary",
+                Button {
+                    kind: "primary",
                     title: "New sessions start from this profile unless the draft picks another",
                     onclick: {
                         let id = id.clone();
@@ -286,15 +285,14 @@ fn ProfilePage(
                     " Use for new sessions"
                 }
             }
-            button { r#type: "button", onclick: duplicate, disabled: remote,
+            Button { onclick: duplicate, disabled: remote,
                 title: if remote { "Duplicate agent setups on the work machine to allocate their login folders there" } else { "Duplicate agent setup" },
                 IconView { icon: Icon::Copy, size: 13 }
                 " Duplicate"
             }
             if !default {
-                button {
-                    r#type: "button",
-                    class: "danger",
+                Button {
+                    kind: "danger",
                     disabled: deleting(),
                     onclick: {
                         let mut deleting = deleting;
@@ -456,7 +454,7 @@ fn NewProfilePage(now: Settings, change: Callback<Change>, choose: Callback<Agen
             div { class: "settings-row",
                 div { class: "settings-row-label" }
                 div { class: "settings-row-control",
-                    button { r#type: "button", class: "primary", onclick: move |_| create(),
+                    Button { kind: "primary", onclick: move |_| create(),
                         IconView { icon: Icon::Plus, size: 13 }
                         " Create agent setup"
                     }
@@ -560,9 +558,8 @@ fn DeleteProfile(
                 },
             }
             div { class: "settings-page-actions",
-                button {
-                    r#type: "button",
-                    class: "danger",
+                Button {
+                    kind: "danger",
                     disabled: busy(),
                     onclick: confirm,
                     if with_folder() && matches!(folder, LoginFolder::Deletable(_)) {
@@ -571,8 +568,7 @@ fn DeleteProfile(
                         "Delete agent setup"
                     }
                 }
-                button {
-                    r#type: "button",
+                Button {
                     disabled: busy(),
                     onclick: move |_| {
                         let mut deleting = deleting;
@@ -755,8 +751,7 @@ fn LoginRow(
                 option { value: OWN, selected: home.is_some(), "{profiles::OWN}" }
             }
             span { class, role: "status", "{chip}" }
-            button {
-                r#type: "button",
+            Button {
                 title: "Check again",
                 aria_label: "Check again",
                 disabled: busy,
@@ -764,15 +759,13 @@ fn LoginRow(
                 IconView { icon: Icon::Refresh, size: 13 }
             }
             if let Some(terminal) = waiting {
-                button {
-                    r#type: "button",
+                Button {
                     onclick: move |_| c.send(Request::EndTerminal { id: terminal }),
                     "Cancel"
                 }
             } else if !remote {
-                button {
-                    r#type: "button",
-                    class: if logged_out { "primary" } else { "" },
+                Button {
+                    kind: if logged_out { "primary" } else { "" },
                     disabled: busy,
                     onclick: move |_| open_login(b.clone(), probed, login.clone()),
                     IconView { icon: Icon::Terminal, size: 13 }
