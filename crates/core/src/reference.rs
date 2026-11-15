@@ -131,8 +131,8 @@ pub fn settings() -> String {
          ([settings](../settings.md)).\n\n",
     );
     let properties = schema["properties"].as_object().unwrap();
-    let (nested, top): (Vec<_>, Vec<_>) = properties
-        .iter()
+    let (nested, top): (Vec<_>, Vec<_>) = by_name(properties)
+        .into_iter()
         .partition(|(_, field)| table(field, &defs).is_some() || entries(field, &defs).is_some());
     out.push_str("## The top level\n\n");
     rows(&mut out, "", top, &defs);
@@ -175,6 +175,16 @@ pub fn settings() -> String {
     out
 }
 
+/// The fields of `properties` by name. A JSON map keeps its keys sorted or in
+/// the order they were written depending on a `serde_json` feature that any
+/// crate in the build may turn on, and the reference must read the same
+/// either way.
+fn by_name(properties: &Map<String, Value>) -> Vec<(&String, &Value)> {
+    let mut fields: Vec<_> = properties.iter().collect();
+    fields.sort_by_key(|(name, _)| *name);
+    fields
+}
+
 /// A table's rows, then each table within it under a heading of its own.
 fn section(
     out: &mut String,
@@ -189,10 +199,8 @@ fn section(
     if let Some(about) = description(field).or_else(|| description(def)) {
         writeln!(out, "{about}\n").unwrap();
     }
-    let (inner, leaves): (Vec<_>, Vec<_>) = def["properties"]
-        .as_object()
-        .unwrap()
-        .iter()
+    let (inner, leaves): (Vec<_>, Vec<_>) = by_name(def["properties"].as_object().unwrap())
+        .into_iter()
         .partition(|(_, f)| table(f, defs).is_some() || entries(f, defs).is_some());
     rows(out, &format!("{path}."), leaves, defs);
     for (name, f) in inner {
