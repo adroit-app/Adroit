@@ -156,8 +156,10 @@ const SAVE_EVERY: Duration = Duration::from_secs(2);
 pub struct Prompts(CopyValue<UnboundedSender<Op>>);
 
 impl Prompts {
-    pub fn send(&self, op: Op) -> Result<(), SendError<Op>> {
-        self.0.read().send(op)
+    /// Fails when the prompt is gone. The op is dropped rather than handed
+    /// back: no caller sends it again, and carrying it made the error large.
+    pub fn send(&self, op: Op) -> Result<(), SendError<()>> {
+        self.0.read().send(op).map_err(|_| SendError(()))
     }
 }
 
