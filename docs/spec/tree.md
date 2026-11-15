@@ -82,8 +82,9 @@ browser, from a work machine too.
 
 `n` on a row opens a new session on it, its first prompt already naming it
 and left to finish and send: an issue's in the repository's checkout, a pull
-request's in a new worktree that starts at the pull request's head, fetched
-from GitHub, whether it comes from the repository or a fork.
+request's in a new worktree fetched from GitHub: on the pull request's own
+branch, tracking the remote's, when it comes from the repository, and at its
+head, on a branch named after its number, when it comes from a fork.
 
 Files starts folded. Unfolded, it lists the worktree's files as a
 [file tree](#file-trees). Hidden files once shown, and what git ignores, are

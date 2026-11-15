@@ -53,17 +53,73 @@ pub async fn list(root: &Path, slug: &str, listing: Listing) -> Read {
     }
 }
 
-/// A new worktree of the repository at `root` that starts at the head of
-/// its pull request `number` on GitHub, named after it; `title` describes
-/// the change a jj workspace starts.
+/// A new worktree of the repository at `root` for its pull request `number`
+/// on GitHub: on the pull request's own branch when it comes from the
+/// repository itself, or else, as for a fork's, at its head, named after
+/// it; `title` describes the change a jj workspace starts.
 pub async fn pull_worktree(root: &Path, number: u64, title: &str) -> Result<PathBuf, String> {
     let remote = remote(root)
         .await
         .ok_or("the repository has no remote on GitHub")?;
+    if let Some(branch) = own_branch(root, &remote.slug, number).await
+        && fetch_branch(root, &remote.name, &branch).await.is_ok()
+        && let Ok(made) =
+            crate::worktree::create_on_branch(root, &branch, &remote.name, title).await
+    {
+        return Ok(made.path);
+    }
     let head = fetch_pull(root, &remote.name, number).await?;
     crate::worktree::create(root, &format!("pr-{number}"), Some(&head), title)
         .await
         .map(|w| w.path)
+}
+
+/// The branch the pull request `number` of the repository `slug` comes
+/// from, when it comes from that repository rather than a fork.
+async fn own_branch(root: &Path, slug: &str, number: u64) -> Option<String> {
+    let path = format!("repos/{slug}/pulls/{number}");
+    let out = run("gh", &["api", &path], Some(root)).await.ok()?;
+    branch_of(slug, &out)
+}
+
+/// The branch of the pull request GitHub's API answered, when its head is
+/// in `slug` itself.
+fn branch_of(slug: &str, out: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Repo {
+        full_name: String,
+    }
+    #[derive(Deserialize)]
+    struct Head {
+        #[serde(rename = "ref")]
+        name: String,
+        repo: Option<Repo>,
+    }
+    #[derive(Deserialize)]
+    struct Pull {
+        head: Head,
+    }
+    let pull: Pull = serde_json::from_str(out).ok()?;
+    pull.head
+        .repo
+        .is_some_and(|r| r.full_name.eq_ignore_ascii_case(slug))
+        .then_some(pull.head.name)
+}
+
+/// The branch `branch` of `remote` fetched into the repository at `root`,
+/// where jj sees it too once imported.
+async fn fetch_branch(root: &Path, remote: &str, branch: &str) -> Result<(), String> {
+    let spec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    let failed = |e: Error| e.to_string();
+    run("git", &["fetch", "--quiet", remote, &spec], Some(root))
+        .await
+        .map_err(failed)?;
+    if Backend::of(root) == Some(Backend::Jj) {
+        run("jj", &["git", "import"], Some(root))
+            .await
+            .map_err(failed)?;
+    }
+    Ok(())
 }
 
 /// The commit the pull request `number` ends at on `remote`, fetched into
@@ -224,6 +280,63 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8(output.stdout).unwrap()
+    }
+
+    #[test]
+    fn a_pull_request_has_a_branch_of_its_own_only_when_it_comes_from_the_repository() {
+        let from = |repo: &str| {
+            format!(
+                r#"{{"head": {{"ref": "fix/parser", "repo": {repo}}}, "base": {{"ref": "main"}}}}"#
+            )
+        };
+        assert_eq!(
+            branch_of("o/r", &from(r#"{"full_name": "O/r"}"#)).as_deref(),
+            Some("fix/parser")
+        );
+        assert_eq!(branch_of("o/r", &from(r#"{"full_name": "fork/r"}"#)), None);
+        assert_eq!(branch_of("o/r", &from("null")), None);
+    }
+
+    #[tokio::test]
+    async fn a_git_worktree_on_a_pull_request_s_branch_checks_it_out_tracking_the_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, head) = cloned_with_a_pull(dir.path());
+        fetch_branch(&clone, "origin", "fix").await.unwrap();
+        let made = crate::worktree::create_on_branch(&clone, "fix", "origin", "t")
+            .await
+            .unwrap();
+        assert_eq!(made.base, head);
+        let on = sh(&made.path, "git", &["rev-parse", "--abbrev-ref", "HEAD"]);
+        assert_eq!(on.trim(), "fix");
+        let upstream = sh(
+            &made.path,
+            "git",
+            &["rev-parse", "--abbrev-ref", "@{upstream}"],
+        );
+        assert_eq!(upstream.trim(), "origin/fix");
+    }
+
+    #[tokio::test]
+    async fn a_jj_workspace_on_a_pull_request_s_branch_tracks_its_bookmark_and_starts_on_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, head) = cloned_with_a_pull(dir.path());
+        sh(&clone, "jj", &["git", "init", "--colocate"]);
+        fetch_branch(&clone, "origin", "fix").await.unwrap();
+        let made = crate::worktree::create_on_branch(&clone, "fix", "origin", "t")
+            .await
+            .unwrap();
+        let parent = sh(
+            &made.path,
+            "jj",
+            &["log", "--no-graph", "-r", "@-", "-T", "commit_id"],
+        );
+        assert_eq!(parent.trim(), head);
+        let tracked = sh(
+            &clone,
+            "jj",
+            &["bookmark", "list", "--tracked", "-T", "name ++ \"\\n\""],
+        );
+        assert!(tracked.lines().any(|l| l == "fix"), "{tracked}");
     }
 
     /// A repository standing for GitHub's, holding pull request 7 as GitHub

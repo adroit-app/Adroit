@@ -19,6 +19,8 @@ pub struct Worktree {
     backend: Backend,
     root: PathBuf,
     native: String,
+    /// The branch git made for it, which goes with it.
+    branch: Option<String>,
 }
 
 /// Makes a worktree named `name` of the repository holding `source`, starting
@@ -29,73 +31,178 @@ pub async fn create(
     base: Option<&str>,
     description: &str,
 ) -> Result<Worktree> {
-    let source = canonical(source)?;
-    let (backend, root, repository) = identify(&source).await?;
-    let slug = slug(name);
-    let parent = destination(&base_directory(&root, &repository, backend).await?)?;
-    let path = (1..)
-        .map(|n| match n {
-            1 => parent.join(&slug),
-            n => parent.join(format!("{slug}-{n}")),
-        })
-        .map(|path| exists(&path).map(|taken| (!taken).then_some(path)))
-        .find_map(Result::transpose)
-        .expect("an unbounded search finds a free name")?;
-    let native = path
-        .file_name()
-        .expect("a joined name")
-        .to_string_lossy()
-        .into_owned();
-    let default = match backend {
+    let spot = Spot::find(source, name).await?;
+    let default = match spot.backend {
         Backend::Jj => "@",
         Backend::Git => "HEAD",
     };
-    let base = revision(&source, backend, base.unwrap_or(default), base.is_none()).await?;
-    std::fs::create_dir_all(&parent)
-        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
-    match backend {
+    let base = revision(
+        &spot.source,
+        spot.backend,
+        base.unwrap_or(default),
+        base.is_none(),
+    )
+    .await?;
+    let native = spot.native.clone();
+    match spot.backend {
+        Backend::Jj => spot.workspace(&base, description).await?,
+        Backend::Git => {
+            spot.git(&[
+                "-b".as_ref(),
+                native.as_ref(),
+                spot.path.as_os_str(),
+                base.as_ref(),
+            ])
+            .await?
+        }
+    }
+    Ok(spot.with(base, Some(native)))
+}
+
+/// Makes a worktree of the repository holding `source` on its branch
+/// `branch`, as `remote` has it: git checks the branch out there, made to
+/// track `remote`'s when there is none yet; jj tracks `remote`'s bookmark
+/// and starts a workspace on it, its change described as `description`.
+pub async fn create_on_branch(
+    source: &Path,
+    branch: &str,
+    remote: &str,
+    description: &str,
+) -> Result<Worktree> {
+    let spot = Spot::find(source, branch).await?;
+    let tracked = format!("{remote}/{branch}");
+    match spot.backend {
         Backend::Jj => {
-            command(
-                &root,
+            let at = format!("{branch}@{remote}");
+            // A bookmark tracked already says so and stays as it is.
+            let _ = command(
+                &spot.root,
                 "jj",
                 &[
                     "--no-pager".as_ref(),
-                    "workspace".as_ref(),
-                    "add".as_ref(),
-                    "--name".as_ref(),
-                    native.as_ref(),
-                    "--revision".as_ref(),
-                    base.as_ref(),
-                    "--message".as_ref(),
-                    description.as_ref(),
-                    path.as_os_str(),
+                    "bookmark".as_ref(),
+                    "track".as_ref(),
+                    at.as_ref(),
                 ],
             )
-            .await?;
+            .await;
+            let base = revision(&spot.source, spot.backend, &at, false).await?;
+            spot.workspace(&base, description).await?;
+            Ok(spot.with(base, None))
         }
         Backend::Git => {
-            command(
-                &root,
+            let local = format!("refs/heads/{branch}");
+            let base = revision(&spot.source, spot.backend, &tracked, false).await?;
+            let has = command(
+                &spot.root,
                 "git",
                 &[
-                    "worktree".as_ref(),
-                    "add".as_ref(),
-                    "-b".as_ref(),
-                    native.as_ref(),
-                    path.as_os_str(),
-                    base.as_ref(),
+                    "show-ref".as_ref(),
+                    "--verify".as_ref(),
+                    "--quiet".as_ref(),
+                    local.as_ref(),
                 ],
             )
-            .await?;
+            .await
+            .is_ok();
+            if has {
+                spot.git(&[spot.path.as_os_str(), branch.as_ref()]).await?;
+                Ok(spot.with(base, None))
+            } else {
+                spot.git(&[
+                    "--track".as_ref(),
+                    "-b".as_ref(),
+                    branch.as_ref(),
+                    spot.path.as_os_str(),
+                    tracked.as_ref(),
+                ])
+                .await?;
+                Ok(spot.with(base, Some(branch.to_string())))
+            }
         }
     }
-    Ok(Worktree {
-        path,
-        base,
-        backend,
-        root,
-        native,
-    })
+}
+
+/// Where a new worktree goes: a free directory named after it beside the
+/// repository's others.
+struct Spot {
+    source: PathBuf,
+    backend: Backend,
+    root: PathBuf,
+    path: PathBuf,
+    native: String,
+}
+
+impl Spot {
+    async fn find(source: &Path, name: &str) -> Result<Self> {
+        let source = canonical(source)?;
+        let (backend, root, repository) = identify(&source).await?;
+        let slug = slug(name);
+        let parent = destination(&base_directory(&root, &repository, backend).await?)?;
+        let path = (1..)
+            .map(|n| match n {
+                1 => parent.join(&slug),
+                n => parent.join(format!("{slug}-{n}")),
+            })
+            .map(|path| exists(&path).map(|taken| (!taken).then_some(path)))
+            .find_map(Result::transpose)
+            .expect("an unbounded search finds a free name")?;
+        let native = path
+            .file_name()
+            .expect("a joined name")
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&parent)
+            .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+        Ok(Self {
+            source,
+            backend,
+            root,
+            path,
+            native,
+        })
+    }
+
+    async fn workspace(&self, base: &str, description: &str) -> Result<()> {
+        command(
+            &self.root,
+            "jj",
+            &[
+                "--no-pager".as_ref(),
+                "workspace".as_ref(),
+                "add".as_ref(),
+                "--name".as_ref(),
+                self.native.as_ref(),
+                "--revision".as_ref(),
+                base.as_ref(),
+                "--message".as_ref(),
+                description.as_ref(),
+                self.path.as_os_str(),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn git(&self, args: &[&OsStr]) -> Result<()> {
+        let all: Vec<&OsStr> = ["worktree".as_ref(), "add".as_ref()]
+            .into_iter()
+            .chain(args.iter().copied())
+            .collect();
+        command(&self.root, "git", &all).await?;
+        Ok(())
+    }
+
+    fn with(self, base: String, branch: Option<String>) -> Worktree {
+        Worktree {
+            path: self.path,
+            base,
+            backend: self.backend,
+            root: self.root,
+            native: self.native,
+            branch,
+        }
+    }
 }
 
 /// Undoes `create` for a worktree nothing has worked in yet: the directory,
@@ -140,12 +247,14 @@ pub async fn remove(worktree: &Worktree) -> Result<()> {
                 ],
             )
             .await?;
-            command(
-                &worktree.root,
-                "git",
-                &["branch".as_ref(), "-D".as_ref(), native],
-            )
-            .await?;
+            if let Some(branch) = &worktree.branch {
+                command(
+                    &worktree.root,
+                    "git",
+                    &["branch".as_ref(), "-D".as_ref(), branch.as_ref()],
+                )
+                .await?;
+            }
         }
     }
     Ok(())
