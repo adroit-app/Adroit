@@ -155,9 +155,13 @@ pub(crate) fn Body() -> Element {
 fn DetailsSide(focused: bool, shown: bool) -> Element {
     let ui = use_context::<Ui>();
     let app = ui.app;
-    let heading = match &app.tree.read().selected {
-        Some(Item::Environment(environment)) => Some(environment.clone()),
-        _ => None,
+    let (heading, github) = match &app.tree.read().selected {
+        Some(Item::Environment(environment)) => (Some(environment.clone()), None),
+        Some(Item::GitHubItem(environment, root, listing, number)) => (
+            None,
+            Some((environment.clone(), root.clone(), *listing, *number)),
+        ),
+        _ => (None, None),
     };
     // Read, so the last input shown follows a pane started.
     let _ = (ui.local.attached)();
@@ -208,7 +212,11 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             hidden: !shown,
             style: "width:{width}px",
             onmousedown: move |_| app.dispatch(Msg::Focus(Area::Details)),
-            if let Some(environment) = heading {
+            if let Some((environment, root, listing, number)) = github {
+                div { class: "details-scroll",
+                    details::GitHubCard { environment, root, listing, number }
+                }
+            } else if let Some(environment) = heading {
                 div { class: "details-scroll",
                     EnvironmentCard { environment }
                 }

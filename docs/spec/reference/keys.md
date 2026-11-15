@@ -58,6 +58,7 @@ changes them ([keys](../keys.md)).
 | `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `x` |
 | `cursor.copy` |  | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path | `tree`: `y`<br>`details`: `y` |
 | `cursor.reveal` |  | in the details panel, show the selected file of the overview in the Finder |  |
+| `cursor.browse` |  | open the selected pull request or issue on GitHub in the browser | `tree`: `g x`<br>`viewer`: `g x` |
 | `filer.down` |  | move to the next file or directory, in the tree's files or the picker's directories | `filer`: `j`, `ArrowDown` |
 | `filer.up` |  | move to the previous file or directory | `filer`: `k`, `ArrowUp` |
 | `filer.into` |  | open the directory selected and go to its first entry once it is read; on a file of the tree, open it as `cursor.go` does | `filer`: `l`, `ArrowRight` |
@@ -285,6 +286,7 @@ changes them ([keys](../keys.md)).
 "X" = "session.stop"
 "R" = "session.rename"
 "y" = "cursor.copy"
+"g x" = "cursor.browse"
 "i" = "prompt.write"
 "a" = "prompt.write"
 "r" = "refresh"
@@ -384,6 +386,7 @@ changes them ([keys](../keys.md)).
 "h" = "viewer.back"
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
+"g x" = "cursor.browse"
 "e" = "window.edit"
 "q" = "window.quit"
 

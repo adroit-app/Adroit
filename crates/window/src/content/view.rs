@@ -11,7 +11,7 @@ use adroit_core::msg::Msg;
 use adroit_core::tree as tree_view;
 use dioxus::prelude::*;
 
-use super::bodies::{DrawnWindow, FocusedBody, UnfocusedBody, ViewerWindow};
+use super::bodies::{DrawnWindow, FocusedBody, GitHubWindow, UnfocusedBody, ViewerWindow};
 use super::tabs_bar::TabsBar;
 use super::window::{ContentWindow, WindowBorder, WindowDrop, window_strip};
 use crate::actions::Action;
@@ -64,7 +64,9 @@ pub(crate) fn ContentPanel(
         let shows = windows.shows(m.window)?;
         let hosts = app.hosts.read();
         let work = hosts.work(shows.environment());
-        let name = thing_name(tree_view::listed(work), tree_view::terminals(work), shows);
+        let name = tree_view::github_title(work, shows).unwrap_or_else(|| {
+            thing_name(tree_view::listed(work), tree_view::terminals(work), shows)
+        });
         let more = m
             .tab
             .and_then(|at| windows.tabs().get(at))
@@ -91,7 +93,8 @@ pub(crate) fn ContentPanel(
                 let focused = Some(id) == focused_window;
                 let marked = Some(id) == marked_window;
                 let settings = &app.config.read().settings;
-                let strip = window_strip(t, terms, &completions.read(), settings, &shows);
+                let title = tree_view::github_title(work, &shows);
+                let strip = window_strip(t, terms, &completions.read(), settings, &shows, title);
                 // A viewer is drawn the same focused or not, so it keeps its
                 // zoom, page and playback as the focus moves.
                 let body = if let Tab::Viewer(environment, path) = &shows {
@@ -115,6 +118,26 @@ pub(crate) fn ContentPanel(
                             on_link: move |file| {
                                 app.dispatch(Msg::OpenFile(environment.clone(), file))
                             },
+                        }
+                    }
+                } else if let Tab::GitHub {
+                    environment,
+                    repository,
+                    listing,
+                    number,
+                } = &shows
+                {
+                    rsx! {
+                        GitHubWindow {
+                            key: "{id}",
+                            window: id,
+                            environment: environment.clone(),
+                            repository: repository.clone(),
+                            listing: *listing,
+                            number: *number,
+                            theme,
+                            commands: viewer_command,
+                            on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
                         }
                     }
                 } else if let Tab::Drawn {

@@ -57,9 +57,13 @@ pub(super) fn TabsBar(
                             .is_some_and(|o| o.permissions == AgentPermissions::ReadOnly);
                         (None, session_mark(reader))
                     }
-                    Tab::Terminal(_, _) | Tab::Viewer(_, _) | Tab::Drawn { .. } => (None, None),
+                    Tab::Terminal(_, _)
+                    | Tab::Viewer(_, _)
+                    | Tab::Drawn { .. }
+                    | Tab::GitHub { .. } => (None, None),
                 };
-                let name = thing_name(t, terms, &shows);
+                let name = tree_view::github_title(work, &shows)
+                    .unwrap_or_else(|| thing_name(t, terms, &shows));
                 let code = thing_code(t, &shows);
                 (
                     shows,

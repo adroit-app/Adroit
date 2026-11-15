@@ -105,7 +105,7 @@ fn successor(listed: &Listed, tab: &Tab) -> Option<Tab> {
                 .find(|t| t.restored_from.as_deref() == Some(old.as_str()))
                 .map(|t| Tab::Terminal(environment.clone(), t.id))
         }
-        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => None,
     }
 }
 
@@ -124,7 +124,9 @@ fn waits(listed: &Listed, tab: &Tab) -> bool {
     let id = match tab {
         Tab::Session(_, id) => id.clone(),
         Tab::Terminal(_, id) => adroit_model::daemon::hex(*id),
-        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => return false,
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => {
+            return false;
+        }
     };
     listed.interrupted.iter().any(|i| i.id == id)
 }
@@ -144,7 +146,7 @@ fn listed_at(hosts: &Hosts, tab: &Tab) -> Option<Place> {
             .iter()
             .find(|s| s.id == *id)
             .map(|s| Place::at(environment, s.cwd.clone())),
-        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => None,
     }
 }
 

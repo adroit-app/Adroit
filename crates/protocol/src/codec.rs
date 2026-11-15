@@ -155,6 +155,14 @@ mod tests {
                 title: "修正".into(),
             }),
         });
+        round_trips(Request::Ask {
+            asked: 13,
+            ask: Box::new(crate::Ask::GitHubThread {
+                repository: "/w".into(),
+                listing: adroit_model::github::Listing::Issues,
+                number: 3,
+            }),
+        });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,
@@ -203,6 +211,29 @@ mod tests {
         round_trips(Event::Told(Told::Notice {
             text: "ended fix".into(),
         }));
+        round_trips(Event::Answer {
+            asked: 13,
+            answer: crate::Answer::Thread {
+                thread: Box::new(adroit_model::github::Thread {
+                    state: "open".into(),
+                    body: adroit_model::github::Post {
+                        author: "me".into(),
+                        body: "修正 ![a](https://x/a.png)".into(),
+                        ..Default::default()
+                    },
+                    said: vec![adroit_model::github::Post {
+                        did: adroit_model::github::Did::ChangesRequested,
+                        ..Default::default()
+                    }],
+                    images: vec![adroit_model::github::Image {
+                        address: "https://x/a.png".into(),
+                        mime: "image/png".into(),
+                        data: "iVBORw0K".into(),
+                    }],
+                    ..Default::default()
+                }),
+            },
+        });
         round_trips(Event::Told(Told::Failure {
             text: "cannot end fix".into(),
         }));
@@ -385,6 +416,23 @@ mod tests {
                             url: "https://github.com/o/r/pull/1".into(),
                             author: "me".into(),
                             draft: true,
+                            created_at: "2026-11-01T00:00:00Z".into(),
+                            labels: vec![adroit_model::github::Label {
+                                name: "bug".into(),
+                                color: "d73a4a".into(),
+                            }],
+                            pull: Some(adroit_model::github::Pull {
+                                head: "fix".into(),
+                                base: "main".into(),
+                                review: Some(adroit_model::github::Review::Approved),
+                                checks: adroit_model::github::Checks {
+                                    failed: 1,
+                                    failing: vec!["lint".into()],
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            }),
+                            ..Default::default()
                         }])),
                         issues: Some(Err("gh is not logged in".into())),
                     })),

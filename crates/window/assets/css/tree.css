@@ -56,3 +56,6 @@
 .waiting-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--wait-tint); color: var(--wait); font: 600 10.5px/18px var(--mono); text-align: center; }
 /* The environments the tree is not at stand back, so the one at hand reads first. */
 .list-row.elsewhere { opacity: 0.55; }
+/* A pull request's or an issue's title gives way last: who opened it shrinks first. */
+.list-row.github-item .list-row-name { min-width: 4em; }
+.list-row.github-item .list-row-meta { flex: 0 1 auto; min-width: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

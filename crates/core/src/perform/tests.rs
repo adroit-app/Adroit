@@ -954,6 +954,7 @@ fn on_github_item(listing: adroit_model::github::Listing, number: u64) -> Scenar
         url: format!("https://github.com/o/r/{kind}/{number}"),
         author: "me".into(),
         draft: false,
+        ..Default::default()
     };
     let mut repository = Repository::new("o/r");
     repository.pulls = Some(Ok(vec![item(7, "Fix the login", "pull")]));
@@ -990,6 +991,70 @@ fn a_new_session_on_an_issue_is_a_draft_in_its_repository_its_prompt_naming_the_
         text: "Issue #8: Login fails\nhttps://github.com/o/r/issues/8\n".into(),
         images: Vec::new(),
     }));
+}
+
+#[test]
+fn browsing_a_pull_request_or_an_issue_opens_its_page_on_github() {
+    use adroit_model::github::Listing;
+
+    let run = on_github_item(Listing::Pulls, 7).send(perform(
+        Action::CursorBrowse,
+        None,
+        Probe::default(),
+    ));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Open {
+            environment: here(),
+            target: "https://github.com/o/r/pull/7".into(),
+        }]
+    );
+}
+
+#[test]
+fn browsing_in_the_console_opens_the_pull_request_its_tab_shows() {
+    use adroit_model::github::Listing;
+
+    let run = on_github_item(Listing::Issues, 8)
+        .send(Msg::OpenRow {
+            item: Item::GitHubItem(here(), "/r".into(), Listing::Pulls, 7),
+            how: None,
+            take_keys: true,
+        })
+        .send(perform(Action::CursorBrowse, None, Probe::default()));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Open {
+            environment: here(),
+            target: "https://github.com/o/r/pull/7".into(),
+        }]
+    );
+}
+
+#[test]
+fn reading_the_work_again_reads_again_the_pull_request_shown() {
+    use adroit_model::github::Listing;
+
+    let run = on_github_item(Listing::Pulls, 7)
+        .send(Msg::OpenRow {
+            item: Item::GitHubItem(here(), "/r".into(), Listing::Pulls, 7),
+            how: None,
+            take_keys: true,
+        })
+        .send(perform(Action::Refresh, None, Probe::default()));
+    assert!(matches!(
+        run.last_effects().first(),
+        Some(Effect::Viewer {
+            action: crate::viewers::ViewerAction::Reload,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn browsing_a_row_not_on_github_does_nothing() {
+    let run = showing(Area::Sidebar).send(perform(Action::CursorBrowse, None, Probe::default()));
+    assert_eq!(run.last_effects(), []);
 }
 
 #[test]

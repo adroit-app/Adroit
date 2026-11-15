@@ -118,7 +118,7 @@ pub fn plain_enter(key: Key) -> Key {
 /// The areas whose bindings the keys help shows for `area`, nearest first.
 pub fn help_contexts(area: Area, shown: Option<&Tab>) -> Vec<Context> {
     let here: &[Context] = match area {
-        Area::Console if matches!(shown, Some(Tab::Viewer(_, _))) => {
+        Area::Console if matches!(shown, Some(Tab::Viewer(_, _) | Tab::GitHub { .. })) => {
             &[Context::Viewer, Context::Global]
         }
         _ => footer_contexts(area),
@@ -171,7 +171,9 @@ impl Footing<'_> {
             Area::Console if self.answering || matches!(self.shown, Some(Tab::Terminal(_, _))) => {
                 ("PASS", "pass")
             }
-            Area::Console if matches!(self.shown, Some(Tab::Viewer(_, _))) => ("VIEWER", "normal"),
+            Area::Console if matches!(self.shown, Some(Tab::Viewer(_, _) | Tab::GitHub { .. })) => {
+                ("VIEWER", "normal")
+            }
             Area::Console => ("CONSOLE", "normal"),
             Area::Prompt if self.answering => ("PASS", "pass"),
             Area::Prompt => (self.prompt.1, self.prompt.0),

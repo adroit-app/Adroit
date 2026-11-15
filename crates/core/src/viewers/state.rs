@@ -22,6 +22,8 @@ pub enum ViewerAction {
     SeekForward,
     CopyPath,
     Close,
+    /// Read what is shown again from where it comes from.
+    Reload,
 }
 
 impl ViewerAction {
@@ -110,6 +112,7 @@ pub enum Effect {
     Media(Media),
     CopyPath,
     Close,
+    Reload,
 }
 
 /// A picture's state.
@@ -273,6 +276,7 @@ impl ViewerState {
             },
             A::CopyPath => Effect::CopyPath,
             A::Close => Effect::Close,
+            A::Reload => Effect::Reload,
         }
     }
 }
@@ -295,8 +299,12 @@ mod tests {
         for (_, keys, name) in bound {
             let action: Action = name.parse().unwrap();
             // Switching a document's window to its Neovim is the window's,
-            // not the viewer's.
-            if matches!(action, Action::KeysHelp | Action::WindowEdit) {
+            // not the viewer's, and opening a pull request on GitHub the
+            // browser's.
+            if matches!(
+                action,
+                Action::KeysHelp | Action::WindowEdit | Action::CursorBrowse
+            ) {
                 continue;
             }
             assert!(ViewerAction::of(&action).is_some(), "{keys} = {name}");

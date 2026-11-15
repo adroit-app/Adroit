@@ -3,6 +3,7 @@
 //! foot.
 
 mod changes;
+mod github;
 mod log;
 mod message;
 mod overview;
@@ -13,5 +14,6 @@ mod timeline;
 mod usage;
 
 pub(crate) use adroit_core::details::*;
+pub(crate) use github::GitHubCard;
 pub(crate) use panel::*;
 pub(crate) use usage::{Gauges, MachineUsage};

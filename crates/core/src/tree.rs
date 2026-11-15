@@ -551,6 +551,22 @@ pub fn place_of_tab(tree: &Tree, terminals: &[TerminalSession], tab: &Tab) -> Op
             adroit_model::innermost(tree.worktrees().map(|w| &w.worktree.path), path).map(|w| at(w))
         }
         Tab::Drawn { session, .. } => nav::find(tree, session).map(|(p, _)| at(p)),
+        Tab::GitHub { repository, .. } => Some(at(repository)),
+    }
+}
+
+/// The title of the pull request or issue `tab` shows, as last listed.
+pub fn github_title(work: Option<&WorkSnapshot>, tab: &Tab) -> Option<String> {
+    match tab {
+        Tab::GitHub {
+            repository,
+            listing,
+            number,
+            ..
+        } => github(work, repository)
+            .and_then(|r| r.item(*listing, *number))
+            .map(|i| i.title.clone()),
+        _ => None,
     }
 }
 
@@ -577,6 +593,9 @@ pub fn crumbs(showing: &Showing, work: Option<&WorkSnapshot>) -> Option<Crumbs> 
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default(),
         Tab::Drawn { width, height, .. } => format!("Image {width} × {height}"),
+        Tab::GitHub { number, .. } => {
+            github_title(work, tab).unwrap_or_else(|| format!("#{number}"))
+        }
     };
     Some(Crumbs {
         workspace,
@@ -1036,6 +1055,7 @@ mod tests {
             url: "https://github.com/o/r/pull/7".into(),
             author: "me".into(),
             draft: false,
+            ..Default::default()
         }]));
         TreeChange::GitHub {
             repository: "/r".into(),
@@ -1067,24 +1087,52 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_pull_request_or_an_issue_opens_its_page_on_github() {
+    fn opening_a_pull_request_or_an_issue_shows_it_in_a_tab_of_its_own_in_its_repository() {
         let pull = Item::GitHubItem(here(), "/r".into(), Listing::Pulls, 7);
-        let run = Scenario::new()
-            .event(listing([session("a").cwd("/r")]))
-            .event(patch(2).change(on_github()))
-            .send(Msg::OpenRow {
+        for remote in [false, true] {
+            let mut run = Scenario::new()
+                .event(listing([session("a").cwd("/r")]))
+                .event(patch(2).change(on_github()));
+            if remote {
+                run = run.send(Msg::OnWorkMachine(here()));
+            }
+            let run = run.send(Msg::OpenRow {
                 item: pull.clone(),
                 how: None,
                 take_keys: true,
             });
-        assert_eq!(
-            run.last_effects(),
-            [Effect::Open {
-                environment: here(),
-                target: "https://github.com/o/r/pull/7".into(),
-            }]
-        );
-        assert_eq!(selected(&run), Some(pull));
+            let content = &run.state().content;
+            assert_eq!(
+                content.active(),
+                Some(&Tab::GitHub {
+                    environment: here(),
+                    repository: "/r".into(),
+                    listing: Listing::Pulls,
+                    number: 7,
+                })
+            );
+            assert_eq!(
+                content.place.as_ref().map(|p| p.worktree.clone()),
+                Some("/r".into())
+            );
+            assert_eq!(content.focus, crate::content::Area::Console);
+            assert_eq!(selected(&run), Some(pull.clone()));
+        }
+    }
+
+    #[test]
+    fn a_pull_request_s_tab_is_named_by_its_title_where_the_window_shows_it() {
+        let run = Scenario::new()
+            .event(listing([session("a").cwd("/r")]))
+            .event(patch(2).change(on_github()))
+            .send(Msg::OpenRow {
+                item: Item::GitHubItem(here(), "/r".into(), Listing::Pulls, 7),
+                how: None,
+                take_keys: true,
+            });
+        let showing = run.state().content.showing();
+        let crumbs = crumbs(&showing, run.state().hosts.work(&here())).unwrap();
+        assert_eq!(crumbs.target, "Fix it");
     }
 
     #[test]

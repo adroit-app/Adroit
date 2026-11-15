@@ -118,10 +118,12 @@ pub fn entries(
         Target::Row(Item::Across(..) | Item::Heading(..) | Item::GitHub(..)) => {
             [fold].into_iter().chain(here).collect()
         }
-        Target::Row(Item::GitHubItem(..)) => [(Action::CursorGo, "Open on GitHub")]
-            .into_iter()
-            .chain(here)
-            .collect(),
+        Target::Row(Item::GitHubItem(..)) => {
+            [(Action::CursorGo, "Show"), offer(Action::CursorBrowse)]
+                .into_iter()
+                .chain(here)
+                .collect()
+        }
         Target::Row(Item::GitHubFailed(..)) => here.into_iter().collect(),
         Target::Row(Item::Environment(environment)) => {
             let machine = matches!(reach, Reach::Machine { .. });
@@ -150,7 +152,7 @@ pub fn entries(
             .collect(),
         Target::Tab(Tab::Terminal(_, _)) => vec![close_tab, stop_terminal],
         Target::Tab(Tab::Draft { .. }) => Vec::new(),
-        Target::Tab(Tab::Viewer(_, _) | Tab::Drawn { .. }) => vec![close_tab],
+        Target::Tab(Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. }) => vec![close_tab],
         Target::Link { file, .. } => [Action::CursorGo, Action::CursorCopy]
             .map(offer)
             .into_iter()

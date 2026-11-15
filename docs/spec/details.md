@@ -11,7 +11,13 @@ of the environment is listed with its agent, whether it is the default,
 whether its login is logged in, as that environment's machine says, and, for
 an agent whose account has usage limits, what is left of them for that login
 with a link to the agent's usage page. A button opens Settings on that
-environment. A window
+environment. While a pull request's or an issue's row is
+selected, it tells of that instead, as last read: its title, where it is on
+GitHub, who opened it and when it was last updated, its labels, assignees
+and milestone, and of a pull request its branches, how much it changes, how
+its review stands and who it awaits, and how many of its checks passed,
+failed or still run, naming those that failed. Buttons show it, open it on
+GitHub and start a session on it, as its row's keys do ([tree](tree.md)). A window
 showing an image a session's console drew is described as that session, and
 one showing a file in the worktree already described keeps the session
 described before.

@@ -806,7 +806,8 @@ pub fn unfolds(item: &Item, folds: &Folds) -> bool {
 /// What opening `item` shows: a file by its kind, in its viewer or in
 /// Neovim, the one already started on it if there is one; a worktree its
 /// first session, or else a new one. A Markdown document a Neovim is on opens
-/// that Neovim, whose window switches to the viewer. A file of an environment
+/// that Neovim, whose window switches to the viewer. A pull request or an
+/// issue shows in a tab of its own, in its repository's checkout. A file of an environment
 /// not `local`, which the window's viewers cannot read, opens in Neovim when
 /// it is text and nowhere when it is not.
 pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: bool) -> Opens {
@@ -816,9 +817,17 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: boo
         | Item::Across(..)
         | Item::Heading(..)
         | Item::GitHub(..)
-        | Item::GitHubItem(..)
         | Item::GitHubFailed(..)
         | Item::File { dir: true, .. } => Opens::Fold,
+        Item::GitHubItem(environment, root, listing, number) => Opens::Shows(
+            Tab::GitHub {
+                environment: environment.clone(),
+                repository: root.clone(),
+                listing: *listing,
+                number: *number,
+            },
+            place_of(tree, item),
+        ),
         Item::File {
             environment,
             worktree,
@@ -1134,6 +1143,7 @@ mod tests {
             url: format!("https://github.com/o/api/pull/{number}"),
             author: "me".into(),
             draft: false,
+            ..Default::default()
         };
         let mut api = Repository::new("o/api");
         api.pulls = Some(Ok(vec![item(2), item(1)]));

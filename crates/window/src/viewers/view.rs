@@ -119,7 +119,7 @@ pub fn frame_script(id: &str, message: &str) -> String {
     )
 }
 
-fn frame_scroll(scroll: Scroll) -> String {
+pub fn frame_scroll(scroll: Scroll) -> String {
     match scroll {
         Scroll::Lines(n) => format!("{{\"lines\": {n}}}"),
         Scroll::HalfPages(n) => format!("{{\"pages\": {n}}}"),
@@ -349,7 +349,7 @@ fn ViewerOf(
                     let _ = crate::clipboard::copy_to_clipboard(&path.to_string_lossy());
                 }
                 Effect::Close => on_close.call(()),
-                Effect::Redraw | Effect::Nothing => {}
+                Effect::Redraw | Effect::Reload | Effect::Nothing => {}
             }
         }
     });
@@ -602,7 +602,7 @@ async fn follow_frame(
 /// viewer's box `box_id`. A page of the window's own `scheme`, `light` or
 /// `dark`, is framed in nothing of its own; any other is framed in white,
 /// as a browser frames a page.
-fn page_frame(
+pub fn page_frame(
     media_id: String,
     box_id: String,
     zoom: f64,
@@ -685,7 +685,11 @@ pub fn DrawnViewer(
                 }
                 Effect::Close => on_close.call(()),
                 // A drawn image has no path to copy, and nothing to play.
-                Effect::CopyPath | Effect::Media(_) | Effect::Redraw | Effect::Nothing => {}
+                Effect::CopyPath
+                | Effect::Media(_)
+                | Effect::Redraw
+                | Effect::Reload
+                | Effect::Nothing => {}
             }
         }
     });

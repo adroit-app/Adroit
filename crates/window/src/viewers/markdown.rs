@@ -173,6 +173,83 @@ pub fn markdown_document(fragment: &str, libraries: Libraries, theme: &Document)
     )
 }
 
+/// The script a pull request's or an issue's page runs beside the
+/// document's: a link to an address is handed to the window to open in the
+/// browser, as the frame navigates nowhere.
+const THREAD_SCRIPT: &str = include_str!("../../assets/js/github-page.js");
+
+/// How a pull request's or an issue's page is drawn around what its posts
+/// write.
+const THREAD_STYLE: &str = include_str!("../../assets/css/github-thread.css");
+
+/// The document a pull request's or an issue's frame is given: `fragment`,
+/// the thread as [`thread_fragment`] draws it, in Arto's viewer painted in
+/// `theme`, as a Markdown document is. What its posts write is someone
+/// else's, so the page runs only its own scripts, which carry `nonce`, and
+/// Arto's: a handler written into a post runs nowhere.
+pub fn thread_document(
+    fragment: &str,
+    libraries: Libraries,
+    theme: &Document,
+    nonce: &str,
+) -> String {
+    let scripts: String = std::iter::once("embed.js")
+        .chain(library_names(libraries))
+        .map(|name| format!("<script src=\"{}\"></script>", arto_url(name)))
+        .collect();
+    let own = format!("<script nonce=\"{nonce}\">");
+    let origin = if ORIGIN.starts_with("dioxus://") {
+        "dioxus:"
+    } else {
+        "http://dioxus.index.html"
+    };
+    format!(
+        "<!doctype html><html data-adroit-theme=\"{scheme}\"><head><meta charset=\"utf-8\">\
+         <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; \
+         script-src 'nonce-{nonce}' {origin}; style-src 'unsafe-inline' {origin}; \
+         img-src data: https: {origin}; font-src data: {origin}; media-src https:\">\
+         <link rel=\"stylesheet\" href=\"{css}\"><style>{PAGE_STYLE}{THREAD_STYLE}</style>\
+         <style id=\"adroit-theme\">{rule}</style>{page}{scripts}{own}{DOCUMENT_SCRIPT}</script>\
+         {own}{THREAD_SCRIPT}</script></head>\
+         <body><div class=\"markdown-viewer\"><article class=\"markdown-body gh-thread\">{fragment}</article></div></body></html>",
+        scheme = theme.scheme,
+        rule = theme_rule(theme),
+        css = arto_url("embed.css"),
+        page = serve::PAGE_SCRIPT.replacen("<script>", &own, 1),
+    )
+}
+
+/// `markdown`, what someone wrote on GitHub, as Arto renders it: raw HTML
+/// filtered as GitHub's own Markdown filters it, and no image read from this
+/// computer's disk, whatever path it names.
+pub fn render_post(markdown: &str) -> String {
+    let options = RenderOptions {
+        images: ImageResolution::Deferred {
+            base_url: "about:blank#".into(),
+        },
+        ..RenderOptions::default()
+    };
+    arto_markdown::render_to_html(markdown, Path::new("/"), &options)
+        .map(|r| r.html)
+        .unwrap_or_else(|_| format!("<pre>{}</pre>", escape(markdown)))
+}
+
+/// `text` with the characters HTML gives a meaning to written as references.
+pub fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// The message that puts `rendered` in place of what the frame shows, with
 /// the bundles it needs that the frame may not have loaded yet.
 pub fn update_message(rendered: &Rendered) -> String {

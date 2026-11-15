@@ -3,10 +3,13 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::github::{Item, Listing, Read};
+use adroit_model::github::{Checks, Item, Label, Listing, Pull, Read, Review};
 use serde::Deserialize;
 
 use crate::{Backend, Error, run};
+
+mod thread;
+pub use thread::*;
 
 /// The most items of a listing read.
 pub const LIMIT: usize = 30;
@@ -40,8 +43,14 @@ pub async fn remote(root: &Path) -> Option<Remote> {
 pub async fn list(root: &Path, slug: &str, listing: Listing) -> Read {
     let limit = LIMIT.to_string();
     let (command, fields) = match listing {
-        Listing::Pulls => ("pr", "number,title,url,author,isDraft"),
-        Listing::Issues => ("issue", "number,title,url,author"),
+        Listing::Pulls => (
+            "pr",
+            "number,title,url,author,isDraft,createdAt,updatedAt,labels,assignees,milestone,headRefName,baseRefName,additions,deletions,changedFiles,reviewDecision,reviewRequests,statusCheckRollup",
+        ),
+        Listing::Issues => (
+            "issue",
+            "number,title,url,author,createdAt,updatedAt,labels,assignees,milestone",
+        ),
     };
     let args = [
         command, "list", "--repo", slug, "--state", "open", "--limit", &limit, "--json", fields,
@@ -216,8 +225,25 @@ fn slug_of(url: &str) -> Option<String> {
 /// The items `gh … list --json` printed.
 fn items(out: &str) -> Read {
     #[derive(Deserialize)]
-    struct Author {
+    struct Login {
         login: String,
+    }
+    #[derive(Deserialize)]
+    struct Titled {
+        title: String,
+    }
+    #[derive(Deserialize)]
+    struct Requested {
+        login: Option<String>,
+        name: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Check {
+        name: Option<String>,
+        context: Option<String>,
+        status: Option<String>,
+        conclusion: Option<String>,
+        state: Option<String>,
     }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -225,12 +251,62 @@ fn items(out: &str) -> Read {
         number: u64,
         title: String,
         url: String,
-        author: Option<Author>,
+        author: Option<Login>,
         #[serde(default)]
         is_draft: bool,
+        #[serde(default)]
+        created_at: String,
+        #[serde(default)]
+        updated_at: String,
+        #[serde(default)]
+        labels: Vec<Label>,
+        #[serde(default)]
+        assignees: Vec<Login>,
+        milestone: Option<Titled>,
+        head_ref_name: Option<String>,
+        #[serde(default)]
+        base_ref_name: String,
+        #[serde(default)]
+        additions: u64,
+        #[serde(default)]
+        deletions: u64,
+        #[serde(default)]
+        changed_files: u64,
+        review_decision: Option<String>,
+        #[serde(default)]
+        review_requests: Vec<Requested>,
+        #[serde(default)]
+        status_check_rollup: Vec<Check>,
     }
     let listed: Vec<Listed> =
         serde_json::from_str(out).map_err(|e| format!("gh printed what cannot be read: {e}"))?;
+    let checks = |rollup: Vec<Check>| {
+        let mut checks = Checks::default();
+        for check in rollup {
+            // A check run ends in a conclusion; a commit status has a state.
+            let ended = match check.status.as_deref() {
+                None | Some("") => check.state.unwrap_or_default(),
+                Some("COMPLETED") => check.conclusion.unwrap_or_default(),
+                Some(_) => "PENDING".into(),
+            };
+            match ended.as_str() {
+                "SUCCESS" | "NEUTRAL" | "SKIPPED" => checks.passed += 1,
+                "PENDING" | "EXPECTED" | "QUEUED" | "IN_PROGRESS" | "WAITING" | "" => {
+                    checks.pending += 1
+                }
+                _ => {
+                    checks.failed += 1;
+                    let name = check
+                        .name
+                        .filter(|n| !n.is_empty())
+                        .or(check.context)
+                        .unwrap_or_default();
+                    checks.failing.push(name);
+                }
+            }
+        }
+        checks
+    };
     Ok(listed
         .into_iter()
         .map(|l| Item {
@@ -239,6 +315,30 @@ fn items(out: &str) -> Read {
             url: l.url,
             author: l.author.map(|a| a.login).unwrap_or_default(),
             draft: l.is_draft,
+            created_at: l.created_at,
+            updated_at: l.updated_at,
+            labels: l.labels,
+            assignees: l.assignees.into_iter().map(|a| a.login).collect(),
+            milestone: l.milestone.map(|m| m.title),
+            pull: l.head_ref_name.map(|head| Pull {
+                head,
+                base: l.base_ref_name,
+                additions: l.additions,
+                deletions: l.deletions,
+                changed_files: l.changed_files,
+                review: match l.review_decision.as_deref() {
+                    Some("REVIEW_REQUIRED") => Some(Review::Required),
+                    Some("CHANGES_REQUESTED") => Some(Review::ChangesRequested),
+                    Some("APPROVED") => Some(Review::Approved),
+                    _ => None,
+                },
+                requested: l
+                    .review_requests
+                    .into_iter()
+                    .filter_map(|r| r.login.or(r.name))
+                    .collect(),
+                checks: checks(l.status_check_rollup),
+            }),
         })
         .collect())
 }
@@ -465,6 +565,64 @@ mod tests {
         assert!(read[0].draft);
         assert_eq!(read[1].author, "");
         assert!(!read[1].draft);
+    }
+
+    #[test]
+    fn a_listed_pull_request_carries_its_labels_branches_review_and_checks() {
+        let out = r#"[{
+            "number": 7, "title": "Fix", "url": "u", "author": {"login": "me"}, "isDraft": false,
+            "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z",
+            "labels": [{"name": "bug", "color": "d73a4a"}],
+            "assignees": [{"login": "you"}], "milestone": {"title": "v1"},
+            "headRefName": "fix", "baseRefName": "main",
+            "additions": 10, "deletions": 2, "changedFiles": 3,
+            "reviewDecision": "CHANGES_REQUESTED",
+            "reviewRequests": [{"__typename": "User", "login": "rev"}, {"__typename": "Team", "name": "core"}],
+            "statusCheckRollup": [
+                {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                {"__typename": "CheckRun", "name": "skip", "status": "COMPLETED", "conclusion": "SKIPPED"},
+                {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"},
+                {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": ""},
+                {"__typename": "StatusContext", "context": "ci/old", "state": "ERROR"},
+                {"__typename": "StatusContext", "context": "ci/wait", "state": "PENDING"}
+            ]
+        }]"#;
+        let item = items(out).unwrap().remove(0);
+        assert_eq!(item.created_at, "2026-11-01T00:00:00Z");
+        assert_eq!(item.updated_at, "2026-11-02T00:00:00Z");
+        assert_eq!(
+            item.labels,
+            [Label {
+                name: "bug".into(),
+                color: "d73a4a".into()
+            }]
+        );
+        assert_eq!(item.assignees, ["you"]);
+        assert_eq!(item.milestone.as_deref(), Some("v1"));
+        assert_eq!(
+            item.pull,
+            Some(Pull {
+                head: "fix".into(),
+                base: "main".into(),
+                additions: 10,
+                deletions: 2,
+                changed_files: 3,
+                review: Some(Review::ChangesRequested),
+                requested: vec!["rev".into(), "core".into()],
+                checks: Checks {
+                    passed: 2,
+                    failed: 2,
+                    pending: 2,
+                    failing: vec!["lint".into(), "ci/old".into()],
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_listed_issue_has_nothing_of_a_pull_request() {
+        let out = r#"[{"number": 1, "title": "t", "url": "u", "author": null, "labels": []}]"#;
+        assert_eq!(items(out).unwrap()[0].pull, None);
     }
 
     #[test]

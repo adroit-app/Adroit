@@ -42,6 +42,7 @@ pub(super) fn window_strip(
     completions: &Completions,
     settings: &adroit_core::settings::Settings,
     shows: &Tab,
+    title: Option<String>,
 ) -> Strip {
     let session = match shows {
         Tab::Session(_, id) => nav::find(tree, id).map(|(_, s)| s),
@@ -55,6 +56,10 @@ pub(super) fn window_strip(
         ),
         Tab::Terminal(_, id) => StripMark::Terminal(runs_of(terminals, *id)),
         Tab::Draft { .. } => StripMark::Draft,
+        Tab::GitHub { .. } => StripMark::File(
+            file_icons::find(std::path::Path::new("README.md"), file_icons::Kind::File).glyph,
+            String::new(),
+        ),
         Tab::Viewer(_, _) | Tab::Drawn { .. } => {
             // A drawn image is marked as a picture file is, being kept as one.
             let path = match shows {
@@ -71,7 +76,7 @@ pub(super) fn window_strip(
     };
     Strip {
         mark,
-        name: thing_name(tree, terminals, shows),
+        name: title.unwrap_or_else(|| thing_name(tree, terminals, shows)),
         agent: session
             .map(|s| settings.started_as(s.agent, &s.profile, s.home.as_deref(), &s.profile_name)),
         worktree: tree_view::place_of_tab(tree, terminals, shows).map(|p| p.worktree),

@@ -73,12 +73,22 @@ A git workspace with a remote on GitHub lists Pull Requests and Issues
 after the rows of what runs in it, while `gh` is installed on its work
 machine; without `gh` it lists neither. Both start folded. Unfolded, each
 lists what is open on GitHub, as the login
-`gh` uses there sees it, each row by its number and title, a draft pull
-request drawn dim. What is listed is read again every minute while the
-heading is open, and its count stays on the heading once it is folded. When
+`gh` uses there sees it, each row by its title and who opened it, a pull
+request marked with how its checks stand and drawn dim while it is a draft.
+What is listed is read again every minute while the heading is open, and its count stays on the heading once it is folded. When
 `gh` cannot answer, because it is not logged in or GitHub cannot be reached,
-the heading holds one row saying so. Opening a row opens it on GitHub in the
-browser, from a work machine too.
+the heading holds one row saying so.
+
+Opening a row shows it in a tab of its own, as GitHub shows its
+conversation: its title, how it stands, who opened it and, of a pull
+request, the branches it merges; then a card for its body and for every
+comment and review that says something, oldest first, each drawn as a
+Markdown document is, with the images it shows, those of a private
+repository too, and from a work machine too. A link in it opens in the
+browser. The tab takes the viewer's keys, reads it again every minute while
+it is shown and whenever the work is read again, and is not kept for the
+next run. `g x` on its row or in its tab opens it on GitHub in the browser
+instead, from a work machine too.
 
 `n` on a row opens a new session on it, its first prompt already naming it
 and left to finish and send: an issue's in the repository's checkout, a pull

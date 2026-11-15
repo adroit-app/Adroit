@@ -8,7 +8,7 @@ use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::settings::Settings;
 use adroit_core::tree;
-use adroit_model::github::Listing;
+use adroit_model::github::{Listing, Standing};
 use adroit_model::{EnvironmentId, InboxItem, TerminalSession, Tree};
 use dioxus::prelude::*;
 
@@ -55,12 +55,22 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
             "What is open on GitHub of the repository, as gh sees it there. Enter folds it"
         }
         Item::GitHubItem(_, _, Listing::Pulls, _) => {
-            "A pull request open on GitHub. Enter opens it in the browser; n starts a session in a worktree at its head"
+            "A pull request open on GitHub. Enter shows it with its comments, g x opens it in the browser; n starts a session in a worktree at its head"
         }
         Item::GitHubItem(..) => {
-            "An issue open on GitHub. Enter opens it in the browser; n starts a session on it"
+            "An issue open on GitHub. Enter shows it with its comments, g x opens it in the browser; n starts a session on it"
         }
         Item::GitHubFailed(..) => "Why gh could not say what is open on GitHub",
+    }
+}
+
+/// The mark of how a pull request's checks stand, drawn as a session's
+/// state is.
+fn checks_glyph(standing: Standing) -> (&'static str, Icon, &'static str) {
+    match standing {
+        Standing::Passed => ("state-glyph done", Icon::Check, "Every check passed"),
+        Standing::Failed => ("state-glyph fail", Icon::X, "A check failed"),
+        Standing::Pending => ("state-glyph run", Icon::Loader, "Checks are running"),
     }
 }
 
@@ -337,16 +347,16 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             let found = tree::github(work, root).and_then(|r| r.item(*listing, *number));
             (
                 if found.is_some_and(|i| i.draft) {
-                    "dim"
+                    "github-item dim"
                 } else {
-                    ""
+                    "github-item"
                 },
-                found.map_or_else(
-                    || format!("#{number}"),
-                    |i| format!("#{number} {}", i.title),
-                ),
+                found.map_or_else(|| format!("#{number}"), |i| i.title.clone()),
                 found.map(|i| i.author.clone()).unwrap_or_default(),
-                None,
+                found
+                    .and_then(|i| i.pull.as_ref())
+                    .and_then(|p| p.checks.standing())
+                    .map(checks_glyph),
             )
         }
         Item::GitHubFailed(_, root, listing) => {

@@ -97,6 +97,15 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
         } => adroit_vcs::github::pull_worktree(&repository, number, &title)
             .await
             .map(|path| Answer::Worktree { path }),
+        Ask::GitHubThread {
+            repository,
+            listing,
+            number,
+        } => adroit_vcs::github::thread(&repository, listing, number)
+            .await
+            .map(|thread| Answer::Thread {
+                thread: Box::new(thread),
+            }),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveSettingsChecked { text, expected } => save_settings_checked(text, expected),
         Ask::SaveKeys { text } => save_keys(&text),

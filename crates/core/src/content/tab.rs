@@ -23,6 +23,14 @@ pub enum Tab {
     },
     /// A file shown in the viewer of its kind.
     Viewer(EnvironmentId, PathBuf),
+    /// A pull request or an issue `number` of `listing` in the repository at
+    /// `repository`, read whole from GitHub.
+    GitHub {
+        environment: EnvironmentId,
+        repository: PathBuf,
+        listing: adroit_model::github::Listing,
+        number: u64,
+    },
     /// An image `session`'s console drew, `width` by `height` pixels, shown
     /// in the image viewer from the copy the window keeps by `id`.
     Drawn {
@@ -40,7 +48,7 @@ pub enum Tab {
 pub fn shows_prompt(tab: Option<&Tab>) -> bool {
     !matches!(
         tab,
-        Some(Tab::Terminal(..) | Tab::Viewer(..) | Tab::Drawn { .. })
+        Some(Tab::Terminal(..) | Tab::Viewer(..) | Tab::Drawn { .. } | Tab::GitHub { .. })
     )
 }
 
@@ -76,7 +84,8 @@ impl Tab {
             | Tab::Terminal(environment, _)
             | Tab::Viewer(environment, _)
             | Tab::Draft { environment, .. }
-            | Tab::Drawn { environment, .. } => environment,
+            | Tab::Drawn { environment, .. }
+            | Tab::GitHub { environment, .. } => environment,
         }
     }
 }
@@ -342,13 +351,16 @@ pub fn fresh_name(label: &str, taken: &[&str]) -> String {
 /// How a tab is kept for the next run of the window: `<environment>@` and
 /// what it is in that environment, or what it is alone in a window without
 /// an environment, as every tab was kept before environments. A draft holds
-/// nothing to come back to, a viewer opens again from the tree in a moment,
+/// nothing to come back to, a viewer opens again from the tree in a moment, as does a pull
+/// request or an issue,
 /// and an image drawn is gone with the window that kept it, so none is kept.
 pub fn kept_name(tab: &Tab) -> Option<String> {
     let name = match tab {
         Tab::Session(_, id) => format!("session:{id}"),
         Tab::Terminal(_, id) => format!("terminal:{id:x}"),
-        Tab::Draft { .. } | Tab::Viewer(..) | Tab::Drawn { .. } => return None,
+        Tab::Draft { .. } | Tab::Viewer(..) | Tab::Drawn { .. } | Tab::GitHub { .. } => {
+            return None;
+        }
     };
     let environment = tab.environment();
     Some(if environment.is_unbound() {

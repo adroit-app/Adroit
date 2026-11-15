@@ -114,6 +114,9 @@ pub(crate) fn FocusedBody() -> Element {
         Some(Tab::Draft { .. }) => "new session".into(),
         Some(Tab::Viewer(_, path)) => file_name(path),
         Some(Tab::Drawn { width, height, .. }) => format!("Image {width} × {height}"),
+        Some(tab @ Tab::GitHub { number, .. }) => {
+            tree_view::github_title(work, tab).unwrap_or_else(|| format!("#{number}"))
+        }
         None => "new scratch session".into(),
     };
     let draft_options = active_tab

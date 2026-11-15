@@ -137,6 +137,13 @@ pub enum Ask {
         number: u64,
         title: String,
     },
+    /// Read the pull request or the issue `number` of the repository at
+    /// `repository` whole, with what was said on it and the images shown.
+    GitHubThread {
+        repository: PathBuf,
+        listing: adroit_model::github::Listing,
+        number: u64,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -258,6 +265,10 @@ pub enum Answer {
     /// The worktree was made here.
     Worktree {
         path: PathBuf,
+    },
+    /// The pull request or the issue asked for, read whole.
+    Thread {
+        thread: Box<adroit_model::github::Thread>,
     },
     /// The image asked for, or none when it cannot be read or shown.
     Picture {

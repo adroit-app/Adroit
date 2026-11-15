@@ -30,7 +30,7 @@ fn kept_id(tab: &Tab) -> Option<u128> {
     match tab {
         Tab::Session(_, id) => sessions::id_of(id),
         Tab::Terminal(_, id) => Some(*id),
-        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => None,
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => None,
     }
 }
 
@@ -188,7 +188,7 @@ impl Ui {
             _ if tab.environment() != environment => true,
             Tab::Session(_, id) => sessions.contains(id),
             Tab::Terminal(_, id) => terminals.contains(id),
-            Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } => true,
+            Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => true,
         });
         let live = |e: &EnvironmentId, id: &str| e != environment || sessions.contains(id);
         let mut gallery = self.local.gallery;

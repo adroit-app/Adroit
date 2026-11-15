@@ -42,9 +42,23 @@ pub(crate) fn perform(
     let on_console = area == Area::Console && pane;
     let half = i32::from((probe.rows / 2).max(1));
     let thing = state.content.active().cloned();
+    // Reading the work again reads again the pull request or issue shown.
+    if area == Area::Console
+        && action == Action::Refresh
+        && let Some(tab @ Tab::GitHub { .. }) = &thing
+        && let Some(window) = state.content.windows.focused_window()
+    {
+        let mut effects = vec![Effect::Viewer {
+            environment: tab.environment().clone(),
+            window,
+            action: ViewerAction::Reload,
+        }];
+        effects.extend(step(state, Msg::Relist));
+        return effects;
+    }
     // The focused window's viewer takes the viewer's actions.
     if area == Area::Console
-        && let Some(tab @ (Tab::Viewer(_, _) | Tab::Drawn { .. })) = &thing
+        && let Some(tab @ (Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. })) = &thing
         && let Some(action) = ViewerAction::of(&action)
         && let Some(window) = state.content.windows.focused_window()
     {
@@ -352,6 +366,39 @@ pub(crate) fn perform(
             };
             let done = format!("Copied the {what} {text}");
             vec![Effect::Copy { text, done }]
+        }
+        Action::CursorBrowse => {
+            // In the console, the pull request or issue shown; elsewhere, the
+            // row selected.
+            let shown = match (area, &thing) {
+                (
+                    Area::Console,
+                    Some(Tab::GitHub {
+                        environment,
+                        repository,
+                        listing,
+                        number,
+                    }),
+                ) => Some((environment.clone(), repository.clone(), *listing, *number)),
+                _ => match cur {
+                    Some(Item::GitHubItem(environment, root, listing, number)) => {
+                        Some((environment, root, listing, number))
+                    }
+                    _ => None,
+                },
+            };
+            match shown {
+                Some((environment, root, listing, number)) => {
+                    tree::github_page(state.hosts.work(&environment), &root, listing, number)
+                        .map(|target| Effect::Open {
+                            environment,
+                            target,
+                        })
+                        .into_iter()
+                        .collect()
+                }
+                None => Vec::new(),
+            }
         }
         // Only the overview's files are revealed.
         Action::CursorReveal => Vec::new(),

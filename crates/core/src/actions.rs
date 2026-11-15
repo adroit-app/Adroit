@@ -61,6 +61,7 @@ pub enum Action {
     CursorClose,
     CursorCopy,
     CursorReveal,
+    CursorBrowse,
     FilerDown,
     FilerUp,
     FilerInto,
@@ -332,6 +333,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the Finder")
         .icon(Icon::FolderSearch)
         .row("Reveal in Finder", Go),
+    S::new(A::CursorBrowse, "cursor.browse", "open the selected pull request or issue on GitHub in the browser")
+        .icon(Icon::BrandGithub)
+        .row("Open on GitHub", Go),
     S::new(A::FilerDown, "filer.down", "move to the next file or directory, in the tree's files or the picker's directories").says("Next entry"),
     S::new(A::FilerUp, "filer.up", "move to the previous file or directory").says("Previous entry"),
     S::new(A::FilerInto, "filer.into", "open the directory selected and go to its first entry once it is read; on a file of the tree, open it as `cursor.go` does").says("Go into"),
@@ -638,6 +642,7 @@ mod tests {
             CursorClose,
             CursorCopy,
             CursorReveal,
+            CursorBrowse,
             FilerDown,
             FilerUp,
             FilerInto,

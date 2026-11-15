@@ -379,7 +379,7 @@ pub(crate) fn edit_file(
 pub(crate) fn open_file(
     state: &mut ViewState,
     environment: EnvironmentId,
-    path: std::path::PathBuf,
+    path: PathBuf,
 ) -> Vec<Effect> {
     let work = state.hosts.work(&environment);
     let listed = tree::listed(work);
@@ -426,16 +426,6 @@ pub(crate) fn open_row(
     take_keys: bool,
 ) -> Vec<Effect> {
     let work = state.hosts.work(item.environment());
-    if let Item::GitHubItem(environment, root, listing, number) = &item {
-        state.tree.selected = Some(item.clone());
-        return tree::github_page(work, root, *listing, *number)
-            .map(|target| Effect::Open {
-                environment: environment.clone(),
-                target,
-            })
-            .into_iter()
-            .collect();
-    }
     let terminals = tree::terminals(work);
     let view = &mut state.tree;
     view.selected = Some(item.clone());

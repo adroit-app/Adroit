@@ -29,6 +29,7 @@ pub fn thing_name(tree: &Tree, terminals: &[TerminalSession], thing: &Tab) -> St
         Tab::Draft { .. } => "new session".into(),
         Tab::Viewer(_, path) => file_name(path),
         Tab::Drawn { width, height, .. } => format!("Image {width} × {height}"),
+        Tab::GitHub { number, .. } => format!("#{number}"),
     }
 }
 

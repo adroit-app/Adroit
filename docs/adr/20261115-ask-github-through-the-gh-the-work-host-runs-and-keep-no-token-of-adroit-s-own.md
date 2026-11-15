@@ -37,4 +37,8 @@ logging in, and choosing which login speaks for which repository, are left to
 - Each read costs a run of `gh` and a request against that login's rate
   limit, so the host reads only what a window shows.
 - Adroit follows the shape of `gh`'s JSON output, which `gh` keeps stable but
-  may extend.
+  may extend, and of what GitHub's REST API answers through `gh api`.
+- An image a private repository shows is served only to its login. The host
+  asks `gh` for the text rendered as GitHub renders it, whose images are
+  addresses GitHub signs for a few minutes, fetches them with no token and
+  hands them to the window with the text.

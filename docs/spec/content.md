@@ -179,7 +179,9 @@ an unreachable host exits with status 1.
 A file that is read rather than edited is shown by a viewer of its kind,
 drawn by the window itself: images, movies, HTML pages, Markdown documents and
 PDFs. Every other file, including one of a kind Adroit does not know, opens in
-Neovim.
+Neovim. A pull request or an issue on GitHub has a tab of its own, drawn
+as its conversation is on GitHub ([the tree](tree.md)), which takes the
+viewer's keys.
 
 A file is opened from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
 for in the tree. A file already open in a Neovim started on it opens that Neovim
