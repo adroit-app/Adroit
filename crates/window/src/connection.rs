@@ -16,7 +16,7 @@ use adroit_model::time::now_ms;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::{CopyValue, LinkButton, PlacedButton, Spacer};
+use crate::components::{Button, CopyValue, LinkButton, PlacedButton, Spacer};
 use crate::details::Gauges;
 use crate::icons::{Icon, IconView};
 use crate::link::{RemotePhase, RemoteStatus};
@@ -560,28 +560,28 @@ fn PendingChange(
             }
             div { class: "dialog-actions",
                 if saved {
-                    button { onclick: move |_| {
+                    Button { onclick: move |_| {
                         let removing = app.remote_draft(&draft_in, saved_stamp.clone(), true, true);
                         spawn(async move { if let Err(text) = removing.await { app.status(Some(text)); } });
                     }, "Delete saved copy" }
                 }
                 if !confirmed {
-                    button { onclick: move |_| app.query_remote(&query_in, query_stamp.clone()), "Check outcome" }
+                    Button { onclick: move |_| app.query_remote(&query_in, query_stamp.clone()), "Check outcome" }
                 }
                 if record.intent.prompt.is_none() {
-                    button { onclick: move |_| {
+                    Button { onclick: move |_| {
                         let resolving = app.resolve_remote(&resolve_in, stamp.clone(), !confirmed);
                         spawn(async move { if let Err(text) = resolving.await { app.status(Some(text)); } });
                     }, if confirmed { "Done" } else { "I checked the work" } }
                 } else {
                     if prompt_result != Some(false) {
-                        button { onclick: move |_| {
+                        Button { onclick: move |_| {
                             let (ui, record, sent_in) = (ui.clone(), prompt_record.clone(), sent_in.clone());
                             spawn(async move { if let Err(text) = ui.handle_remote_prompt(&sent_in, record, true, !confirmed, false).await { app.status(Some(text)); } });
                         }, if prompt_result == Some(true) { "Clear sent draft" } else { "I checked: it was sent" } }
                     }
                     if prompt_result != Some(true) {
-                        button { onclick: move |_| {
+                        Button { onclick: move |_| {
                             let (ui, record, kept_in) = (kept_ui.clone(), kept_record.clone(), kept_in.clone());
                             spawn(async move { if let Err(text) = ui.handle_remote_prompt(&kept_in, record, false, !confirmed, true).await { app.status(Some(text)); } });
                         }, if prompt_result == Some(false) { "Restore draft" } else { "I checked: restore unsent draft" } }

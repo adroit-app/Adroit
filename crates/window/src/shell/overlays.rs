@@ -169,11 +169,11 @@ pub(crate) fn ConfirmDialog() -> Element {
             div { "{body}" }
             div { class: "dialog-actions",
                 Button { onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
-                    kbd { "n" } "Cancel"
+                    Keys { keys: "n" } "Cancel"
                 }
                 Button { kind: if ask.destroys() { "danger" } else { "primary" },
                     onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),
-                    kbd { "y" } "{act}"
+                    Keys { keys: "y" } "{act}"
                 }
             }
         }

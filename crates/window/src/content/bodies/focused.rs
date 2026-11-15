@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 use super::{DraftForm, NothingOpen, ProfileChoice, Starting};
 use crate::actions::Action;
 use crate::bridge::AppCtx;
+use crate::components::Keys;
 use crate::console::{Composer, ConsoleScreen, Consoles, Hub, ReaderScreen};
 use crate::keymap::Context;
 use crate::nav;
@@ -205,7 +206,7 @@ pub(crate) fn FocusedBody() -> Element {
             if passing && area == Area::Console {
                 div { class: "direct-banner",
                     span { class: "direct-banner-title", "Passing every key" }
-                    span { "to the session. " kbd { "Esc" } " stops, " kbd { "Ctrl-c" } " sends Esc." }
+                    span { "to the session. " Keys { keys: "Esc" } " stops, " Keys { keys: "Ctrl-c" } " sends Esc." }
                 }
             }
             if prompt_shown {

@@ -4,7 +4,7 @@
 use dioxus::document;
 use dioxus::prelude::*;
 
-use crate::components::{Dialog, KeyHint};
+use crate::components::{Dialog, KeyHint, Keys};
 use crate::icons::{Icon, IconView};
 use crate::keys_help::Group;
 
@@ -58,14 +58,14 @@ pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
                                             for (j, keys) in row.keys.into_iter().enumerate() {
                                                 span { key: "{j}", class: "keys-help-seq",
                                                     for (k, chord) in keys.lead.into_iter().enumerate() {
-                                                        kbd { key: "lead-{k}", "{chord}" }
+                                                        Keys { key: "lead-{k}", keys: chord }
                                                     }
                                                     for (k, end) in keys.ends.into_iter().enumerate() {
                                                         span { key: "end-{k}", class: "keys-help-end",
                                                             if k > 0 {
                                                                 span { class: "keys-help-or", "/" }
                                                             }
-                                                            kbd { "{end}" }
+                                                            Keys { keys: end }
                                                         }
                                                     }
                                                 }
