@@ -173,6 +173,92 @@ pub fn canonicalize(path: impl AsRef<std::path::Path>) -> std::io::Result<std::p
     })
 }
 
+/// Put `bytes` at `path` whole, in `mode`, so a reader sees the old file or
+/// the new one and never half of either, and a crash leaves one of them.
+/// What stood at `path`, a link included, is replaced rather than written
+/// through. When it fails, what was there is left and nothing beside it.
+pub fn replace(
+    path: impl AsRef<std::path::Path>,
+    bytes: impl AsRef<[u8]>,
+    mode: u32,
+) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let staged = staged(path, bytes.as_ref(), mode)?;
+    staged.persist(path).map_err(|error| error.error)?;
+    sync_dir(parent(path))
+}
+
+/// Put `bytes` at `path` whole, in `mode`, as [`replace`] does, unless a file
+/// is there already, which is kept: that fails as
+/// [`std::io::ErrorKind::AlreadyExists`].
+pub fn create_whole(
+    path: impl AsRef<std::path::Path>,
+    bytes: impl AsRef<[u8]>,
+    mode: u32,
+) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let staged = staged(path, bytes.as_ref(), mode)?;
+    std::fs::hard_link(staged.path(), path)?;
+    drop(staged);
+    sync_dir(parent(path))
+}
+
+fn parent(path: &std::path::Path) -> &std::path::Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => std::path::Path::new("."),
+    }
+}
+
+/// `bytes` on the disk in a file of a name of its own beside `path`, which
+/// is taken away when it is dropped unmoved.
+fn staged(
+    path: &std::path::Path,
+    bytes: &[u8],
+    mode: u32,
+) -> std::io::Result<tempfile::NamedTempFile> {
+    use std::io::Write;
+    let prefix = format!(".{}.", path.file_name().unwrap_or_default().to_string_lossy());
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix).suffix(".tmp");
+    #[cfg(unix)]
+    builder.permissions(std::fs::Permissions::from_mode(mode));
+    #[cfg(windows)]
+    let _ = mode;
+    let mut staged = builder.tempfile_in(parent(path))?;
+    staged.write_all(bytes)?;
+    staged.as_file().sync_all()?;
+    Ok(staged)
+}
+
+/// Make `path` a folder open to its user alone, with its missing parents,
+/// unless one is there; one already there has to be a folder, not a link,
+/// owned by this user and closed to everyone else.
+pub fn private_dir(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        // Made in `0o700` less the umask, which may take the user's own bits.
+        Ok(()) => set_mode(path, 0o700)?,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(path)?;
+            set_mode(path, 0o700)?;
+        }
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || metadata.uid() != crate::euid() || metadata.mode() & 0o077 != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{} is not a private folder of this user", path.display()),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +324,111 @@ mod tests {
         let mode = std::fs::metadata(&file).unwrap().mode() & 0o777;
         assert_eq!(mode, 0o600);
         sync_dir(dir.path()).unwrap();
+    }
+
+    fn listed(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_replaced_file_holds_the_new_bytes_in_its_mode_and_nothing_is_left_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        std::fs::write(&path, "old").unwrap();
+
+        replace(&path, b"new", 0o644).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        #[cfg(unix)]
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
+        assert_eq!(listed(dir.path()), ["settings.toml"]);
+        replace(dir.path().join("key"), b"secret", 0o600).unwrap();
+        assert_eq!(
+            std::fs::metadata(dir.path().join("key")).unwrap().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn a_replace_that_fails_leaves_what_was_there_and_no_file_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("taken");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("inside"), "kept").unwrap();
+
+        assert!(replace(&path, b"new", 0o600).is_err());
+
+        assert_eq!(listed(dir.path()), ["taken"]);
+        assert_eq!(std::fs::read(path.join("inside")).unwrap(), b"kept");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_replace_puts_a_file_in_place_of_a_link_rather_than_writing_through_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, "elsewhere").unwrap();
+        let path = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+
+        replace(&path, b"new", 0o600).unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"elsewhere");
+        assert!(std::fs::symlink_metadata(&path).unwrap().is_file());
+    }
+
+    #[test]
+    fn a_file_made_whole_once_refuses_one_already_there_and_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("key");
+
+        create_whole(&path, b"first", 0o600).unwrap();
+        let refused = create_whole(&path, b"second", 0o600).unwrap_err();
+
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).unwrap(), b"first");
+        assert_eq!(listed(dir.path()), ["key"]);
+    }
+
+    #[test]
+    fn a_private_folder_is_made_open_to_its_user_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state");
+
+        private_dir(&path).unwrap();
+
+        assert!(path.is_dir());
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o700);
+        private_dir(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_already_there_is_private_while_it_is_closed_to_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state");
+        std::fs::create_dir(&path).unwrap();
+        set_mode(&path, 0o500).unwrap();
+        private_dir(&path).unwrap();
+        set_mode(&path, 0o750).unwrap();
+        assert!(private_dir(&path).is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o750);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_private_folder_is_not_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        private_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert!(private_dir(&link).is_err());
     }
 }
