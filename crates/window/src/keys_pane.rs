@@ -13,7 +13,7 @@ use adroit_protocol::FileText;
 
 use crate::actions::Action;
 use crate::components::{
-    Button, Choice, IconButton, InlineField, Keys, Select, SettingsError, choices_of,
+    Button, Choice, ConfirmInline, IconButton, InlineField, Keys, Select, SettingsError, choices_of,
 };
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
@@ -110,19 +110,22 @@ pub fn KeysPane() -> Element {
                 oninput: move |text| filter.set(text),
             }
             Button { title: "Open the keys file", onclick: move |_| crate::settings_window::open_with("-t", &path, crate::client_keys::STARTER), "Open keys.toml" }
-            if confirm_reset() {
-                Button {
-                    kind: "danger",
-                    onclick: move |_| {
-                        confirm_reset.set(false);
-                        let t = text.peek().clone();
-                        apply(keys_edit::reset_all(&t).map_err(|e| e.to_string()));
-                    },
-                    "Reset every binding"
+            Button { disabled: confirm_reset(), onclick: move |_| confirm_reset.set(true), "Reset all…" }
+        }
+        if confirm_reset() {
+            ConfirmInline {
+                question: "Reset every binding?",
+                confirm: "Reset every binding",
+                keep: "Keep them",
+                onconfirm: move |()| {
+                    confirm_reset.set(false);
+                    let t = text.peek().clone();
+                    apply(keys_edit::reset_all(&t).map_err(|e| e.to_string()));
+                },
+                onkeep: move |()| confirm_reset.set(false),
+                p { class: "settings-agent-note",
+                    "keys.toml is left with no binding of its own, so every key does what Adroit binds it to. Its comments stay."
                 }
-                Button { onclick: move |_| confirm_reset.set(false), "Keep them" }
-            } else {
-                Button { onclick: move |_| confirm_reset.set(true), "Reset all…" }
             }
         }
         p { class: "keys-lead", "{view().lead()}" }

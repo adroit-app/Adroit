@@ -3,6 +3,7 @@
 
 mod banner;
 mod button;
+mod confirm_inline;
 mod crumbs;
 mod dialog;
 mod empty;
@@ -19,6 +20,7 @@ mod state_glyph;
 
 pub use banner::*;
 pub use button::*;
+pub use confirm_inline::*;
 pub use crumbs::*;
 pub use dialog::*;
 pub use empty::*;

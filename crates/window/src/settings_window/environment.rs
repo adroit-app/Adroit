@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 
 use super::Edited;
 use crate::components::{
-    Button, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
+    Button, ConfirmInline, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
 };
 use crate::environments::{self, fresh_name};
 
@@ -173,25 +173,20 @@ pub(super) fn EnvironmentPane() -> Element {
             }
         }
         if removing() {
-            div { class: "settings-confirm", role: "alertdialog", aria_label: "Remove {kept.name}",
-                p { class: "settings-confirm-head", "Remove {kept.name}?" }
+            ConfirmInline {
+                question: "Remove {kept.name}?",
+                confirm: "Remove",
+                onconfirm: move |()| match environments::archive(&Catalog::path(), &id) {
+                    // Nothing is left here to configure.
+                    Ok(()) => super::close(),
+                    Err(why) => {
+                        removing.set(false);
+                        error.set(Some(why));
+                    }
+                },
+                onkeep: move |()| removing.set(false),
                 p { class: "settings-agent-note",
                     "Every window stops listing it. Its sessions keep running on its host, and it can be restored from Settings."
-                }
-                div { class: "settings-page-actions",
-                    Button {
-                        kind: "danger",
-                        onclick: move |_| match environments::archive(&Catalog::path(), &id) {
-                            // Nothing is left here to configure.
-                            Ok(()) => super::close(),
-                            Err(why) => {
-                                removing.set(false);
-                                error.set(Some(why));
-                            }
-                        },
-                        "Remove"
-                    }
-                    Button { onclick: move |_| removing.set(false), "Keep" }
                 }
             }
         }

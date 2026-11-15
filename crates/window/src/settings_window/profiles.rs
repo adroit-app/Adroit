@@ -17,7 +17,7 @@ use dioxus::prelude::*;
 use super::agents::{CodexGroup, OpenCodeGroup, PiGroup, SessionGroup};
 use super::{Change, LaunchGroup};
 use crate::components::{
-    Button, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
+    Button, ConfirmInline, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
 };
 use crate::icons::{Icon, IconView};
 use crate::link::{Link, failure, refusal};
@@ -525,8 +525,15 @@ fn DeleteProfile(
         }
     };
     rsx! {
-        div { class: "settings-confirm", role: "alertdialog", aria_label: "Delete {name}",
-            p { class: "settings-confirm-head", "Delete {name}?" }
+        ConfirmInline {
+            question: "Delete {name}?",
+            confirm: if with_folder() && matches!(folder, LoginFolder::Deletable(_)) { "Delete agent setup and folder" } else { "Delete agent setup" },
+            busy: busy(),
+            onconfirm: confirm,
+            onkeep: move |()| {
+                let mut deleting = deleting;
+                deleting.set(false);
+            },
             p { class: "settings-agent-note",
                 "Sessions that ran from it keep running, and are resumed, as they started."
             }
@@ -557,26 +564,6 @@ fn DeleteProfile(
                         " was not made by Adroit, so it is left as it is."
                     }
                 },
-            }
-            div { class: "settings-page-actions",
-                Button {
-                    kind: "danger",
-                    disabled: busy(),
-                    onclick: confirm,
-                    if with_folder() && matches!(folder, LoginFolder::Deletable(_)) {
-                        "Delete agent setup and folder"
-                    } else {
-                        "Delete agent setup"
-                    }
-                }
-                Button {
-                    disabled: busy(),
-                    onclick: move |_| {
-                        let mut deleting = deleting;
-                        deleting.set(false);
-                    },
-                    "Cancel"
-                }
             }
         }
     }
