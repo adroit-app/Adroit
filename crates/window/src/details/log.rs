@@ -7,8 +7,14 @@ use dioxus::prelude::*;
 use crate::bridge::AppCtx;
 use adroit_core::msg::Msg;
 
+/// `commits` with their graph; a click opens one, or, with `base`, the row at
+/// its place from `base` of the panel's list.
 #[component]
-pub(super) fn LogRows(commits: Vec<Commit>, selected: Option<usize>) -> Element {
+pub(super) fn LogRows(
+    commits: Vec<Commit>,
+    selected: Option<usize>,
+    base: Option<usize>,
+) -> Element {
     let app = use_context::<AppCtx>();
     let rows = graph::layout(
         commits
@@ -20,7 +26,10 @@ pub(super) fn LogRows(commits: Vec<Commit>, selected: Option<usize>) -> Element 
         for (i , (c , row)) in commits.iter().zip(&rows).enumerate() {
             div { key: "{c.id}",
                 class: if selected == Some(i) { "commit selected" } else { "commit" },
-                onclick: move |_| app.dispatch(Msg::DetailsOpenRow(i)),
+                onclick: move |_| app.dispatch(match base {
+                    Some(base) => Msg::DetailsClick(base + i),
+                    None => Msg::DetailsOpenRow(i),
+                }),
                 div {
                     class: "commit-graph",
                     dangerous_inner_html: graph::svg(row, lanes, graph::Marks { current: c.current, empty: c.empty, conflict: c.conflict }),

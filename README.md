@@ -189,7 +189,7 @@ program in the console or prompt.
 | ---------------------------- | ---------------------------------------------------------------- |
 | `Ctrl+q h/j/k/l`             | Move between the tree, content windows, prompt and details panel |
 | `Ctrl+q s`, `Ctrl+q v`       | Split below or beside the focused window                         |
-| `Ctrl+Tab`, `Ctrl+Shift+Tab` | Next or previous tab; in details, next or previous sheet         |
+| `Ctrl+Tab`, `Ctrl+Shift+Tab` | Next or previous tab; in details, next or previous tab         |
 | `Mod+1` … `Mod+9`            | Go to a content tab                                              |
 | `Mod+p`                      | Choose where a session works                                     |
 | `Mod+t`                      | Start a session in the selected or focused directory             |

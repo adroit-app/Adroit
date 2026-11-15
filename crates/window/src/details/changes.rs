@@ -82,7 +82,7 @@ pub(super) fn Repository(
                         }
                     }
                 },
-                (_, Some(Listing::Log(commits))) => rsx! { LogRows { commits, selected } },
+                (_, Some(Listing::Log(commits))) => rsx! { LogRows { commits, selected, base: None } },
                 (_, Some(Listing::Diff(lines))) if lines.is_empty() => rsx! { ListRow { kind: "dim", "No changes" } },
                 (_, Some(Listing::Diff(lines))) => rsx! {
                     div { class: "diff",
@@ -91,7 +91,6 @@ pub(super) fn Repository(
                         }
                     }
                 },
-                // The repository's sheets never read the overview's links.
                 (_, Some(Listing::Entries(_))) => rsx! {},
             }
         }

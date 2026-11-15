@@ -2,6 +2,7 @@
 //! slice in line with the others, and runs in the order listed.
 
 use adroit_model::EnvironmentId;
+use adroit_model::config::UsageSettings;
 use adroit_protocol::{HostPath, Request, Sight};
 
 use crate::content::Tab;
@@ -255,7 +256,15 @@ fn details_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// The details panel is open with its side panel and reads by the settings.
 fn details_told(state: &mut ViewState, _: &mut Vec<Effect>) {
     let open = state.chrome.panels.layout.show_details;
-    details::follow_settings(&mut state.details, open, &state.config.settings.details);
+    let settings = &state.config.settings;
+    details::follow_settings(
+        &mut state.details,
+        open,
+        &settings.details,
+        &settings.panel,
+        state.config.usage().unwrap_or(settings.usage),
+    );
+    details::follow_selected(&mut state.details, state.tree.selected.as_ref());
 }
 
 /// The details panel shows the account usage of the agent the focused
@@ -377,14 +386,28 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
             ..Sight::default()
         }
     };
-    let heading = matches!(
-        &state.tree.selected,
-        Some(tree::nav::Item::Environment(e)) if e == environment
-    );
+    // The profiles listed are of the environment whose heading is selected,
+    // or else of the one shown.
+    let profiled = match &state.tree.selected {
+        Some(tree::nav::Item::Environment(e)) => e == environment,
+        _ => shown,
+    };
     Sight {
-        agents: heading && state.details.shown.open,
-        system: state.config.usage(),
-        tree: tree::sight(&state.tree, environment),
+        agents: profiled && details::lists_profiles(&state.details),
+        // A window that shows no meter says so, rather than leave the host
+        // to sample what its own settings name.
+        system: shown_part
+            .details
+            .then(|| details::meters(&state.details).unwrap_or(UsageSettings::NONE)),
+        tree: {
+            let mut tree = tree::sight(&state.tree, environment);
+            if shown
+                && let Some(root) = details::pulls_wanted(&state.details, state.hosts.work(environment))
+            {
+                tree.github.insert((root, adroit_model::github::Listing::Pulls));
+            }
+            tree
+        },
         past: state.picker.past_sight(environment),
         pick: state.picker.sight_in(environment),
         place: state

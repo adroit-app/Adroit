@@ -315,7 +315,6 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                     }
                 }
             }
-            EnvironmentAgents { environment: environment.clone() }
             if !pending.is_empty() || !drafts.is_empty() {
                 div { class: "details-block",
                     span { class: "details-label", "Waiting for it" }
@@ -342,7 +341,7 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
 /// The agents `environment`'s profiles start, each with how its login
 /// stands and what is left of its usage limits.
 #[component]
-fn EnvironmentAgents(environment: EnvironmentId) -> Element {
+pub(crate) fn EnvironmentAgents(environment: EnvironmentId) -> Element {
     let app = use_context::<AppCtx>();
     let files = {
         let environment = environment.clone();

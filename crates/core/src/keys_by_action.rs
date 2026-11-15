@@ -420,7 +420,7 @@ mod tests {
             ("window.close", "Application"),
             ("tree.toggle", "Application"),
             ("details.toggle", "Application"),
-            ("details.log", "Details"),
+            ("details.tab 3", "Details"),
             ("filter", "Sessions"),
             ("tab.go 3", "Tabs"),
             ("console.send Escape", "Console"),

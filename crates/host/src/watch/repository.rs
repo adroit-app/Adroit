@@ -4,13 +4,19 @@
 
 use std::time::Duration;
 
-use adroit_protocol::DetailsChange;
+use adroit_protocol::{DetailsChange, RepositorySight};
 
-use super::{Watched, distinct};
+use super::Watched;
 
 pub(super) async fn watch(mut watched: Watched) {
     loop {
-        for shown in distinct(&watched.sights(), |s| s.repository.clone()) {
+        let mut spots: Vec<RepositorySight> = Vec::new();
+        for spot in watched.sights().into_iter().flat_map(|s| s.repositories) {
+            if !spots.contains(&spot) {
+                spots.push(spot);
+            }
+        }
+        for shown in spots {
             let read = crate::details::load(shown.spot, &shown.worktree).await;
             watched.record([DetailsChange::Repository {
                 worktree: shown.worktree,
@@ -20,7 +26,7 @@ pub(super) async fn watch(mut watched: Watched) {
         watched
             .wait(Duration::from_secs(2), |seen| {
                 seen.iter()
-                    .map(|s| s.sight.repository.clone())
+                    .map(|s| s.sight.repositories.clone())
                     .collect::<Vec<_>>()
             })
             .await;

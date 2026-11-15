@@ -533,7 +533,14 @@ mod tests {
             .collect();
         assert_eq!(
             titles,
-            ["Overview", "Changes", "Log", "Agents", "Resources", "Timeline"]
+            [
+                "Overview",
+                "Changes",
+                "Log",
+                "Agents",
+                "Resources",
+                "Timeline"
+            ]
         );
     }
 
@@ -603,18 +610,19 @@ components = ["timeline"]
         .unwrap_err();
         assert!(err.contains("`timeline` cannot be placed there"), "{err}");
         assert!(
-            parse("[github]\nfoot = [\"changes\"]\n[[github.tabs]]\ntitle = \"G\"\ncomponents = []\n")
-                .is_err()
+            parse(
+                "[github]\nfoot = [\"changes\"]\n[[github.tabs]]\ntitle = \"G\"\ncomponents = []\n"
+            )
+            .is_err()
         );
     }
 
     #[test]
     fn an_unknown_component_an_unknown_icon_or_no_tab_is_refused() {
         assert!(parse("[[session.tabs]]\ntitle = \"T\"\ncomponents = [\"weather\"]\n").is_err());
-        let err = parse(
-            "[[session.tabs]]\ntitle = \"T\"\nicon = \"no-such-icon\"\ncomponents = []\n",
-        )
-        .unwrap_err();
+        let err =
+            parse("[[session.tabs]]\ntitle = \"T\"\nicon = \"no-such-icon\"\ncomponents = []\n")
+                .unwrap_err();
         assert!(err.contains("no-such-icon"), "{err}");
         assert!(parse("[session]\ntabs = []\n").is_err());
     }
@@ -622,7 +630,11 @@ components = ["timeline"]
     #[test]
     fn what_the_environment_describes_can_be_placed_anywhere() {
         for subject in [Subject::Session, Subject::Environment, Subject::Github] {
-            for c in [Component::Machine, Component::Environment, Component::Profiles] {
+            for c in [
+                Component::Machine,
+                Component::Environment,
+                Component::Profiles,
+            ] {
                 assert!(c.describes(subject), "{c:?} {subject:?}");
             }
         }

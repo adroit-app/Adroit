@@ -184,8 +184,9 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::TreeEveryWorktree => tree::every_worktree(&mut state.tree, &state.hosts),
 
         Msg::DetailsShown(told) => details::tell(&mut state.details, *told),
-        Msg::DetailsSheet(sheet) => details::sheet(&mut state.details, sheet),
-        Msg::DetailsSheetStep(delta) => details::step_sheet(&mut state.details, delta),
+        Msg::DetailsTab(tab) => details::show_tab(&mut state.details, tab),
+        Msg::DetailsTabStep(delta) => details::step_tab(&mut state.details, delta),
+        Msg::DetailsShowComponent(c) => details::show_component(&mut state.details, c),
         Msg::DetailsKey(key) => {
             let environment = content::shown_environment(state);
             details::press(&mut state.details, state.hosts.work(&environment), key)

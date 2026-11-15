@@ -9,8 +9,8 @@ there. Environments are added below the main window's tree.
 
 Its sidebar lists that environment's work settings under the environment's
 name, and below them, under All environments, what belongs to this computer
-for every environment: the window, which of the machine's meters the details
-show, the console, the prompt and their embedded Neovims, the appearance and
+for every environment: the window, what the details panel is made of and which of the machine's
+meters it shows, the console, the prompt and their embedded Neovims, the appearance and
 its themes, the key bindings, accepting connections from other computers, and
 the removed environments. These stay editable while the environment cannot be
 reached. Changes apply to windows using the same settings owner and remain

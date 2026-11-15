@@ -278,10 +278,10 @@ fn a_repository_read_reaches_the_windows_that_list_it_as_it_was_read() {
         host.handle(
             window,
             Request::Watch(Box::new(Sight {
-                repository: Some(RepositorySight {
+                repositories: vec![RepositorySight {
                     worktree: "/w".into(),
                     spot,
-                }),
+                }],
                 ..Default::default()
             })),
         );
@@ -435,10 +435,13 @@ fn a_window_that_lost_track_is_sent_the_whole_work() {
 fn watch(session: Option<&str>, worktree: Option<&str>) -> Request {
     Request::Watch(Box::new(Sight {
         session: session.map(Into::into),
-        repository: worktree.map(|w| RepositorySight {
-            worktree: w.into(),
-            spot: Spot::Log,
-        }),
+        repositories: worktree
+            .map(|w| RepositorySight {
+                worktree: w.into(),
+                spot: Spot::Log,
+            })
+            .into_iter()
+            .collect(),
         ..Default::default()
     }))
 }
@@ -580,7 +583,8 @@ fn moving_away_drops_what_was_read_for_what_is_no_longer_shown() {
     assert_eq!(
         changes(events.into_iter().next()),
         vec![DetailsChange::RepositoryLeft {
-            worktree: "/w".into()
+            worktree: "/w".into(),
+            spot: Spot::Log,
         }]
     );
     let events = host.on(watch(None, None));

@@ -13,9 +13,8 @@ use dioxus::prelude::*;
 
 use super::Ui;
 use super::panels::{self, Splitter};
-use crate::connection::EnvironmentCard;
 use crate::content::ContentPanel;
-use crate::details::{self, Entry, Sheet};
+use crate::details::{self, Entry};
 use crate::layout::Side;
 use crate::nav::Item;
 use crate::tree::{RowContext, RowEvents, TreePanel};
@@ -150,19 +149,12 @@ pub(crate) fn Body() -> Element {
 }
 
 /// The details panel at the window's right, for what the focused window
-/// shows, or for the environment whose heading is selected in the tree.
+/// shows, or for the environment's heading or the pull request's or issue's
+/// row selected in the tree.
 #[component]
 fn DetailsSide(focused: bool, shown: bool) -> Element {
     let ui = use_context::<Ui>();
     let app = ui.app;
-    let (heading, github) = match &app.tree.read().selected {
-        Some(Item::Environment(environment)) => (Some(environment.clone()), None),
-        Some(Item::GitHubItem(environment, root, listing, number)) => (
-            None,
-            Some((environment.clone(), root.clone(), *listing, *number)),
-        ),
-        _ => (None, None),
-    };
     // Read, so the last input shown follows a pane started.
     let _ = (ui.local.attached)();
     let current = app.content.read().described().cloned();
@@ -191,20 +183,22 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             .and_then(|pane| pane.last_input_ms())
     });
     let agent = app.agent_of(active.as_ref());
-    let usage_settings = app.config.read().settings.usage;
-    let (sheet_keys, back_keys) = {
+    let (tab_keys, back_keys) = {
         let chrome = app.chrome.read();
         let km = &chrome.keymap;
-        let sheet_keys = Sheet::ALL
-            .map(|s| {
-                km.keys_for(Context::Global, &details::sheet_action(s))
-                    .unwrap_or_default()
+        let tab_keys = (0..9)
+            .map(|at| {
+                km.keys_in(
+                    &[Context::Details, Context::Global],
+                    &details::tab_action(at),
+                )
+                .unwrap_or_default()
             })
-            .to_vec();
+            .collect::<Vec<_>>();
         let back_keys = km
             .keys_in(&[Context::Details, Context::Tree], &Action::CursorFold)
             .unwrap_or_default();
-        (sheet_keys, back_keys)
+        (tab_keys, back_keys)
     };
     let width = app.chrome.read().panels.drawn().1;
     rsx! {
@@ -212,23 +206,12 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
             hidden: !shown,
             style: "width:{width}px",
             onmousedown: move |_| app.dispatch(Msg::Focus(Area::Details)),
-            if let Some((environment, root, listing, number)) = github {
-                div { class: "details-scroll",
-                    details::GitHubCard { environment, root, listing, number }
-                }
-            } else if let Some(environment) = heading {
-                div { class: "details-scroll",
-                    EnvironmentCard { environment }
-                }
-                details::MachineUsage { system: details::machine_gauges(&app, &app.shown_environment(), &usage_settings) }
-            } else {
-                details::DetailsPanel {
+            details::DetailsPanel {
                     worktree: current.as_ref().map(|p| p.worktree.clone()),
                     kind: if outside_git { details::Worktree::OutsideGit } else { details::Worktree::Repository },
                     live_input_ms,
                     agent,
-                    usage_settings,
-                    sheet_keys,
+                    tab_keys,
                     back_keys,
                     on_kill: move |(session, process): (Session, Process)| {
                         if let Some(ask) = Ask::kill_process(&app.shown_environment(), Some(&session), Some(&Entry::Process(process))) {
@@ -239,7 +222,6 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
                         app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file } });
                     },
                 }
-            }
         }
     }
 }

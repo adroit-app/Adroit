@@ -1,8 +1,8 @@
-//! The sheets of the session shown: the overview's head, how it stands and
-//! the change it is on, and on each sheet its rows grouped under headings;
-//! or the row opened from them.
+//! What the session shown tells of itself: its head and the change it is
+//! on, the rows a component lists grouped under their headings, and the row
+//! opened from them.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use adroit_core::msg::Msg;
 use adroit_model::{Process, Session};
@@ -11,13 +11,12 @@ use dioxus::prelude::*;
 use super::message::MessageView;
 use super::process::ProcessView;
 use super::subagent::SubagentView;
-use super::timeline::{ProgressCard, TaskView, TimelineRows};
+use super::timeline::TaskView;
 use crate::bridge::AppCtx;
 use crate::components::{Fact, Facts, ListRow, Section};
 use crate::details::{
-    Details, Entry, Group, Listing, Sheet, change_line, entry_listing, link_sections, opened_agent,
-    opened_note, opened_process, opened_task, overview_change, overview_facts, shown_session,
-    stats,
+    Component, Entry, Group, change_line, entry_listing, link_sections, opened_agent, opened_note,
+    opened_process, opened_task, overview_facts, shown_session, stats, working_copy,
 };
 use crate::icons::{Icon, IconView};
 
@@ -31,121 +30,89 @@ pub(crate) struct LinkMenu {
     pub file: bool,
 }
 
+/// The session's name, state, model and times.
 #[component]
-pub(super) fn Overview(
-    /// Where the shown session's paths are told from.
-    worktree: Option<PathBuf>,
-    /// When the shown session last took input through its console.
-    live_input_ms: Option<u64>,
-    /// Now, as the facts that tell how long ago are told.
-    now_ms: u64,
-    back_keys: String,
-    on_kill: EventHandler<(Session, Process)>,
-    on_menu: EventHandler<LinkMenu>,
-) -> Element {
+pub(super) fn SessionHead(live_input_ms: Option<u64>, now_ms: u64) -> Element {
     let app = use_context::<AppCtx>();
-    let details: Details = app.details.read().clone();
+    let details = app.details.read().clone();
     let environment = app.shown_environment();
     let hosts = app.hosts.read();
     let work = hosts.work(&environment);
-    let session = shown_session(&details, work).cloned();
-    let head = details.drill.sheet() == Sheet::Overview;
-    let facts = session.as_ref().filter(|_| head).map(|s| {
-        let stats = stats(&details, work).unwrap_or_default();
-        overview_facts(s, &stats, s.last_input_ms.max(live_input_ms), now_ms)
-    });
-    let change = overview_change(&details, work)
-        .filter(|_| head)
-        .and_then(|v| change_line(&v));
-    let listing = entry_listing(&details, work);
-    let selected = listing.as_ref().and_then(|l| details.drill.selected(l));
-    let agent = opened_agent(&details, work);
-    let note = opened_note(&details, work);
-    let process = opened_process(&details, work);
-    let task = opened_task(&details, work);
-    let sheet = details.drill.sheet();
-    let entries = match &listing {
-        // A row opened stands in for the rows.
-        Some(Listing::Entries(entries))
-            if details.drill.agent().is_none()
-                && details.drill.message().is_none()
-                && details.drill.process().is_none()
-                && details.drill.task().is_none() =>
-        {
-            entries.as_slice()
-        }
-        _ => &[],
+    let Some(s) = shown_session(&details, work).cloned() else {
+        return rsx! {};
     };
-    let paths_from = worktree
-        .clone()
-        .or_else(|| session.as_ref().map(|s| s.cwd.clone()))
-        .unwrap_or_default();
-    let sections = link_sections(entries, &paths_from, &crate::paths::home(), now_ms);
-    let progress = match entries.first() {
-        Some(Entry::Progress(p)) => Some(p.clone()),
-        _ => None,
-    };
-    let timeline_rows: Vec<(usize, Entry)> = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| matches!(e, Entry::Tree(_) | Entry::Task(_)))
-        .map(|(at, e)| (at, e.clone()))
-        .collect();
-    let no_timeline =
-        sheet == Sheet::Timeline && session.is_some() && entries.is_empty() && task.is_none();
-    let killable = |at: usize| match &listing {
-        Some(Listing::Entries(entries)) => match entries.get(at) {
-            Some(Entry::Process(p)) if !p.zombie => session.clone().map(|s| (s, p.clone())),
-            _ => None,
-        },
-        _ => None,
-    };
+    let stats = stats(&details, work).unwrap_or_default();
+    let facts = overview_facts(&s, &stats, s.last_input_ms.max(live_input_ms), now_ms);
     rsx! {
-        if let (Some(s), Some(facts)) = (&session, facts) {
-            Section { label: "{s.name}",
-                Facts {
-                    for fact in facts {
-                        Fact { label: "{fact.label}",
-                            if let Some(tone) = fact.tone {
-                                span { class: "details-facts-value",
-                                    span { class: "state-badge {tone}", "{fact.value}" }
-                                    if let Some(note) = &fact.note {
-                                        span { class: "details-facts-note", "{note}" }
-                                    }
+        Section { label: "{s.name}",
+            Facts {
+                for fact in facts {
+                    Fact { label: "{fact.label}",
+                        if let Some(tone) = fact.tone {
+                            span { class: "details-facts-value",
+                                span { class: "state-badge {tone}", "{fact.value}" }
+                                if let Some(note) = &fact.note {
+                                    span { class: "details-facts-note", "{note}" }
                                 }
-                            } else {
-                                span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
                             }
+                        } else {
+                            span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
                         }
                     }
                 }
             }
         }
-        if let Some(change) = change {
-            div { class: "details-block details-links",
-                ListRow {
-                    kind: "details-link details-change",
-                    title: "{change.subject}",
-                    onclick: move |_| app.dispatch(Msg::DetailsSheet(Sheet::Changes)),
-                    IconView { icon: Icon::GitCommit, size: 13 }
-                    span { class: "commit-mark", "{change.short}" }
-                    span { class: "list-row-name", "{change.subject}" }
-                    span { class: "details-link-tag", "{change.files}" }
-                }
+    }
+}
+
+/// The change the worktree is on, which shows the tab of its changes.
+#[component]
+pub(super) fn ChangeLine() -> Element {
+    let app = use_context::<AppCtx>();
+    let details = app.details.read().clone();
+    let environment = app.shown_environment();
+    let hosts = app.hosts.read();
+    let Some(change) =
+        working_copy(&details, hosts.work(&environment)).and_then(|v| change_line(&v))
+    else {
+        return rsx! {};
+    };
+    rsx! {
+        div { class: "details-block details-links",
+            ListRow {
+                kind: "details-link details-change",
+                title: "{change.subject}",
+                onclick: move |_| app.dispatch(Msg::DetailsShowComponent(Component::Changes)),
+                IconView { icon: Icon::GitCommit, size: 13 }
+                span { class: "commit-mark", "{change.short}" }
+                span { class: "list-row-name", "{change.subject}" }
+                span { class: "details-link-tag", "{change.files}" }
             }
         }
-        if let Some(progress) = progress {
-            ProgressCard { progress, at: 0, selected: selected == Some(0), now_ms }
-        }
-        if !timeline_rows.is_empty() {
-            TimelineRows { rows: timeline_rows, selected, now_ms }
-        }
-        if no_timeline {
-            div { class: "details-block timeline-empty",
-                "No timeline yet. A session's agent records the plan and progress of its work here as it goes."
-            }
-        }
-        if let Some(detail) = task {
+    }
+}
+
+/// The row selected of the panel's list, if any.
+pub(super) fn selected_row(app: &AppCtx) -> Option<usize> {
+    let details = app.details.read();
+    let environment = app.shown_environment();
+    let hosts = app.hosts.read();
+    let listing = entry_listing(&details, hosts.work(&environment))?;
+    details.drill.selected(&listing)
+}
+
+/// The subagent, message, process or task opened from a component's rows.
+#[component]
+pub(super) fn OpenedRow(back_keys: String, on_kill: EventHandler<(Session, Process)>) -> Element {
+    let app = use_context::<AppCtx>();
+    let details = app.details.read().clone();
+    let environment = app.shown_environment();
+    let hosts = app.hosts.read();
+    let work = hosts.work(&environment);
+    let session = shown_session(&details, work).cloned();
+    let now_ms = adroit_model::time::now_ms();
+    rsx! {
+        if let Some(detail) = opened_task(&details, work) {
             TaskView {
                 detail,
                 now_ms,
@@ -153,58 +120,89 @@ pub(super) fn Overview(
                 on_back: move |_| app.dispatch(Msg::DetailsBack),
             }
         }
-        if let Some(agent) = agent {
+        if let Some(agent) = opened_agent(&details, work) {
             SubagentView {
                 agent,
-                now_ms: adroit_model::time::now_ms(),
+                now_ms,
                 back_keys: back_keys.clone(),
                 on_back: move |_| app.dispatch(Msg::DetailsBack),
             }
         }
-        if let Some(note) = note {
+        if let Some(note) = opened_note(&details, work) {
             MessageView {
                 note,
-                now_ms: adroit_model::time::now_ms(),
+                now_ms,
                 back_keys: back_keys.clone(),
                 on_back: move |_| app.dispatch(Msg::DetailsBack),
             }
         }
-        if let Some(process) = process {
+        if let Some(process) = opened_process(&details, work) {
             ProcessView {
                 key: "{process.key}",
                 process,
                 on_back: move |_| app.dispatch(Msg::DetailsBack),
-                on_kill: {
-                    let session = session.clone();
-                    move |process| {
-                        if let Some(s) = session.clone() {
-                            on_kill.call((s, process));
-                        }
+                on_kill: move |process| {
+                    if let Some(s) = session.clone() {
+                        on_kill.call((s, process));
                     }
                 },
             }
         }
+    }
+}
+
+/// `rows`, the first at `base` of the panel's list, grouped under their
+/// headings; paths are told from `paths_from`.
+#[component]
+pub(super) fn GroupedRows(
+    rows: Vec<Entry>,
+    base: usize,
+    paths_from: std::path::PathBuf,
+    now_ms: u64,
+    on_kill: EventHandler<(Session, Process)>,
+    on_menu: EventHandler<LinkMenu>,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    let selected = selected_row(&app);
+    let session = {
+        let details = app.details.read();
+        let environment = app.shown_environment();
+        let hosts = app.hosts.read();
+        shown_session(&details, hosts.work(&environment)).cloned()
+    };
+    let sections = link_sections(&rows, Path::new(&paths_from), &crate::paths::home(), now_ms);
+    let killable = |at: usize| match rows.get(at) {
+        Some(Entry::Process(p)) if !p.zombie => session.clone().map(|s| (s, p.clone())),
+        _ => None,
+    };
+    // A component alone in its tab lists its rows without a heading; they
+    // are drawn as one section all the same.
+    let headless = !matches!(rows.first(), Some(Entry::Heading { .. }));
+    rsx! {
         for section in sections.into_iter() {
             {
             // A fact is a value to read and copy, drawn as the head's facts are.
             let facts = section.group == Group::About;
-            let at = section.at;
+            let at = base + section.at;
             rsx! {
             div { key: "{section.group.title()}", class: "details-block details-links",
-                ListRow {
-                    kind: "details-link-heading",
-                    selected: selected == Some(at),
-                    onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
-                    IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
-                    span { class: "details-label", "{section.group.title()}" }
-                    if section.folded {
-                        span { class: "details-link-tag", "{section.count}" }
+                if !headless {
+                    ListRow {
+                        kind: "details-link-heading",
+                        selected: selected == Some(at),
+                        onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+                        IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
+                        span { class: "details-label", "{section.group.title()}" }
+                        if section.folded {
+                            span { class: "details-link-tag", "{section.count}" }
+                        }
                     }
                 }
                 for r in section.rows.into_iter() {
                     {
-                        let (at, file) = (r.at, r.file);
-                        let kill = killable(at);
+                        let (local, file) = (r.at, r.file);
+                        let at = base + local;
+                        let kill = killable(local);
                         let kind = match (facts, r.thumb.is_some()) {
                             (true, _) => "details-link details-fact",
                             (false, true) => "details-link details-image",
@@ -260,14 +258,19 @@ pub(super) fn Overview(
                         }
                     }
                 }
-                if let Some((at, hidden)) = section.more {
-                    ListRow { key: "more-{at}",
-                        kind: "details-link details-more",
-                        selected: selected == Some(at),
-                        onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
-                        IconView { icon: Icon::Dots, size: 13 }
-                        span { class: "list-row-name", "Show all" }
-                        span { class: "details-link-tag", "{hidden} more" }
+                if let Some((more, hidden)) = section.more {
+                    {
+                        let at = base + more;
+                        rsx! {
+                            ListRow { key: "more-{at}",
+                                kind: "details-link details-more",
+                                selected: selected == Some(at),
+                                onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+                                IconView { icon: Icon::Dots, size: 13 }
+                                span { class: "list-row-name", "Show all" }
+                                span { class: "details-link-tag", "{hidden} more" }
+                            }
+                        }
                     }
                 }
             }

@@ -101,12 +101,6 @@ pub enum Action {
     WindowOpen,
     Refresh,
     Filter,
-    DetailsOverview,
-    DetailsChanges,
-    DetailsLog,
-    DetailsAgents,
-    DetailsResources,
-    DetailsTimeline,
     WorktreesToggle,
     ScrollDown,
     ScrollUp,
@@ -155,6 +149,7 @@ pub enum Action {
     ConsoleSend(Option<Chord>),
     /// Show the content's tab of this number, counted from 1.
     TabGo(u8),
+    DetailsTab(u8),
     /// Move the focused window into the content's tab of this number,
     /// counted from 1.
     TabMerge(u8),
@@ -301,8 +296,8 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::WindowToTab, "window.to_tab", "move the focused window to a new tab, unless it is the only one of its tab").bar("Move Window to a New Tab", Icon::BrowserPlus),
     S::new(A::WindowEdit, "window.edit", "switch the focused window between a document's viewer and a Neovim on the document, which runs on hidden while the window shows the viewer ([content](content.md#viewers))").says("Switch between the viewer and Neovim"),
     S::new(A::TabMergeLast, "tab.merge_last", "merge the content's tab shown into the tab shown before it, or else the tab beside it: every window of it, as it is split, right of every window there, the focused one keeping the focus ([content](content.md))").says("Merge the tab into the tab before"),
-    S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(Steps::Tabs),
-    S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(Steps::Tabs),
+    S::new(A::TabNext, "tab.next", "show the next tab of the area the keys are in: the details panel's tabs there, elsewhere the content's tabs").bar("Next Tab", Icon::ChevronRight).repeats(Steps::Tabs),
+    S::new(A::TabPrev, "tab.prev", "show the previous tab of the area the keys are in: the details panel's tabs there, elsewhere the content's tabs").bar("Previous Tab", Icon::ChevronLeft).repeats(Steps::Tabs),
     S::new(A::TabLast, "tab.last", "show the content's tab shown before the one shown now").bar("Tab Before", Icon::ArrowBack),
     S::new(A::TabMovePrev, "tab.move_prev", "move the content's tab shown one place toward the first").says("Move the tab left").repeats(Steps::TabOrder),
     S::new(A::TabMoveNext, "tab.move_next", "move the content's tab shown one place toward the last").says("Move the tab right").repeats(Steps::TabOrder),
@@ -409,12 +404,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::WindowOpen, "window.open", "open another window of the instance ([windows](sessions.md#windows))").bar("New Window", Icon::CopyPlus),
     S::new(A::Refresh, "refresh", "read the sessions, and what git says of where they run, again now").bar("Refresh", Icon::Refresh),
     S::new(A::Filter, "filter", "narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it").bar("Filter…", Icon::Filter),
-    S::new(A::DetailsOverview, "details.overview", "show the overview sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Overview", Icon::InfoCircle),
-    S::new(A::DetailsChanges, "details.changes", "show the changes sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Changes", Icon::FileDiff),
-    S::new(A::DetailsLog, "details.log", "show the log sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Log", Icon::GitCommit),
-    S::new(A::DetailsAgents, "details.agents", "show the agents sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Agents", Icon::UsersGroup),
-    S::new(A::DetailsResources, "details.resources", "show the resources sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Resources", Icon::Link),
-    S::new(A::DetailsTimeline, "details.timeline", "show the timeline sheet of the details panel ([details](details.md)), and the panel when it is hidden").bar("Timeline", Icon::TimelineEvent),
+    S::new(A::DetailsTab(1), "details.tab", "show the details panel's tab numbered `n`, from 1 to 9, of those it has for what it describes ([details](details.md#components)), and the panel when it is hidden").says("Show details tab"),
     S::new(A::WorktreesToggle, "worktrees.toggle", "list every worktree git knows, those without sessions too, or only those with sessions again").bar("Toggle All Worktrees", Icon::ListTree),
     S::new(A::ScrollDown, "scroll.down", "scroll the details panel down a step; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows").says("Scroll down"),
     S::new(A::ScrollUp, "scroll.up", "scroll up a step, what `scroll.down` scrolls").says("Scroll up"),
@@ -488,7 +478,7 @@ impl Action {
     /// The tab's number an action that takes one names.
     pub fn number(&self) -> Option<u8> {
         match self {
-            Action::TabGo(n) | Action::TabMerge(n) => Some(*n),
+            Action::TabGo(n) | Action::TabMerge(n) | Action::DetailsTab(n) => Some(*n),
             _ => None,
         }
     }
@@ -499,6 +489,7 @@ impl Action {
         match self {
             Action::TabGo(_) => Action::TabGo(n),
             Action::TabMerge(_) => Action::TabMerge(n),
+            Action::DetailsTab(_) => Action::DetailsTab(n),
             a => a.clone(),
         }
     }
@@ -584,11 +575,14 @@ mod tests {
         ($($variant:ident),* $(,)?) => {{
             fn _listed(a: &Action) {
                 match a {
-                    Action::ConsoleSend(_) | Action::TabGo(_) | Action::TabMerge(_) => {}
+                    Action::ConsoleSend(_)
+                    | Action::TabGo(_)
+                    | Action::TabMerge(_)
+                    | Action::DetailsTab(_) => {}
                     $(Action::$variant => {})*
                 }
             }
-            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1), Action::TabMerge(1)]
+            vec![$(Action::$variant,)* Action::ConsoleSend(None), Action::TabGo(1), Action::TabMerge(1), Action::DetailsTab(1)]
         }};
     }
 
@@ -682,12 +676,6 @@ mod tests {
             WindowOpen,
             Refresh,
             Filter,
-            DetailsOverview,
-            DetailsChanges,
-            DetailsLog,
-            DetailsAgents,
-            DetailsResources,
-            DetailsTimeline,
             WorktreesToggle,
             ScrollDown,
             ScrollUp,

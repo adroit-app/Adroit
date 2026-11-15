@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use adroit_model::{Agent, Session, TerminalProgram, TerminalSession};
 use adroit_protocol::{
     AgentFacts, AgentsWork, Change, ConfigWork, DetailsChange, DetailsWork, Event, PastChange,
-    PickChange, PlaceChange, PromptChange, Request, SPOKEN, Sight, TreeChange, TreeWork, WorkPatch,
-    WorkSnapshot, agree,
+    PickChange, PlaceChange, PromptChange, RepositoryRead, Request, SPOKEN, Sight, TreeChange,
+    TreeWork, WorkPatch, WorkSnapshot, agree,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -630,9 +630,13 @@ fn left(work: &Work, sights: &[&Sight]) -> Vec<Change> {
     let repositories = work
         .details
         .repositories
-        .keys()
-        .cloned()
-        .map(|worktree| DetailsChange::RepositoryLeft { worktree });
+        .iter()
+        .flat_map(|(worktree, reads)| {
+            reads.iter().map(|r| DetailsChange::RepositoryLeft {
+                worktree: worktree.clone(),
+                spot: r.spot.clone(),
+            })
+        });
     let marks = work
         .tree
         .marks
@@ -724,14 +728,14 @@ fn details_in_sight(change: &DetailsChange, sight: &Sight) -> bool {
         | DetailsChange::Processes { session, .. }
         | DetailsChange::Timeline { session, .. }
         | DetailsChange::SessionLeft { session } => sight.session.as_ref() == Some(session),
-        DetailsChange::Repository { worktree, read } => sight
-            .repository
-            .as_ref()
-            .is_some_and(|r| r.worktree == *worktree && r.spot == read.spot),
-        DetailsChange::RepositoryLeft { worktree } => sight
-            .repository
-            .as_ref()
-            .is_some_and(|r| r.worktree == *worktree),
+        DetailsChange::Repository {
+            worktree,
+            read: RepositoryRead { spot, .. },
+        }
+        | DetailsChange::RepositoryLeft { worktree, spot } => sight
+            .repositories
+            .iter()
+            .any(|r| r.worktree == *worktree && r.spot == *spot),
         DetailsChange::Usage { .. } | DetailsChange::System { .. } => true,
     }
 }

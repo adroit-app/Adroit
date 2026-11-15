@@ -8,7 +8,7 @@ use crate::actions::Action;
 use crate::console::Probe;
 use crate::console::route;
 use crate::content::{self, Area, Axis, Opening, Tab, shows_prompt};
-use crate::details::{self, Scroll, Sheet};
+use crate::details::{self, Scroll};
 use crate::effect::Effect;
 use crate::layout::Side;
 use crate::msg::Msg;
@@ -444,21 +444,8 @@ pub(crate) fn perform(
             _ => Vec::new(),
         },
         Action::Refresh => step(state, Msg::Relist),
-        Action::DetailsOverview
-        | Action::DetailsChanges
-        | Action::DetailsLog
-        | Action::DetailsAgents
-        | Action::DetailsResources
-        | Action::DetailsTimeline => {
-            let sheet = match action {
-                Action::DetailsChanges => Sheet::Changes,
-                Action::DetailsLog => Sheet::Log,
-                Action::DetailsAgents => Sheet::Agents,
-                Action::DetailsResources => Sheet::Resources,
-                Action::DetailsTimeline => Sheet::Timeline,
-                _ => Sheet::Overview,
-            };
-            let mut effects = step(state, Msg::DetailsSheet(sheet));
+        Action::DetailsTab(n) => {
+            let mut effects = step(state, Msg::DetailsTab(usize::from(n.saturating_sub(1))));
             effects.extend(step(state, Msg::PanelShow(Side::Details)));
             effects
         }

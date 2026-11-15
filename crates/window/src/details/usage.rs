@@ -1,5 +1,5 @@
-//! The foot of the details panel: the account's usage limits and how full
-//! the context is, then the whole machine's usage.
+//! The agent's usage: the account's limits and how full the context is;
+//! and the whole machine's.
 
 use adroit_core::details::{Gauge, SystemGauge};
 use adroit_model::Agent;
@@ -10,15 +10,10 @@ use crate::components::LinkButton;
 use crate::icons::{Icon, IconView};
 
 /// The account's gauges, with a button to the agent's usage page while
-/// they include the account's limits, and the machine's: `usage_url` is
-/// the page where the agent's account shows its usage.
+/// they include the account's limits: `usage_url` is the page where the
+/// agent's account shows its usage.
 #[component]
-pub(super) fn Usage(
-    gauges: Vec<Gauge>,
-    agent: Agent,
-    usage_url: Option<String>,
-    system: Vec<SystemGauge>,
-) -> Element {
+pub(super) fn AgentUsage(gauges: Vec<Gauge>, agent: Agent, usage_url: Option<String>) -> Element {
     let account = gauges.iter().any(|g| !g.context);
     rsx! {
         if !gauges.is_empty() {
@@ -41,7 +36,6 @@ pub(super) fn Usage(
                 Gauges { gauges }
             }
         }
-        MachineUsage { system }
     }
 }
 

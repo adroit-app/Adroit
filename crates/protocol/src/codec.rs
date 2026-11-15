@@ -67,10 +67,10 @@ mod tests {
             session: Some("s".into()),
             details: true,
             overview: true,
-            repository: Some(RepositorySight {
+            repositories: vec![RepositorySight {
                 worktree: "/w".into(),
                 spot: Spot::Files(Rev::Commit("abc".into())),
-            }),
+            }],
             usage: Some(crate::Account {
                 agent: adroit_model::Agent::Codex,
                 home: Some("/w".into()),

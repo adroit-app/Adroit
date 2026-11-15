@@ -5,8 +5,9 @@ use adroit_model::{TerminalProgram, Wait};
 use adroit_protocol::Request;
 
 use super::*;
+
+const CHANGES: usize = 1;
 use crate::actions::Action;
-use crate::details::Sheet;
 use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
@@ -578,7 +579,7 @@ fn the_tab_keys_step_the_details_sheets_while_the_details_have_the_keys() {
         .send(show(session_tab("a")))
         .send(Msg::Focus(Area::Details))
         .send(Msg::Window(Action::TabNext));
-    assert_eq!(run.state().details.drill.sheet(), Sheet::Changes);
+    assert_eq!(run.state().details.drill.tab(), CHANGES);
 }
 
 #[test]

@@ -40,10 +40,13 @@ impl Default for ViewState {
             console: ConsoleView::default(),
             prompt: PromptView::default(),
         };
+        let settings = &state.config.settings;
         crate::details::follow_settings(
             &mut state.details,
             state.chrome.panels.layout.show_details,
-            &state.config.settings.details,
+            &settings.details,
+            &settings.panel,
+            state.config.usage().unwrap_or(settings.usage),
         );
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.

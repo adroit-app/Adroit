@@ -155,7 +155,7 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
         Action::TabNext | Action::TabPrev => {
             let delta = if action == Action::TabNext { 1 } else { -1 };
             if area == Area::Details {
-                return details::step_sheet(&mut state.details, delta);
+                return details::step_tab(&mut state.details, delta);
             }
             edit(view, &|c| c.cycle_tab(delta))
         }

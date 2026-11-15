@@ -28,8 +28,9 @@ pub struct Sight {
     /// session's entries: its overview, agents or resources. Named for the
     /// overview the sheets were split from, as the wire still calls it.
     pub overview: bool,
-    /// The worktree shown and what of its repository the panel lists.
-    pub repository: Option<RepositorySight>,
+    /// The worktree shown and each spot of its repository the panel lists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repositories: Vec<RepositorySight>,
     /// The account whose usage the panel shows.
     pub usage: Option<Account>,
     /// Whether the details list the environment's agents, with the usage of
@@ -87,8 +88,8 @@ pub struct RepositorySight {
 pub struct DetailsWork {
     /// By the session's id.
     pub sessions: BTreeMap<String, SessionRead>,
-    /// By the worktree.
-    pub repositories: BTreeMap<PathBuf, RepositoryRead>,
+    /// By the worktree, one for each spot read.
+    pub repositories: BTreeMap<PathBuf, Vec<RepositoryRead>>,
     /// Each account's usage limits.
     #[serde(with = "crate::wire::pairs")]
     pub usage: BTreeMap<Account, Vec<Limit>>,
@@ -194,9 +195,10 @@ pub enum DetailsChange {
         worktree: PathBuf,
         read: RepositoryRead,
     },
-    /// The host no longer reads the repository at `worktree`.
+    /// The host no longer reads `spot` of the repository at `worktree`.
     RepositoryLeft {
         worktree: PathBuf,
+        spot: Spot,
     },
     Usage {
         account: Account,
@@ -235,16 +237,40 @@ impl DetailsWork {
             }
             DetailsChange::SessionLeft { session } => self.sessions.remove(&session).is_some(),
             DetailsChange::Repository { worktree, read } => {
-                self.repositories.insert(worktree, read.clone()) != Some(read)
+                let reads = self.repositories.entry(worktree).or_default();
+                match reads.iter_mut().find(|r| r.spot == read.spot) {
+                    Some(had) => set(had, read),
+                    None => {
+                        reads.push(read);
+                        true
+                    }
+                }
             }
-            DetailsChange::RepositoryLeft { worktree } => {
-                self.repositories.remove(&worktree).is_some()
+            DetailsChange::RepositoryLeft { worktree, spot } => {
+                let Some(reads) = self.repositories.get_mut(&worktree) else {
+                    return false;
+                };
+                let had = reads.len();
+                reads.retain(|r| r.spot != spot);
+                let changed = reads.len() != had;
+                if reads.is_empty() {
+                    self.repositories.remove(&worktree);
+                }
+                changed
             }
             DetailsChange::Usage { account, limits } => {
                 self.usage.insert(account, limits.clone()) != Some(limits)
             }
             DetailsChange::System { usage } => set(&mut self.system, Some(usage)),
         }
+    }
+
+    /// What was read of `spot` of the repository at `worktree`.
+    pub fn repository(&self, worktree: &std::path::Path, spot: &Spot) -> Option<&RepositoryRead> {
+        self.repositories
+            .get(worktree)?
+            .iter()
+            .find(|r| r.spot == *spot)
     }
 
     fn session(&mut self, id: String) -> &mut SessionRead {
@@ -337,18 +363,19 @@ mod tests {
     #[test]
     fn what_the_host_left_is_dropped_whole() {
         let mut work = DetailsWork::default();
-        let read = RepositoryRead {
-            spot: Spot::Files(Rev::WorkingCopy),
+        let read = |spot| RepositoryRead {
+            spot,
             listing: Ok(Listing::Files(Vec::new())),
             revision: None,
         };
+        let files = Spot::Files(Rev::WorkingCopy);
         work.apply(DetailsChange::Repository {
             worktree: "/w".into(),
-            read: read.clone(),
+            read: read(files.clone()),
         });
         work.apply(DetailsChange::Repository {
             worktree: "/v".into(),
-            read,
+            read: read(files.clone()),
         });
         work.apply(DetailsChange::Links {
             session: "a".into(),
@@ -356,6 +383,7 @@ mod tests {
         });
         work.apply(DetailsChange::RepositoryLeft {
             worktree: "/w".into(),
+            spot: files.clone(),
         });
         work.apply(DetailsChange::SessionLeft {
             session: "a".into(),
@@ -365,5 +393,39 @@ mod tests {
             [&PathBuf::from("/v")]
         );
         assert!(work.sessions.is_empty());
+    }
+
+    #[test]
+    fn each_spot_of_a_repository_is_kept_and_left_on_its_own() {
+        let mut work = DetailsWork::default();
+        let read = |spot, files: usize| RepositoryRead {
+            spot,
+            listing: Ok(Listing::Files(vec![
+                adroit_model::repository::Change {
+                    status: "M ".into(),
+                    path: "a".into(),
+                    from: None
+                };
+                files
+            ])),
+            revision: None,
+        };
+        let (files, log) = (Spot::Files(Rev::WorkingCopy), Spot::Log);
+        let w = PathBuf::from("/w");
+        let repository = |read| DetailsChange::Repository {
+            worktree: w.clone(),
+            read,
+        };
+        assert!(work.apply(repository(read(files.clone(), 1))));
+        assert!(work.apply(repository(read(log.clone(), 0))));
+        assert!(!work.apply(repository(read(log.clone(), 0))));
+        assert!(work.apply(repository(read(files.clone(), 2))));
+        assert_eq!(work.repository(&w, &files), Some(&read(files.clone(), 2)));
+        assert!(work.apply(DetailsChange::RepositoryLeft {
+            worktree: w.clone(),
+            spot: log.clone(),
+        }));
+        assert_eq!(work.repository(&w, &log), None);
+        assert!(work.repository(&w, &files).is_some());
     }
 }

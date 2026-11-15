@@ -1,10 +1,11 @@
-//! The details panel as the window holds it: how far into which sheet it has
-//! gone, the entries' groups folded or shown whole, what the window shows
-//! that the panel reads by, and what the panel asks the work host to read.
+//! The details panel as the window holds it: what it describes, which of its
+//! tabs it shows and how far into it it has gone, the groups folded or shown
+//! whole, and what the panel asks the work host to read.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use adroit_model::config::UsageSettings;
 use adroit_model::links::{Kind as LinkKind, Link, Links};
 use adroit_model::repository::{Rev, Spot};
 use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Session};
@@ -13,13 +14,15 @@ use adroit_protocol::{
 };
 
 use super::{
-    Drill, Entry, Fact, Gauge, Group, Listing, Progress, Related, Sheet, Shot, Source, TaskDetail,
-    TreeCard, View, about, agents, capped, context_gauge, file_link, gauges, newest_first,
-    progress, related, resources, running, task_detail, timeline_entries, tree_at,
+    Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
+    Progress, Related, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about,
+    context_gauge, file_link, gauges, grouped, newest_first, progress, related, running,
+    task_detail, timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
 use crate::settings::DetailsSettings;
+use crate::tree::nav::Item;
 use adroit_model::timeline::{Status, Timeline};
 
 /// What the window shows that the details panel reads by.
@@ -41,6 +44,29 @@ pub struct Shown {
     pub settings: DetailsSettings,
     /// What the overview's About says of the session shown.
     pub about: Vec<Fact>,
+    /// The row of the tree the panel describes in place of what is shown: an
+    /// environment's heading, or a pull request's or an issue's row.
+    pub selected: Option<Item>,
+    /// What the panel is made of.
+    pub layout: DetailsLayout,
+    /// The machine's meters shown where a component does not say which.
+    pub meters: UsageSettings,
+}
+
+impl Shown {
+    /// What the panel describes.
+    pub fn subject(&self) -> Subject {
+        match &self.selected {
+            Some(Item::Environment(_)) => Subject::Environment,
+            Some(Item::GitHubItem(..)) => Subject::Github,
+            _ => Subject::Session,
+        }
+    }
+
+    /// The tabs and the foot of what the panel describes.
+    pub fn surface(&self) -> Surface {
+        self.layout.surface(self.subject())
+    }
 }
 
 /// What the window tells the details panel of what it shows, beyond the
@@ -50,33 +76,21 @@ pub struct Told {
     pub drawn: Vec<Shot>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Details {
     pub drill: Drill,
-    /// The entries' groups shown by their headings alone.
-    pub folded: HashSet<Group>,
+    /// The groups the user folded or unfolded against how they are placed.
+    pub toggled: HashSet<Group>,
     /// The entries' groups shown whole, past their first few.
     pub opened: HashSet<Group>,
     /// The timeline's trees the user folded or unfolded against how they
     /// show at first, by the session and the tree.
     pub trees: HashSet<(String, String)>,
     pub shown: Shown,
+    /// The tab last shown of each subject.
+    tabs: HashMap<Subject, usize>,
     /// The work and the spot the selection was last brought in line with.
     refreshed: Option<(Seq, Option<Spot>)>,
-}
-
-impl Default for Details {
-    fn default() -> Self {
-        Self {
-            drill: Drill::new(Sheet::Overview),
-            // What changes little stays out of the way until it is asked for.
-            folded: HashSet::from([Group::About]),
-            opened: HashSet::new(),
-            trees: HashSet::new(),
-            shown: Shown::default(),
-            refreshed: None,
-        }
-    }
 }
 
 /// A key on the details panel's list.
@@ -116,6 +130,73 @@ enum Use {
     Reveal,
 }
 
+/// A component as the tab shown or the foot holds it, with the rows it
+/// lists, the first of them at `at` of the panel's list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Part {
+    pub placed: Placed,
+    pub at: usize,
+    pub rows: Vec<Entry>,
+    /// Whether it is of the foot.
+    pub foot: bool,
+}
+
+/// The tab shown, as the surface of what the panel describes has it.
+pub fn shown_tab(details: &Details) -> Option<DetailsTab> {
+    let tabs = details.shown.surface().tabs;
+    tabs.get(details.drill.tab()).or(tabs.first()).cloned()
+}
+
+/// The components in sight: the shown tab's, then the foot's, with whether
+/// each is of the foot.
+fn in_sight(details: &Details) -> Vec<(Placed, bool)> {
+    let tab = shown_tab(details).map(|t| t.components).unwrap_or_default();
+    let foot = details.shown.surface().foot;
+    tab.into_iter()
+        .map(|p| (p, false))
+        .chain(foot.into_iter().map(|p| (p, true)))
+        .collect()
+}
+
+/// Whether a component of `component` is in sight.
+pub fn shows(details: &Details, component: Component) -> bool {
+    in_sight(details)
+        .iter()
+        .any(|(p, _)| p.component == component)
+}
+
+/// The group the rows of `component` are listed under, if it lists any.
+fn group_of(component: Component) -> Option<Group> {
+    Some(match component {
+        Component::Running => Group::Running,
+        Component::About => Group::About,
+        Component::Sessions => Group::Sessions,
+        Component::Messages => Group::Messages,
+        Component::Subagents => Group::Agents,
+        Component::Artifacts => Group::Artifacts,
+        Component::Images => Group::Images,
+        Component::Links => Group::Links,
+        Component::Files => Group::Files,
+        Component::Changes => Group::Changed,
+        Component::Log => Group::Log,
+        _ => return None,
+    })
+}
+
+/// Whether `group` starts folded as it is placed in sight.
+fn placed_folded(details: &Details, group: Group) -> bool {
+    in_sight(details)
+        .iter()
+        .find(|(p, _)| group_of(p.component) == Some(group))
+        .and_then(|(p, _)| p.folded)
+        .unwrap_or(false)
+}
+
+/// Whether `group` is folded now.
+pub fn is_folded(details: &Details, group: Group) -> bool {
+    placed_folded(details, group) != details.toggled.contains(&group)
+}
+
 /// The window told the panel `told`.
 pub(crate) fn tell(details: &mut Details, told: Told) -> Vec<Effect> {
     details.shown.drawn = told.drawn;
@@ -139,18 +220,53 @@ pub(crate) fn follow_usage(
     }
 }
 
-/// The panel is open while its side panel is shown, and reads by the
-/// settings.
-pub(crate) fn follow_settings(details: &mut Details, open: bool, settings: &DetailsSettings) {
+/// The panel is open while its side panel is shown, reads by the settings
+/// and is made as the layout says, with the machine's meters `meters` where
+/// a component does not say. A tab no longer in the layout gives way to the
+/// last there is.
+pub(crate) fn follow_settings(
+    details: &mut Details,
+    open: bool,
+    settings: &DetailsSettings,
+    layout: &DetailsLayout,
+    meters: UsageSettings,
+) {
     details.shown.open = open;
     if details.shown.settings != *settings {
         details.shown.settings = settings.clone();
+    }
+    if details.shown.layout != *layout {
+        details.shown.layout = layout.clone();
+        let tabs = details.shown.surface().tabs.len();
+        if details.drill.tab() >= tabs {
+            details.drill = Drill::new(tabs.saturating_sub(1));
+        }
+    }
+    if details.shown.meters != meters {
+        details.shown.meters = meters;
+    }
+}
+
+/// The panel describes the environment's heading or the pull request's or
+/// issue's row `selected` in the tree, or else what the window shows. Each
+/// subject comes back to the tab it was last left on.
+pub(crate) fn follow_selected(details: &mut Details, selected: Option<&Item>) {
+    let selected = selected.filter(|i| matches!(i, Item::Environment(_) | Item::GitHubItem(..)));
+    if details.shown.selected.as_ref() == selected {
+        return;
+    }
+    let was = details.shown.subject();
+    details.shown.selected = selected.cloned();
+    let now = details.shown.subject();
+    if was != now {
+        details.tabs.insert(was, details.drill.tab());
+        details.drill = Drill::new(details.tabs.get(&now).copied().unwrap_or(0));
     }
 }
 
 /// The panel reads by what the focused window shows. What was opened in
 /// one worktree means nothing in another, so a new worktree takes the panel
-/// back to its sheet's top.
+/// back to its tab's top.
 pub(crate) fn follow(details: &mut Details, showing: &Showing) {
     let worktree = showing.place.as_ref().map(|p| p.worktree.clone());
     // A file or an image opened from the panel leaves it on the session
@@ -163,7 +279,7 @@ pub(crate) fn follow(details: &mut Details, showing: &Showing) {
         _ => None,
     };
     if worktree != details.shown.worktree {
-        details.drill = Drill::new(details.drill.sheet());
+        details.drill = Drill::new(details.drill.tab());
         details.shown.worktree = worktree;
     }
     if let Some(tab) = &showing.tab
@@ -176,18 +292,41 @@ pub(crate) fn follow(details: &mut Details, showing: &Showing) {
     }
 }
 
-/// `sheet` chosen; one already shown stays where it is.
-pub(crate) fn sheet(details: &mut Details, sheet: Sheet) -> Vec<Effect> {
-    if details.drill.sheet() != sheet {
-        details.drill = Drill::new(sheet);
+/// The tab at `tab` chosen, counting from 0; one already shown stays where
+/// it is, and one the layout does not have is not shown.
+pub(crate) fn show_tab(details: &mut Details, tab: usize) -> Vec<Effect> {
+    if tab < details.shown.surface().tabs.len() && details.drill.tab() != tab {
+        details.drill = Drill::new(tab);
     }
     Vec::new()
 }
 
-/// The sheet `delta` along from the one shown, from its top.
-pub(crate) fn step_sheet(details: &mut Details, delta: isize) -> Vec<Effect> {
-    details.drill = Drill::new(details.drill.sheet().step(delta));
+/// The tab `delta` along from the one shown, from its top.
+pub(crate) fn step_tab(details: &mut Details, delta: isize) -> Vec<Effect> {
+    let tabs = details.shown.surface().tabs.len().max(1);
+    let to = crate::tree::nav::wrap(details.drill.tab(), delta, tabs);
+    details.drill = Drill::new(to);
     Vec::new()
+}
+
+/// The first tab holding `component` shown, unless the one shown holds it.
+pub(crate) fn show_component(details: &mut Details, component: Component) -> Vec<Effect> {
+    if let Some(at) = tab_of(details, component) {
+        show_tab(details, at);
+    }
+    Vec::new()
+}
+
+/// The tab that shows `component`: the one shown when it does, or else the
+/// first that does.
+fn tab_of(details: &Details, component: Component) -> Option<usize> {
+    let tabs = details.shown.surface().tabs;
+    let holds = |t: &DetailsTab| t.components.iter().any(|p| p.component == component);
+    let now = details.drill.tab();
+    if tabs.get(now).is_some_and(holds) {
+        return Some(now);
+    }
+    tabs.iter().position(holds)
 }
 
 /// Back out to the list the shown row was opened from.
@@ -198,13 +337,13 @@ pub(crate) fn back(details: &mut Details) -> Vec<Effect> {
 
 /// Entry `at` selected, as its menu is opened on it.
 pub(crate) fn select(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
-    if let Some(l) = entry_listing(details, work) {
+    if let Some(l) = list(details, work) {
         details.drill.select(&l, at);
     }
     Vec::new()
 }
 
-/// A row of the changes or log clicked: it opens as `Enter` on it would.
+/// A row of a commit's files clicked: it opens as `Enter` on it would.
 pub(crate) fn open_row(
     details: &mut Details,
     work: Option<&WorkSnapshot>,
@@ -344,8 +483,8 @@ fn pressed_on_entries(
 }
 
 /// `entry` of `l` opened: the row for a group's rest shows the group whole,
-/// a subagent, message or process opens to a level of its own, and any
-/// other row is used.
+/// a subagent, message, process, task, file changed or change of the log
+/// opens to a level of its own, and any other row is used.
 fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Vec<Effect> {
     let in_place = how == Opening::Existing;
     match entry {
@@ -355,7 +494,12 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Ve
             details.opened.insert(*group);
             Vec::new()
         }
-        Entry::Agent(_) | Entry::Message(_) | Entry::Process(_) | Entry::Task(_) => {
+        Entry::Agent(_)
+        | Entry::Message(_)
+        | Entry::Process(_)
+        | Entry::Task(_)
+        | Entry::Changed(_)
+        | Entry::Commit(_) => {
             details.drill.open(l);
             Vec::new()
         }
@@ -413,11 +557,14 @@ fn fold_tree(details: &mut Details, card: &TreeCard, shut: bool) {
     }
 }
 
-/// The timeline shown from the overview's summary `p`, with the task it
-/// names selected in its tree, unfolded.
+/// The timeline shown from the summary `p`, with the task it names selected
+/// in its tree, unfolded: in the tab shown when it holds the timeline, or
+/// else in the first that does.
 fn show_timeline(details: &mut Details, p: &Progress) {
     fold_tree(details, &p.tree, false);
-    details.drill = Drill::new(Sheet::Timeline);
+    if let Some(at) = tab_of(details, Component::Timeline) {
+        details.drill = Drill::new(at);
+    }
     details
         .drill
         .aim(p.focus.as_ref().map_or(&p.tree.key, |f| &f.id));
@@ -429,7 +576,7 @@ fn timeline_of(read: Option<&SessionRead>) -> Timeline {
 }
 
 /// The trees of the session shown the user folded or unfolded.
-fn toggled(details: &Details) -> HashSet<String> {
+fn toggled_trees(details: &Details) -> HashSet<String> {
     let session = details.shown.session.as_deref();
     details
         .trees
@@ -442,11 +589,13 @@ fn toggled(details: &Details) -> HashSet<String> {
 /// `group` folded, when `shut`, or unfolded. A folded group forgets it was
 /// shown whole, so it shows its first few when it opens again.
 fn fold(details: &mut Details, group: Group, shut: bool) {
-    if shut {
-        details.folded.insert(group);
-        details.opened.remove(&group);
+    if shut == placed_folded(details, group) {
+        details.toggled.remove(&group);
     } else {
-        details.folded.remove(&group);
+        details.toggled.insert(group);
+    }
+    if shut {
+        details.opened.remove(&group);
     }
 }
 
@@ -472,6 +621,8 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         Entry::Progress(p) => copied(how, &p.tree.title, format!("Copied {}", p.tree.title)),
         Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
+        Entry::Changed(c) => copied(how, &c.path, format!("Copied {}", c.path)),
+        Entry::Commit(c) => copied(how, &c.short, format!("Copied {}", c.short)),
         Entry::Heading { .. } | Entry::More { .. } => Vec::new(),
     }
 }
@@ -560,9 +711,9 @@ fn shot_tab(shot: &Shot, environment: &EnvironmentId, session: Option<&str>) -> 
     }
 }
 
-/// The images of Resources of the session shown, in their order, as the
-/// lightbox steps through them. A file of an environment not `local` is left
-/// out, as no viewer reads it.
+/// The images of the session shown, in their order, as the lightbox steps
+/// through them. A file of an environment not `local` is left out, as no
+/// viewer reads it.
 pub fn images(details: &Details, work: Option<&WorkSnapshot>, local: bool) -> Vec<Tab> {
     let read = session_read(details, work);
     let empty = Links::default();
@@ -589,78 +740,178 @@ pub fn shown_session<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> O
     crate::tree::nav::find(work?.tree.tree(), id).map(|(_, s)| s)
 }
 
-/// The rows the sheet shown lists of the session shown, while it lists any;
-/// none on a sheet read from the worktree.
-pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
-    let shown = shown_session(details, work)?;
+/// The rows `placed` lists of the session shown, as it is placed: none for a
+/// component that lists none, or while no session is shown. One `alone` in
+/// its tab never folds.
+fn rows_of(
+    details: &Details,
+    work: Option<&WorkSnapshot>,
+    placed: &Placed,
+    alone: bool,
+) -> Vec<Entry> {
+    let c = placed.component;
+    let folded: HashSet<Group> = group_of(c)
+        .filter(|g| !alone && is_folded(details, *g))
+        .into_iter()
+        .collect();
+    let opened = &details.opened;
+    let d = &details.shown.settings;
+    let first = |default: usize| placed.shown.unwrap_or(default).max(1);
+    let repository = |spot: Spot| -> Option<View> {
+        let worktree = details.shown.worktree.as_ref()?;
+        let read = work?.details.repository(worktree, &spot)?;
+        Some(View::of(worktree.clone(), read.clone()))
+    };
+    match c {
+        Component::Changes => {
+            let rows = match repository(Spot::Files(Rev::WorkingCopy)).map(|v| v.listing) {
+                Some(Listing::Files(files)) => files.into_iter().map(Entry::Changed).collect(),
+                _ => Vec::new(),
+            };
+            return grouped(Group::Changed, rows, &folded, opened, first(usize::MAX));
+        }
+        Component::Log => {
+            let rows = match repository(Spot::Log).map(|v| v.listing) {
+                Some(Listing::Log(commits)) => commits.into_iter().map(Entry::Commit).collect(),
+                _ => Vec::new(),
+            };
+            return grouped(Group::Log, rows, &folded, opened, first(usize::MAX));
+        }
+        _ => {}
+    }
+    let Some(shown) = shown_session(details, work) else {
+        return Vec::new();
+    };
     let read = session_read(details, work);
     let empty = Links::default();
     let links = read.and_then(|r| r.links.as_ref()).unwrap_or(&empty);
     let ties = || {
-        let sessions: Vec<&Session> = work?.tree.tree().sessions().map(|(_, s)| s).collect();
-        Some(related(shown, &sessions, &links.peers))
+        let sessions: Vec<&Session> = work
+            .map(|w| w.tree.tree().sessions().map(|(_, s)| s).collect())
+            .unwrap_or_default();
+        related(shown, &sessions, &links.peers)
     };
-    let (folded, opened) = (&details.folded, &details.opened);
-    let d = &details.shown.settings;
-    let entries = match details.drill.sheet() {
-        Sheet::Overview => {
+    let links_of = |group: Group| -> Vec<Entry> {
+        let rows: Vec<Link> = links.rows().cloned().collect();
+        super::capped(&rows, d.links_kept)
+            .into_iter()
+            .filter(|l| Group::of(&l.kind) == group)
+            .map(Entry::Link)
+            .collect()
+    };
+    match c {
+        Component::Progress => progress(&timeline_of(read))
+            .map(Entry::Progress)
+            .into_iter()
+            .collect(),
+        Component::Timeline => timeline_entries(&timeline_of(read), &toggled_trees(details)),
+        Component::Running => {
             let processes = read
                 .and_then(|r| r.processes.as_deref())
                 .unwrap_or_default();
-            let mut entries: Vec<Entry> = progress(&timeline_of(read))
-                .map(Entry::Progress)
-                .into_iter()
-                .collect();
-            entries.extend(running(
-                &ties()?,
+            running(
+                &ties(),
                 &links.agents,
                 processes,
-                folded,
+                &folded,
                 opened,
-                d.links_shown,
-            ));
-            entries.extend(about(&details.shown.about, folded));
-            entries
-        }
-        Sheet::Agents => {
-            let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
-            agents(
-                &ties()?,
-                notes,
-                &links.agents,
-                folded,
-                opened,
-                d.links_shown,
+                first(d.links_shown),
             )
         }
-        Sheet::Resources => {
-            let rows: Vec<Link> = links.rows().cloned().collect();
+        Component::About => about(&details.shown.about, &folded),
+        Component::Sessions => {
+            let rows = ties().into_iter().map(Entry::Session).collect();
+            grouped(Group::Sessions, rows, &folded, opened, first(usize::MAX))
+        }
+        Component::Messages => {
+            let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
+            let rows = notes.iter().cloned().map(Entry::Message).collect();
+            grouped(Group::Messages, rows, &folded, opened, first(d.links_shown))
+        }
+        Component::Subagents => {
+            let rows = links.agents.iter().cloned().map(Entry::Agent).collect();
+            grouped(Group::Agents, rows, &folded, opened, first(usize::MAX))
+        }
+        Component::Artifacts | Component::Links | Component::Files => {
+            let group = group_of(c).unwrap_or(Group::Files);
+            grouped(
+                group,
+                links_of(group),
+                &folded,
+                opened,
+                first(d.links_shown),
+            )
+        }
+        Component::Images => {
             let mut shots = shots(&details.shown.drawn, links, read);
             shots.truncate(d.links_kept);
-            resources(
-                &capped(&rows, d.links_kept),
-                &shots,
-                folded,
-                opened,
-                d.links_shown,
-            )
+            let rows = shots.into_iter().map(Entry::Image).collect();
+            grouped(Group::Images, rows, &folded, opened, first(d.links_shown))
         }
-        Sheet::Timeline => timeline_entries(&timeline_of(read), &toggled(details)),
-        Sheet::Changes | Sheet::Log => return None,
-    };
+        _ => Vec::new(),
+    }
+}
+
+/// The components in sight, each with the rows it lists: the shown tab's,
+/// then the foot's. A component alone in its tab lists its rows without a
+/// heading over them.
+pub fn parts(details: &Details, work: Option<&WorkSnapshot>) -> Vec<Part> {
+    let mut at = 0;
+    let sight = in_sight(details);
+    let in_tab = sight.iter().filter(|(_, foot)| !foot).count();
+    sight
+        .into_iter()
+        .map(|(placed, foot)| {
+            let alone = !foot && in_tab == 1;
+            let mut rows = rows_of(details, work, &placed, alone);
+            if alone {
+                // The tab's own title names what it lists.
+                rows.retain(|e| !matches!(e, Entry::Heading { .. }));
+            }
+            let part = Part {
+                placed,
+                at,
+                rows,
+                foot,
+            };
+            at += part.rows.len();
+            part
+        })
+        .collect()
+}
+
+/// The rows the components in sight list, in their order; none while a
+/// change of the log or a file it changed is opened, or no component lists
+/// any.
+pub fn entry_listing(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
+    if details.drill.spot().is_some() {
+        return None;
+    }
+    let entries: Vec<Entry> = parts(details, work)
+        .into_iter()
+        .flat_map(|p| p.rows)
+        .collect();
     (!entries.is_empty()).then_some(Listing::Entries(entries))
 }
 
-/// The change the worktree shown is on, as the overview tells it: what was
-/// read of the working copy's files, while it was.
-pub fn overview_change(details: &Details, work: Option<&WorkSnapshot>) -> Option<View> {
+/// The change the worktree shown is on: what was read of the working copy's
+/// files, while it was.
+pub fn working_copy(details: &Details, work: Option<&WorkSnapshot>) -> Option<View> {
     let worktree = details.shown.worktree.as_ref()?;
-    let read = work?.details.repositories.get(worktree)?;
-    (read.spot == Spot::Files(Rev::WorkingCopy)).then(|| View::of(worktree.clone(), read.clone()))
+    let spot = Spot::Files(Rev::WorkingCopy);
+    let read = work?.details.repository(worktree, &spot)?;
+    Some(View::of(worktree.clone(), read.clone()))
 }
 
-/// The images of Resources: what the console `drawn`, and the image files of
-/// `links` there are small copies of in `read`, newest first.
+/// What was read of the log of the worktree shown, while it was.
+pub fn log(details: &Details, work: Option<&WorkSnapshot>) -> Option<View> {
+    let worktree = details.shown.worktree.as_ref()?;
+    let read = work?.details.repository(worktree, &Spot::Log)?;
+    Some(View::of(worktree.clone(), read.clone()))
+}
+
+/// The images: what the console `drawn`, and the image files of `links`
+/// there are small copies of in `read`, newest first.
 fn shots(drawn: &[Shot], links: &Links, read: Option<&SessionRead>) -> Vec<Shot> {
     let files = links.images.iter().filter_map(|f| {
         let thumb = read?.thumbs.get(&f.path)?;
@@ -669,18 +920,19 @@ fn shots(drawn: &[Shot], links: &Links, read: Option<&SessionRead>) -> Vec<Shot>
     newest_first(drawn.iter().cloned().chain(files).collect())
 }
 
-/// What was read of the worktree shown for the spot the panel is at.
+/// What was read of the worktree shown for the row opened: a change's files
+/// or a file's diff.
 pub fn repository(details: &Details, work: Option<&WorkSnapshot>) -> Option<View> {
     let spot = details.drill.spot()?;
     let worktree = details.shown.worktree.as_ref()?;
-    let read = work?.details.repositories.get(worktree)?;
-    (read.spot == spot).then(|| View::of(worktree.clone(), read.clone()))
+    let read = work?.details.repository(worktree, &spot)?;
+    Some(View::of(worktree.clone(), read.clone()))
 }
 
-/// The list the panel's cursor moves through: the session's rows, or the
-/// changes or log read; none while the panel shows no list.
+/// The list the panel's cursor moves through: the components' rows, or the
+/// files of a change opened; none while the panel shows no list.
 pub fn list(details: &Details, work: Option<&WorkSnapshot>) -> Option<Listing> {
-    if details.drill.sheet().lists_entries() {
+    if details.drill.spot().is_none() {
         return entry_listing(details, work);
     }
     repository(details, work)
@@ -696,8 +948,8 @@ pub fn stats(details: &Details, work: Option<&WorkSnapshot>) -> Option<Conversat
     (conversation.id == shown.session_id).then(|| conversation.stats.clone())
 }
 
-/// The gauges at the panel's foot: how full the shown conversation's context
-/// is, then the account's limits at `now_ms`.
+/// The gauges of the agent's usage: how full the shown conversation's
+/// context is, then the account's limits at `now_ms`.
 pub fn usage(details: &Details, work: Option<&WorkSnapshot>, now_ms: u64) -> Vec<Gauge> {
     let mut out = match (&details.shown.usage, work) {
         (Some(account), Some(work)) => work
@@ -769,24 +1021,100 @@ pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<Tas
     task_detail(&timeline_of(session_read(details, work)), id)
 }
 
-/// What the host keeps read for the panel: the shown session's
-/// conversation and processes, the spot of the worktree shown, or the
-/// change it is on for the overview, and the account's usage.
+/// The root of the repository whose pull requests the host keeps read for
+/// **github**, while it is in sight of what a window shows.
+pub fn pulls_wanted(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
+    let shown = details.shown.open
+        && details.shown.subject() == Subject::Session
+        && shows(details, Component::Github);
+    let worktree = details.shown.worktree.as_ref().filter(|_| shown)?;
+    let workspace = crate::tree::listed(work).workspace_of(worktree)?;
+    workspace.git.then(|| workspace.root.clone())
+}
+
+/// The pull request open for the branch the worktree shown has checked out,
+/// as last read: the root of its repository and its number.
+pub fn branch_pull(details: &Details, work: Option<&WorkSnapshot>) -> Option<(PathBuf, u64)> {
+    let worktree = details.shown.worktree.as_ref()?;
+    let workspace = crate::tree::listed(work).workspace_of(worktree)?;
+    let branch = workspace
+        .worktrees
+        .iter()
+        .find(|w| &w.worktree.path == worktree)?
+        .worktree
+        .branch
+        .as_ref()?;
+    let pulls = crate::tree::github(work, &workspace.root)?
+        .read(adroit_model::github::Listing::Pulls)?
+        .as_ref()
+        .ok()?;
+    pulls
+        .iter()
+        .find(|i| i.pull.as_ref().is_some_and(|p| &p.head == branch))
+        .map(|i| (workspace.root.clone(), i.number))
+}
+
+/// The machine's meters the components in sight show, together; none while
+/// none shows the machine.
+pub fn meters(details: &Details) -> Option<UsageSettings> {
+    in_sight(details)
+        .iter()
+        .filter(|(p, _)| p.component == Component::Machine)
+        .map(|(p, _)| p.meters.unwrap_or(details.shown.meters))
+        .reduce(|a, b| a.or(b))
+}
+
+/// Whether the components in sight list the environment's profiles, with
+/// the usage of every login they keep.
+pub fn lists_profiles(details: &Details) -> bool {
+    details.shown.open && shows(details, Component::Profiles)
+}
+
+/// What the host keeps read for the panel: the shown session's conversation,
+/// and, for the components in sight, its links, messages and processes, the
+/// spots of the worktree shown and the account's usage.
 pub(crate) fn sight(details: &Details) -> Sight {
     let shown = &details.shown;
-    let sheet = details.drill.sheet();
-    let spot = details
-        .drill
-        .spot()
-        .or_else(|| (sheet == Sheet::Overview).then_some(Spot::Files(Rev::WorkingCopy)));
+    let of_window = shown.subject() == Subject::Session;
+    let has = |c| of_window && shows(details, c);
+    let reads_entries = [
+        Component::Running,
+        Component::Sessions,
+        Component::Messages,
+        Component::Subagents,
+        Component::Artifacts,
+        Component::Images,
+        Component::Links,
+        Component::Files,
+    ]
+    .into_iter()
+    .any(has);
+    let mut spots = Vec::new();
+    if has(Component::Change) || has(Component::Changes) {
+        spots.push(Spot::Files(Rev::WorkingCopy));
+    }
+    if has(Component::Log) {
+        spots.push(Spot::Log);
+    }
+    if let Some(spot) = details.drill.spot().filter(|s| !spots.contains(s)) {
+        spots.push(spot);
+    }
+    let repositories = match &shown.worktree {
+        Some(worktree) if of_window => spots
+            .into_iter()
+            .map(|spot| RepositorySight {
+                worktree: worktree.clone(),
+                spot,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
     Sight {
         session: shown.session.clone(),
         details: shown.open,
-        overview: sheet.lists_entries(),
-        repository: spot
-            .zip(shown.worktree.clone())
-            .map(|(spot, worktree)| RepositorySight { worktree, spot }),
-        usage: shown.usage.clone(),
+        overview: reads_entries,
+        repositories,
+        usage: shown.usage.clone().filter(|_| has(Component::AgentUsage)),
         ..Default::default()
     }
 }
@@ -803,8 +1131,8 @@ pub(crate) fn refresh(details: &mut Details, work: Option<&WorkSnapshot>) {
     }
 }
 
-/// A subagent or process opened that the entries no longer list is gone
-/// back from.
+/// A subagent, process or task opened that the entries no longer list is
+/// gone back from.
 pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
     let read = details
         .shown
@@ -830,6 +1158,13 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    const OVERVIEW: usize = 0;
+    const CHANGES: usize = 1;
+    const LOG: usize = 2;
+    const AGENTS: usize = 3;
+    const RESOURCES: usize = 4;
+    const TIMELINE: usize = 5;
+
     use crate::testing::here;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -973,8 +1308,8 @@ pub(crate) mod tests {
         let run = Scenario::new().send_all([
             shown(Some("a"), Some("/w")),
             shown(Some("a"), Some("/w")),
-            Msg::DetailsSheet(Sheet::Log),
-            Msg::DetailsSheet(Sheet::Log),
+            Msg::DetailsTab(LOG),
+            Msg::DetailsTab(LOG),
             shown(None, Some("/w")),
         ]);
         let sights: Vec<_> = watched(&run)
@@ -983,7 +1318,10 @@ pub(crate) mod tests {
                 (
                     s.session,
                     s.overview,
-                    s.repository.map(|r| (r.worktree, r.spot)),
+                    s.repositories
+                        .into_iter()
+                        .map(|r| (r.worktree, r.spot))
+                        .collect::<Vec<_>>(),
                 )
             })
             .collect();
@@ -993,10 +1331,10 @@ pub(crate) mod tests {
                 (
                     Some("a".into()),
                     true,
-                    Some(("/w".into(), Spot::Files(Rev::WorkingCopy)))
+                    vec![("/w".into(), Spot::Files(Rev::WorkingCopy))]
                 ),
-                (Some("a".into()), false, Some(("/w".into(), Spot::Log))),
-                (None, false, Some(("/w".into(), Spot::Log))),
+                (Some("a".into()), false, vec![("/w".into(), Spot::Log)]),
+                (None, false, vec![("/w".into(), Spot::Log)]),
             ]
         );
     }
@@ -1016,7 +1354,7 @@ pub(crate) mod tests {
             .send_all([
                 shown(Some("a"), Some("/w")),
                 shown(None, Some("/w")),
-                Msg::DetailsSheet(Sheet::Log),
+                Msg::DetailsTab(LOG),
             ])
             .event(patch(2).change(DetailsChange::Repository {
                 worktree: "/w".into(),
@@ -1033,19 +1371,19 @@ pub(crate) mod tests {
             Some(Spot::Files(Rev::Commit("c1".into())))
         );
         let moved = same.send(shown(Some("a"), Some("/v")));
-        assert_eq!(moved.state().details.drill, Drill::new(Sheet::Log));
+        assert_eq!(moved.state().details.drill, Drill::new(LOG));
     }
 
     #[test]
     fn the_sheet_keys_choose_a_sheet_and_step_along_from_its_top() {
-        let cases: Vec<(Vec<Msg>, Sheet)> = vec![
-            (vec![], Sheet::Overview),
-            (vec![Msg::DetailsSheet(Sheet::Changes)], Sheet::Changes),
-            (vec![Msg::DetailsSheetStep(1)], Sheet::Changes),
-            (vec![Msg::DetailsSheetStep(-1)], Sheet::Timeline),
+        let cases: Vec<(Vec<Msg>, usize)> = vec![
+            (vec![], OVERVIEW),
+            (vec![Msg::DetailsTab(CHANGES)], CHANGES),
+            (vec![Msg::DetailsTabStep(1)], CHANGES),
+            (vec![Msg::DetailsTabStep(-1)], TIMELINE),
             (
-                vec![Msg::DetailsSheet(Sheet::Timeline), Msg::DetailsSheetStep(1)],
-                Sheet::Overview,
+                vec![Msg::DetailsTab(TIMELINE), Msg::DetailsTabStep(1)],
+                OVERVIEW,
             ),
         ];
         for (msgs, sheet) in cases {
@@ -1098,7 +1436,7 @@ pub(crate) mod tests {
         for (keys, want) in cases {
             let run = Scenario::new()
                 .event(work(read("a", with_links(links.clone()))))
-                .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
+                .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
                 .send_all(keys.iter().copied().map(Msg::DetailsKey));
             assert_eq!(local(&run), want, "{keys:?}");
         }
@@ -1116,12 +1454,12 @@ pub(crate) mod tests {
         };
         let running = Scenario::new()
             .event(work(read("a", with_links(peers("b")))))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(local(&running), [Effect::ShowSession(here(), "b".into())]);
         let gone = Scenario::new()
             .event(work(read("a", with_links(peers("gone")))))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
             .send(Msg::DetailsClick(1));
         assert_eq!(local(&gone), [Effect::Notice("gone is not running".into())]);
         let revealed = gone.send(Msg::DetailsKey(Key::Reveal));
@@ -1139,14 +1477,14 @@ pub(crate) mod tests {
         };
         let run = Scenario::new()
             .event(work(read("a", with_links(links))))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
         let d = &run.state().details;
-        assert!(d.folded.contains(&Group::Links));
+        assert!(is_folded(d, Group::Links));
         let listing = entries_of(&run).unwrap();
         assert_eq!(d.drill.selected(&listing), listing.heading(Group::Links));
         let unfolded = run.send(Msg::DetailsKey(Key::Open));
-        assert!(!unfolded.state().details.folded.contains(&Group::Links));
+        assert!(!is_folded(&unfolded.state().details, Group::Links));
     }
 
     #[test]
@@ -1175,7 +1513,7 @@ pub(crate) mod tests {
                 "[details]\nlinks_shown = 2\n",
             ))
             .event(work(read("a", with_links(links))))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)]);
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)]);
         // Rows: heading, two files, the row to show all.
         let all = run.send(Msg::DetailsClick(3));
         assert_eq!(all.state().details.opened, HashSet::from([Group::Files]));
@@ -1227,7 +1565,7 @@ pub(crate) mod tests {
             .event(work(read("s1", with_links(links))))
             .send_all([
                 shown(Some("s1"), None),
-                Msg::DetailsSheet(Sheet::Resources),
+                Msg::DetailsTab(RESOURCES),
                 told(Told {
                     drawn: vec![Shot::console(1, 1, 1, 5, None)],
                 }),
@@ -1314,7 +1652,7 @@ pub(crate) mod tests {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             ..Default::default()
         };
-        let resources = |id: Option<&str>| [shown(id, None), Msg::DetailsSheet(Sheet::Resources)];
+        let resources = |id: Option<&str>| [shown(id, None), Msg::DetailsTab(RESOURCES)];
         let run = Scenario::new().event(work(read("s1", with_links(links))));
         assert!(entries_of(&run.send_all(resources(Some("s1")))).is_some());
         let run = Scenario::new().event(work(read(
@@ -1354,13 +1692,13 @@ pub(crate) mod tests {
             .send_all([
                 shown(Some("a"), Some("/w")),
                 shown(None, Some("/w")),
-                Msg::DetailsSheet(Sheet::Changes),
+                Msg::DetailsTab(CHANGES),
             ])
             .event(patch(2).change(DetailsChange::Repository {
                 worktree: "/w".into(),
                 read: files,
             }))
-            .send(Msg::DetailsOpenRow(0));
+            .send(Msg::DetailsClick(0));
         let diffing = Some(Spot::Diff(Rev::WorkingCopy, file.clone()));
         assert_eq!(opened.state().details.drill.spot(), diffing);
         let changed = opened.event(patch(3).change(diff(vec![DiffLine {
@@ -1369,10 +1707,7 @@ pub(crate) mod tests {
         }])));
         assert_eq!(changed.state().details.drill.spot(), diffing);
         let unchanged = changed.event(patch(4).change(diff(vec![])));
-        assert_eq!(
-            unchanged.state().details.drill.spot(),
-            Some(Spot::Files(Rev::WorkingCopy))
-        );
+        assert_eq!(unchanged.state().details.drill.spot(), None);
     }
 
     #[test]
@@ -1432,7 +1767,7 @@ pub(crate) mod tests {
                     ..Default::default()
                 },
             )))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Agents)])
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(opened.state().details.drill.message(), Some("n1"));
         let scrolled = opened.send(Msg::DetailsKey(Key::Down));
@@ -1491,7 +1826,7 @@ pub(crate) mod tests {
     fn a_task_of_the_timeline_opens_its_history_and_the_keys_that_go_back_leave_it_for_its_tree() {
         let shown_tree = Scenario::new()
             .event(work(read("a", working())))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)]);
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)]);
         assert_eq!(timeline_rows(&shown_tree), 4);
         let opened = shown_tree.send_all([
             Msg::DetailsKey(Key::Down),
@@ -1517,7 +1852,7 @@ pub(crate) mod tests {
     fn a_tree_folds_from_its_card_and_from_its_tasks() {
         let shown_tree = Scenario::new()
             .event(work(read("a", working())))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)]);
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)]);
         let folded = shown_tree.send(Msg::DetailsKey(Key::Open));
         assert_eq!(timeline_rows(&folded), 1);
         let unfolded = folded.send(Msg::DetailsKey(Key::Open));
@@ -1544,7 +1879,7 @@ pub(crate) mod tests {
         assert_eq!(p.tree.bar.percent(), "33.33%");
         assert_eq!(p.focus.as_ref().map(|f| f.id.as_str()), Some("b"));
         let timeline = overview.send(Msg::DetailsKey(Key::Open));
-        assert_eq!(timeline.state().details.drill.sheet(), Sheet::Timeline);
+        assert_eq!(timeline.state().details.drill.tab(), TIMELINE);
         assert_eq!(selected_key(&timeline).as_deref(), Some("b"));
     }
 
@@ -1568,7 +1903,7 @@ pub(crate) mod tests {
     fn a_task_opened_that_is_removed_meanwhile_is_gone_back_from() {
         let opened = Scenario::new()
             .event(work(read("a", working())))
-            .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Timeline)])
+            .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)])
             .send_all([Msg::DetailsKey(Key::Last), Msg::DetailsKey(Key::Open)]);
         assert_eq!(opened.state().details.drill.task(), Some("c"));
         let mut entries = working().timeline.unwrap();
@@ -1749,7 +2084,7 @@ pub(crate) mod tests {
             .event(work(read("a", processes)))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
-        assert!(run.state().details.folded.contains(&Group::Running));
+        assert!(is_folded(&run.state().details, Group::Running));
         let listing = entries_of(&run).unwrap();
         assert_eq!(
             run.state().details.drill.selected(&listing),
@@ -1775,32 +2110,26 @@ pub(crate) mod tests {
                 worktree: "/w".into(),
                 read: files,
             }));
-        let change = overview_change(&run.state().details, run.state().hosts.own().work.as_ref());
+        let change = working_copy(&run.state().details, run.state().hosts.own().work.as_ref());
         assert_eq!(
             change.and_then(|v| v.revision).map(|r| r.short),
             Some("x".into())
         );
-        let log = run.send(Msg::DetailsSheet(Sheet::Log));
+        let log = run.send(Msg::DetailsTab(LOG));
         assert_eq!(
-            watched(&log)
-                .last()
-                .unwrap()
-                .repository
-                .as_ref()
-                .unwrap()
-                .spot,
+            watched(&log).last().unwrap().repositories[0].spot,
             Spot::Log
         );
     }
 
     #[test]
     fn the_agents_and_resources_sheets_are_read_from_the_conversation_and_not_the_worktree() {
-        for sheet in [Sheet::Agents, Sheet::Resources] {
+        for sheet in [AGENTS, RESOURCES] {
             let run =
-                Scenario::new().send_all([shown(Some("a"), Some("/w")), Msg::DetailsSheet(sheet)]);
+                Scenario::new().send_all([shown(Some("a"), Some("/w")), Msg::DetailsTab(sheet)]);
             let sight = watched(&run).last().cloned().unwrap();
             assert!(sight.overview, "{sheet:?}");
-            assert_eq!(sight.repository, None, "{sheet:?}");
+            assert!(sight.repositories.is_empty(), "{sheet:?}");
         }
     }
 
@@ -1821,7 +2150,7 @@ pub(crate) mod tests {
         };
         Scenario::new().event(work(read("a", read_now))).send_all([
             shown(Some("a"), Some("/w")),
-            Msg::DetailsSheet(Sheet::Resources),
+            Msg::DetailsTab(RESOURCES),
             told(Told {
                 drawn: vec![Shot::console(7, 64, 32, 5, None)],
             }),
@@ -1922,7 +2251,7 @@ pub(crate) mod tests {
         for (key, want) in cases {
             let run = Scenario::new()
                 .event(work(read("a", with_links(links.clone()))))
-                .send_all([shown(Some("a"), None), Msg::DetailsSheet(Sheet::Resources)])
+                .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
                 .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(key)]);
             assert_eq!(local(&run), want, "{key:?}");
         }
@@ -1953,5 +2282,270 @@ pub(crate) mod tests {
             how: None,
         });
         assert_eq!(run.state().details.shown.session, None);
+    }
+    /// A file and an address the session `a` came across.
+    fn file_and_url() -> SessionRead {
+        with_links(Links {
+            urls: vec![link(LinkKind::Url, "https://a.dev")],
+            files: vec![link(LinkKind::File(Touch::Read), "/w/a.rs")],
+            ..Default::default()
+        })
+    }
+
+    /// The session `a` shown with the panel made of the settings `panel`.
+    fn laid_out(panel: &str) -> Scenario {
+        Scenario::new()
+            .event(crate::config::testing::configured(panel))
+            .event(work(read("a", file_and_url())))
+            .send(shown(Some("a"), Some("/w")))
+    }
+
+    fn keys(listing: Option<Listing>) -> Vec<String> {
+        match listing {
+            Some(Listing::Entries(entries)) => entries
+                .iter()
+                .map(|e| match e {
+                    Entry::Heading { group, folded, .. } => {
+                        format!(
+                            "{}{}",
+                            group.title(),
+                            if *folded { " (folded)" } else { "" }
+                        )
+                    }
+                    Entry::Link(l) => l.target.clone(),
+                    other => format!("{other:?}"),
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_tab_of_the_user_s_lists_the_rows_of_its_components_in_their_order() {
+        let run = laid_out(
+            "[[panel.session.tabs]]\ntitle = \"Mine\"\ncomponents = [\"links\", \"files\"]\n",
+        );
+        assert_eq!(
+            keys(entries_of(&run)),
+            ["Links", "https://a.dev", "Files", "/w/a.rs"]
+        );
+    }
+
+    #[test]
+    fn a_component_alone_in_its_tab_lists_its_rows_without_a_heading() {
+        let run = laid_out(
+            "[[panel.session.tabs]]\ntitle = \"Files\"\ncomponents = [\"files\"]\n\
+             [[panel.session.tabs]]\ntitle = \"Both\"\ncomponents = [\"files\", \"links\"]\n",
+        );
+        assert_eq!(keys(entries_of(&run)), ["/w/a.rs"]);
+        let both = run.send(Msg::DetailsTab(1));
+        assert_eq!(keys(entries_of(&both))[0], "Files");
+    }
+
+    #[test]
+    fn a_component_placed_folded_starts_folded_until_its_heading_is_opened() {
+        let run = laid_out(
+            "[[panel.session.tabs]]\ntitle = \"T\"\n\
+             components = [\"files\", { component = \"links\", folded = true }]\n",
+        );
+        assert_eq!(
+            keys(entries_of(&run)),
+            ["Files", "/w/a.rs", "Links (folded)"]
+        );
+        let opened = run.send(Msg::DetailsClick(2));
+        assert_eq!(
+            keys(entries_of(&opened)),
+            ["Files", "/w/a.rs", "Links", "https://a.dev"]
+        );
+        let shut = opened.send(Msg::DetailsClick(2));
+        assert!(shut.state().details.toggled.is_empty());
+    }
+
+    #[test]
+    fn a_component_placed_to_show_fewer_shows_its_first_and_a_row_for_the_rest() {
+        let links = Links {
+            files: (0..4)
+                .map(|i| link(LinkKind::File(Touch::Read), &format!("/w/{i}.rs")))
+                .collect(),
+            ..Default::default()
+        };
+        let run = Scenario::new()
+            .event(crate::config::testing::configured(
+                "[[panel.session.tabs]]\ntitle = \"T\"\n\
+                 components = [\"links\", { component = \"files\", shown = 1 }]\n",
+            ))
+            .event(work(read("a", with_links(links))))
+            .send(shown(Some("a"), None));
+        let Some(Listing::Entries(entries)) = entries_of(&run) else {
+            panic!("rows listed");
+        };
+        assert!(matches!(
+            entries.as_slice(),
+            [
+                Entry::Heading { .. },
+                Entry::Link(_),
+                Entry::More { hidden: 3, .. }
+            ]
+        ));
+    }
+
+    #[test]
+    fn the_host_reads_only_what_the_components_in_sight_need() {
+        let sight = |panel: &str| {
+            watched(&laid_out(panel))
+                .last()
+                .cloned()
+                .expect("the host is asked")
+        };
+        let machine = sight(
+            "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"M\"\ncomponents = [\"machine\"]\n",
+        );
+        assert!(!machine.overview);
+        assert!(machine.repositories.is_empty());
+        assert_eq!(machine.usage, None);
+        assert_eq!(machine.system, Some(UsageSettings::default()));
+        let repository = sight(
+            "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"R\"\ncomponents = [\"log\", \"changes\"]\n",
+        );
+        let spots: Vec<Spot> = repository
+            .repositories
+            .into_iter()
+            .map(|r| r.spot)
+            .collect();
+        assert_eq!(spots, [Spot::Files(Rev::WorkingCopy), Spot::Log]);
+        assert_eq!(repository.system, Some(UsageSettings::NONE));
+        let links = sight(
+            "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"L\"\ncomponents = [\"links\"]\n",
+        );
+        assert!(links.overview);
+    }
+
+    #[test]
+    fn the_machine_s_meters_sampled_are_those_its_components_in_sight_name_together() {
+        let run = laid_out(
+            "[panel.session]\n\
+             foot = [{ component = \"machine\", meters = { cpu = false, gpu = false, storage = false } }]\n\
+             [[panel.session.tabs]]\ntitle = \"M\"\n\
+             components = [{ component = \"machine\", meters = { gpu = false, memory = false, storage = false } }]\n",
+        );
+        let system = watched(&run).last().and_then(|s| s.system);
+        assert_eq!(
+            system,
+            Some(UsageSettings {
+                cpu: true,
+                memory: true,
+                ..UsageSettings::NONE
+            })
+        );
+    }
+
+    #[test]
+    fn showing_a_component_shows_the_tab_shown_when_it_holds_it_or_else_the_first_that_does() {
+        let run = Scenario::new().send(Msg::DetailsShowComponent(Component::Changes));
+        assert_eq!(run.state().details.drill.tab(), CHANGES);
+        let laid = laid_out(
+            "[[panel.session.tabs]]\ntitle = \"A\"\ncomponents = [\"files\"]\n\
+             [[panel.session.tabs]]\ntitle = \"B\"\ncomponents = [\"changes\"]\n\
+             [[panel.session.tabs]]\ntitle = \"C\"\ncomponents = [\"changes\", \"log\"]\n",
+        );
+        let first = laid.send(Msg::DetailsShowComponent(Component::Changes));
+        assert_eq!(first.state().details.drill.tab(), 1);
+        let kept = first
+            .send(Msg::DetailsTab(2))
+            .send(Msg::DetailsShowComponent(Component::Changes));
+        assert_eq!(kept.state().details.drill.tab(), 2);
+        let none = kept.send(Msg::DetailsShowComponent(Component::Timeline));
+        assert_eq!(none.state().details.drill.tab(), 2);
+    }
+
+    #[test]
+    fn a_tab_the_layout_does_not_have_is_not_shown_and_one_it_no_longer_has_gives_way_to_its_last()
+    {
+        let run = Scenario::new().send(Msg::DetailsTab(TIMELINE));
+        assert_eq!(run.state().details.drill.tab(), TIMELINE);
+        assert_eq!(
+            run.send(Msg::DetailsTab(8)).state().details.drill.tab(),
+            TIMELINE
+        );
+        let mut details = Details::default();
+        show_tab(&mut details, TIMELINE);
+        let mut layout = DetailsLayout::default();
+        let mut two = Surface::session();
+        two.tabs.truncate(2);
+        layout.set(Subject::Session, two);
+        let settings = details.shown.settings.clone();
+        follow_settings(
+            &mut details,
+            true,
+            &settings,
+            &layout,
+            UsageSettings::default(),
+        );
+        assert_eq!(details.drill.tab(), 1);
+    }
+
+    #[test]
+    fn each_thing_the_panel_describes_comes_back_to_the_tab_it_was_left_on() {
+        let mut details = Details::default();
+        show_tab(&mut details, AGENTS);
+        follow_selected(&mut details, Some(&Item::Environment(here())));
+        assert_eq!(details.shown.subject(), Subject::Environment);
+        assert_eq!(details.drill.tab(), 0);
+        follow_selected(&mut details, Some(&Item::Session(here(), "a".into())));
+        assert_eq!(details.shown.subject(), Subject::Session);
+        assert_eq!(details.drill.tab(), AGENTS);
+    }
+    #[test]
+    fn the_pull_request_of_the_branch_shown_is_the_one_open_for_it() {
+        let pull = |number: u64, head: &str| adroit_model::github::Item {
+            number,
+            pull: Some(adroit_model::github::Pull {
+                head: head.into(),
+                base: "trunk".into(),
+                additions: 0,
+                deletions: 0,
+                changed_files: 0,
+                review: None,
+                requested: Vec::new(),
+                checks: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let mut repository = adroit_model::github::Repository::new("o/r");
+        repository.pulls = Some(Ok(vec![pull(3, "other"), pull(7, "main")]));
+        let run = Scenario::new()
+            .event(snapshot().listed(listed().session(session("a").cwd("/r"))))
+            .event(patch(2).change(adroit_protocol::TreeChange::GitHub {
+                repository: "/r".into(),
+                github: Some(Box::new(repository)),
+            }))
+            .send(shown(Some("a"), Some("/r")));
+        let work = run.state().hosts.own().work.as_ref();
+        assert_eq!(
+            branch_pull(&run.state().details, work),
+            Some(("/r".into(), 7))
+        );
+        let elsewhere = run.send(shown(Some("a"), Some("/v")));
+        let work = elsewhere.state().hosts.own().work.as_ref();
+        assert_eq!(branch_pull(&elsewhere.state().details, work), None);
+    }
+    #[test]
+    fn the_pull_requests_of_the_repository_shown_are_read_while_github_is_in_sight() {
+        let reads = |panel: &str| {
+            let run = Scenario::new()
+                .event(crate::config::testing::configured(panel))
+                .event(snapshot().listed(listed().session(session("a").cwd("/r"))))
+                .send(shown(Some("a"), Some("/r")));
+            watched(&run).last().map(|s| s.tree.github.clone())
+        };
+        let pulls = std::collections::BTreeSet::from([(
+            PathBuf::from("/r"),
+            adroit_model::github::Listing::Pulls,
+        )]);
+        assert_eq!(
+            reads("[[panel.session.tabs]]\ntitle = \"PR\"\ncomponents = [\"github\"]\n"),
+            Some(pulls)
+        );
+        assert_eq!(reads(""), Some(Default::default()));
     }
 }

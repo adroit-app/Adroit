@@ -1,11 +1,12 @@
-//! The details panel inside its frame: the sheet tabs, the sheet shown, and
-//! the usage at its foot.
+//! The details panel inside its frame: the tabs of what it describes, the
+//! components of the tab shown or the row opened from them, and the foot.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
+use adroit_model::config::UsageSettings;
 use adroit_model::time::now_ms;
 use adroit_model::{Agent, Process, Session};
 use dioxus::prelude::*;
@@ -13,39 +14,32 @@ use dioxus::prelude::*;
 use super::changes::Repository;
 pub(crate) use super::changes::Worktree;
 pub(crate) use super::overview::LinkMenu;
-use super::overview::Overview;
-use super::usage::Usage;
+use super::overview::OpenedRow;
+use super::parts::PartView;
 use crate::bridge::AppCtx;
-use crate::details::{Sheet, repository, system_gauges, usage};
+use crate::details::{parts, repository, system_gauges};
 use crate::icons::IconView;
-use crate::settings::UsageSettings;
 
 /// The usage of the machine of the environment the tree is at, `shown`
-/// when no row is selected, as its host last sampled it.
+/// when no row is selected, as its host last sampled it, of the meters
+/// `meters` names.
 pub(crate) fn machine_gauges(
     app: &AppCtx,
     shown: &adroit_model::EnvironmentId,
-    settings: &UsageSettings,
+    meters: &UsageSettings,
 ) -> Vec<adroit_core::details::SystemGauge> {
     let at = app.tree.read().environment_at(shown);
     app.hosts
         .read()
         .work(&at)
         .and_then(|w| w.details.system.as_ref())
-        .map(|s| system_gauges(s, settings))
+        .map(|s| system_gauges(s, meters))
         .unwrap_or_default()
 }
 
-/// The action that shows `sheet`.
-pub(crate) fn sheet_action(sheet: Sheet) -> Action {
-    match sheet {
-        Sheet::Overview => Action::DetailsOverview,
-        Sheet::Changes => Action::DetailsChanges,
-        Sheet::Log => Action::DetailsLog,
-        Sheet::Agents => Action::DetailsAgents,
-        Sheet::Resources => Action::DetailsResources,
-        Sheet::Timeline => Action::DetailsTimeline,
-    }
+/// The action that shows the tab at `at`, counting from 0.
+pub(crate) fn tab_action(at: usize) -> Action {
+    Action::DetailsTab(u8::try_from(at + 1).unwrap_or(u8::MAX))
 }
 
 #[component]
@@ -56,24 +50,22 @@ pub(crate) fn DetailsPanel(
     kind: Worktree,
     /// When the shown session last took input through its console.
     live_input_ms: Option<u64>,
-    /// The agent of what is shown, whose usage page the foot links.
+    /// The agent of what is shown, whose usage page its usage links.
     agent: Agent,
-    usage_settings: UsageSettings,
-    /// The keys of each sheet's tab, as its title.
-    sheet_keys: Vec<String>,
+    /// The keys of each tab, by its place, as its title.
+    tab_keys: Vec<String>,
     back_keys: String,
     on_kill: EventHandler<(Session, Process)>,
     on_menu: EventHandler<LinkMenu>,
 ) -> Element {
     let app = use_context::<AppCtx>();
-    // The overview tells how long ago things were; it is told again now
-    // and then while it is in sight.
+    // What tells how long ago things were is told again now and then while
+    // the panel is in sight.
     let mut clock = use_signal(now_ms);
     use_future(move || async move {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let d = app.details.peek();
-            if d.shown.open && d.drill.sheet().lists_entries() {
+            if app.details.peek().shown.open {
                 clock.set(now_ms());
             }
         }
@@ -90,49 +82,77 @@ pub(crate) fn DetailsPanel(
     let environment = app.shown_environment();
     let hosts = app.hosts.read();
     let work = hosts.work(&environment);
-    let sheet_now = details.drill.sheet();
+    let tabs = details.shown.surface().tabs;
+    let now = details.drill.tab().min(tabs.len().saturating_sub(1));
+    let opened_repository = details.drill.spot().is_some();
     let view = repository(&details, work).filter(|v| worktree.as_ref() == Some(&v.worktree));
-    let gauges = usage(&details, work, now_ms());
-    let usage_url = work
-        .and_then(|w| w.agents.of(agent))
-        .and_then(|facts| facts.usage_url.clone());
-    let system = machine_gauges(&app, &environment, &usage_settings);
     let shown_kind = if worktree.is_none() {
         Worktree::None
     } else {
         kind
     };
+    let (body, foot): (Vec<_>, Vec<_>) = parts(&details, work).into_iter().partition(|p| !p.foot);
+    let opened_row = details.drill.shows_row();
     rsx! {
-        div { class: "panel-tabs",
-            for (s , keys) in Sheet::ALL.into_iter().zip(sheet_keys) {
-                button {
-                    key: "{s.title()}",
-                    class: if s == sheet_now { "panel-tab active" } else { "panel-tab" },
-                    "aria-pressed": s == sheet_now,
-                    title: keys,
-                    onclick: move |_| app.dispatch(Msg::DetailsSheet(s)),
-                    if let Some(icon) = sheet_action(s).icon() {
-                        IconView { icon, size: 13 }
+        if tabs.len() > 1 {
+            div { class: "panel-tabs",
+                for (at , tab) in tabs.into_iter().enumerate() {
+                    button {
+                        key: "{at}-{tab.title}",
+                        class: match (at == now, tab.icon().is_some()) {
+                            (true, true) => "panel-tab active",
+                            (true, false) => "panel-tab active no-icon",
+                            (false, true) => "panel-tab",
+                            (false, false) => "panel-tab no-icon",
+                        },
+                        "aria-pressed": at == now,
+                        title: tab_keys.get(at).cloned().unwrap_or_default(),
+                        onclick: move |_| app.dispatch(Msg::DetailsTab(at)),
+                        if let Some(icon) = tab.icon() {
+                            IconView { icon, size: 13 }
+                        }
+                        span { class: "panel-tab-label", "{tab.title}" }
                     }
-                    span { class: "panel-tab-label", "{s.title()}" }
                 }
             }
         }
         div { class: "details-scroll",
-            if sheet_now.lists_entries() {
-                Overview {
-                    worktree: worktree.clone(),
-                    live_input_ms,
-                    now_ms: clock(),
-                    back_keys: back_keys.clone(),
-                    on_kill,
-                    on_menu,
+            if opened_repository {
+                Repository { drill: details.drill.clone(), view, worktree: shown_kind, back_keys: back_keys.clone() }
+            } else if opened_row {
+                OpenedRow { back_keys: back_keys.clone(), on_kill }
+            } else {
+                for part in body {
+                    PartView {
+                        key: "{part.placed.component.name()}-{part.at}",
+                        part,
+                        worktree: worktree.clone(),
+                        kind: shown_kind,
+                        live_input_ms,
+                        agent,
+                        now_ms: clock(),
+                        on_kill,
+                        on_menu,
+                    }
                 }
             }
-            if details.drill.spot().is_some() {
-                Repository { drill: details.drill.clone(), view, worktree: shown_kind, back_keys }
+        }
+        if !foot.is_empty() {
+            div { class: "details-foot",
+                for part in foot {
+                    PartView {
+                        key: "foot-{part.placed.component.name()}-{part.at}",
+                        part,
+                        worktree: worktree.clone(),
+                        kind: shown_kind,
+                        live_input_ms,
+                        agent,
+                        now_ms: clock(),
+                        on_kill,
+                        on_menu,
+                    }
+                }
             }
         }
-        Usage { gauges, agent, usage_url, system }
     }
 }

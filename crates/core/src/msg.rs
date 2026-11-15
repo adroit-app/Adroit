@@ -10,7 +10,7 @@ use adroit_protocol::Event;
 use crate::actions::Action;
 use crate::console::Probe;
 use crate::content::{Area, Border, DraftOptions, DropAt, Opening, Tab, WindowId};
-use crate::details::{self, Sheet};
+use crate::details::{self, Component};
 use crate::keymap::Context;
 use crate::layout::{Layout, Side};
 use crate::overlay::confirm::Ask;
@@ -267,10 +267,12 @@ pub enum Msg {
     // The details panel.
     /// What the window tells the details panel that the tree does not.
     DetailsShown(Box<details::Told>),
-    /// A sheet was chosen.
-    DetailsSheet(Sheet),
-    /// The sheet this far along was asked for.
-    DetailsSheetStep(isize),
+    /// The tab at this place, from 0, was chosen.
+    DetailsTab(usize),
+    /// The tab this far along was asked for.
+    DetailsTabStep(isize),
+    /// The tab that shows this component was asked for.
+    DetailsShowComponent(Component),
     /// A key was pressed on the panel.
     DetailsKey(details::Key),
     /// A row of the overview was clicked.

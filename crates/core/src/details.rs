@@ -426,63 +426,6 @@ fn lasted(ms: u64) -> String {
     }
 }
 
-/// What the details panel shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sheet {
-    /// How the session shown stands now: the change it is on, what works
-    /// for it, and what changes little.
-    Overview,
-    /// The files the working copy changes, each opening its diff.
-    Changes,
-    /// The recent commits, or jj's stack, each opening the files it changed.
-    Log,
-    /// The sessions, messages and subagents the session worked with.
-    Agents,
-    /// The artifacts, images, links and files its conversation brought up,
-    /// each opening outside adroit.
-    Resources,
-    /// The task trees its agent recorded of its work, each task opening
-    /// its history.
-    Timeline,
-}
-
-impl Sheet {
-    pub const ALL: [Sheet; 6] = [
-        Sheet::Overview,
-        Sheet::Changes,
-        Sheet::Log,
-        Sheet::Agents,
-        Sheet::Resources,
-        Sheet::Timeline,
-    ];
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Sheet::Overview => "Overview",
-            Sheet::Changes => "Changes",
-            Sheet::Log => "Log",
-            Sheet::Agents => "Agents",
-            Sheet::Resources => "Resources",
-            Sheet::Timeline => "Timeline",
-        }
-    }
-
-    /// Whether it lists rows of the session shown, rather than what was read
-    /// of the worktree.
-    pub fn lists_entries(self) -> bool {
-        matches!(
-            self,
-            Sheet::Overview | Sheet::Agents | Sheet::Resources | Sheet::Timeline
-        )
-    }
-
-    /// The sheet `delta` places along, wrapping around.
-    pub fn step(self, delta: isize) -> Sheet {
-        let at = Self::ALL.iter().position(|s| *s == self).unwrap_or(0);
-        Self::ALL[crate::tree::nav::wrap(at, delta, Self::ALL.len())]
-    }
-}
-
 /// What was read for a spot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
@@ -549,6 +492,10 @@ pub enum Group {
     Links,
     Files,
     Timeline,
+    /// The files the working copy changes.
+    Changed,
+    /// The changes leading to the worktree.
+    Log,
 }
 
 impl Group {
@@ -572,6 +519,8 @@ impl Group {
             Group::Links => "Links",
             Group::Files => "Files",
             Group::Timeline => "Timeline",
+            Group::Changed => "Changes",
+            Group::Log => "Log",
         }
     }
 }
@@ -597,6 +546,10 @@ pub enum Entry {
     Tree(TreeCard),
     /// A task of a tree, which opens its history.
     Task(TaskLine),
+    /// A file the working copy changes, which opens its diff.
+    Changed(Change),
+    /// A change of the log, which opens the files it changed.
+    Commit(Commit),
     /// The row standing for a group's links not shown, which shows them all.
     More {
         group: Group,
@@ -620,6 +573,8 @@ impl Entry {
                 Group::Links => "\0links",
                 Group::Files => "\0files",
                 Group::Timeline => "\0timeline",
+                Group::Changed => "\0changed",
+                Group::Log => "\0log",
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Message(n) => n.id.as_str(),
@@ -631,6 +586,8 @@ impl Entry {
             Entry::Progress(_) => "\0progress",
             Entry::Tree(card) => card.key.as_str(),
             Entry::Task(line) => line.id.as_str(),
+            Entry::Changed(c) => c.path.as_str(),
+            Entry::Commit(c) => c.id.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
@@ -642,6 +599,8 @@ impl Entry {
                 Group::Links => "\0more links",
                 Group::Files => "\0more files",
                 Group::Timeline => "\0more timeline",
+                Group::Changed => "\0more changed",
+                Group::Log => "\0more log",
             },
         }
     }
@@ -658,6 +617,8 @@ impl Entry {
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
             Entry::Progress(_) | Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
+            Entry::Changed(_) => Group::Changed,
+            Entry::Commit(_) => Group::Log,
             Entry::More { group, .. } => *group,
         }
     }
@@ -839,7 +800,7 @@ pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
 /// `rows` under the heading of `group`, none while there are no rows: a
 /// `folded` group shows its heading alone, and one not among those `opened`
 /// shows its `first` rows and a row for the rest.
-fn grouped(
+pub(crate) fn grouped(
     group: Group,
     rows: Vec<Entry>,
     folded: &HashSet<Group>,
@@ -952,26 +913,27 @@ struct Cursor {
     at: usize,
 }
 
-/// How far into a sheet the panel has gone: the rows opened, and the row
+/// How far into a tab the panel has gone: the rows opened, and the row
 /// selected in what is shown.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Drill {
-    sheet: Sheet,
+    tab: usize,
     opened: Vec<Opened>,
     cursor: Option<Cursor>,
 }
 
 impl Drill {
-    pub fn new(sheet: Sheet) -> Self {
+    pub fn new(tab: usize) -> Self {
         Drill {
-            sheet,
+            tab,
             opened: Vec::new(),
             cursor: None,
         }
     }
 
-    pub fn sheet(&self) -> Sheet {
-        self.sheet
+    /// The tab shown, by its place.
+    pub fn tab(&self) -> usize {
+        self.tab
     }
 
     /// The subagent opened, by its call.
@@ -1012,18 +974,14 @@ impl Drill {
         )
     }
 
-    /// What to read for what is shown; the overview is not read.
+    /// What of the repository the row opened shows; none while the tab
+    /// shows its components.
     pub fn spot(&self) -> Option<Spot> {
         let rev = |c: &Commit| Rev::Commit(c.id.clone());
-        Some(match (self.sheet, self.opened.as_slice()) {
-            (Sheet::Overview | Sheet::Agents | Sheet::Resources | Sheet::Timeline, _) => {
-                return None;
-            }
-            (Sheet::Changes, []) => Spot::Files(Rev::WorkingCopy),
-            (Sheet::Changes, [Opened::File(f), ..]) => Spot::Diff(Rev::WorkingCopy, f.clone()),
-            (Sheet::Log, []) => Spot::Log,
-            (Sheet::Log, [Opened::Commit(c)]) => Spot::Files(rev(c)),
-            (Sheet::Log, [Opened::Commit(c), Opened::File(f), ..]) => Spot::Diff(rev(c), f.clone()),
+        Some(match self.opened.as_slice() {
+            [Opened::File(f), ..] => Spot::Diff(Rev::WorkingCopy, f.clone()),
+            [Opened::Commit(c)] => Spot::Files(rev(c)),
+            [Opened::Commit(c), Opened::File(f), ..] => Spot::Diff(rev(c), f.clone()),
             _ => return None,
         })
     }
@@ -1109,6 +1067,8 @@ impl Drill {
                 Entry::Message(n) => Opened::Message(n.id.clone(), n.summary().to_owned()),
                 Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
                 Entry::Task(t) => Opened::Task(t.id.clone(), t.title.clone()),
+                Entry::Changed(c) => Opened::File(c.clone()),
+                Entry::Commit(c) => Opened::Commit(c.clone()),
                 _ => return false,
             },
             Listing::Diff(_) | Listing::Error(_) => return false,
@@ -1173,6 +1133,10 @@ impl Drill {
 mod tests {
     use super::*;
 
+    const OVERVIEW: usize = 0;
+    const CHANGES: usize = 1;
+    const LOG: usize = 2;
+
     use adroit_model::repository::DiffKind;
 
     use adroit_model::testing::{SessionBuilder, session};
@@ -1236,7 +1200,7 @@ mod tests {
             ]
         );
         let list = Listing::Entries(entries);
-        let mut drill = Drill::new(Sheet::Overview);
+        let mut drill = Drill::new(OVERVIEW);
         assert!(drill.open_at(&list, 1));
         assert_eq!(drill.process(), Some("process-1"));
         assert!(drill.shows_row());
@@ -1271,7 +1235,7 @@ mod tests {
                 Entry::Fact(facts[1].clone()),
             ])
         );
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         d.select(&list, 2);
         assert_eq!(d.selected(&list), Some(2));
         assert!(!d.open(&list));
@@ -1629,29 +1593,6 @@ mod tests {
         assert_eq!(until(2 * 24 * 60 * MIN + 23 * 60 * MIN), "in 2 days 23 h");
     }
 
-    #[test]
-    fn sheets_step_around_in_both_directions() {
-        assert_eq!(Sheet::Overview.step(1), Sheet::Changes);
-        assert_eq!(Sheet::Log.step(1), Sheet::Agents);
-        assert_eq!(Sheet::Resources.step(1), Sheet::Timeline);
-        assert_eq!(Sheet::Timeline.step(1), Sheet::Overview);
-        assert_eq!(Sheet::Overview.step(-1), Sheet::Timeline);
-    }
-
-    #[test]
-    fn the_sheets_of_the_session_list_rows_and_are_read_from_its_conversation() {
-        let lists = |s: Sheet| s.lists_entries();
-        assert!(lists(Sheet::Overview));
-        assert!(lists(Sheet::Agents));
-        assert!(lists(Sheet::Resources));
-        assert!(lists(Sheet::Timeline));
-        assert!(!lists(Sheet::Changes));
-        assert!(!lists(Sheet::Log));
-        assert_eq!(Drill::new(Sheet::Agents).spot(), None);
-        assert_eq!(Drill::new(Sheet::Resources).spot(), None);
-        assert_eq!(Drill::new(Sheet::Timeline).spot(), None);
-    }
-
     fn change(status: &str, path: &str) -> Change {
         Change {
             status: status.into(),
@@ -1685,28 +1626,28 @@ mod tests {
     }
 
     #[test]
-    fn each_level_of_a_sheet_asks_for_what_it_shows() {
+    fn each_row_opened_asks_for_what_it_shows_and_the_top_for_nothing() {
         let wc = Rev::WorkingCopy;
         let at = |id: &str| Rev::Commit(format!("{id}-full"));
-        let mut changes = Drill::new(Sheet::Changes);
-        assert_eq!(changes.spot(), Some(Spot::Files(wc.clone())));
+        let mut changes = Drill::new(CHANGES);
+        assert_eq!(changes.spot(), None);
         assert!(changes.open(&files(&["a.rs", "b.rs"])));
         assert_eq!(changes.spot(), Some(Spot::Diff(wc, change("M", "a.rs"))));
 
-        let mut stack = Drill::new(Sheet::Log);
-        assert_eq!(stack.spot(), Some(Spot::Log));
+        let mut stack = Drill::new(LOG);
+        assert_eq!(stack.spot(), None);
         stack.step(&log(&["x", "y"]), 1);
         assert!(stack.open(&log(&["x", "y"])));
         assert_eq!(stack.spot(), Some(Spot::Files(at("y"))));
         assert!(stack.open(&files(&["c.rs"])));
         assert_eq!(stack.spot(), Some(Spot::Diff(at("y"), change("M", "c.rs"))));
 
-        assert_eq!(Drill::new(Sheet::Overview).spot(), None);
+        assert_eq!(Drill::new(OVERVIEW).spot(), None);
     }
 
     #[test]
     fn a_diff_opens_nothing_further_and_the_top_has_nothing_to_go_back_to() {
-        let mut d = Drill::new(Sheet::Changes);
+        let mut d = Drill::new(CHANGES);
         assert!(!d.back());
         assert!(d.open(&files(&["a.rs"])));
         assert!(!d.open(&diff()));
@@ -1718,7 +1659,7 @@ mod tests {
     #[test]
     fn going_back_selects_the_row_that_was_opened() {
         let list = log(&["x", "y", "z"]);
-        let mut d = Drill::new(Sheet::Log);
+        let mut d = Drill::new(LOG);
         d.step(&list, 2);
         assert!(d.open(&list));
         assert!(d.open(&files(&["a.rs", "b.rs"])));
@@ -1731,7 +1672,7 @@ mod tests {
     #[test]
     fn the_selection_starts_on_the_first_row_and_stops_at_either_end() {
         let list = files(&["a", "b", "c"]);
-        let mut d = Drill::new(Sheet::Changes);
+        let mut d = Drill::new(CHANGES);
         assert_eq!(d.selected(&list), Some(0));
         for (delta, want) in [(1, 1), (1, 2), (1, 2), (-5, 0), (-1, 0)] {
             d.step(&list, delta);
@@ -1747,18 +1688,18 @@ mod tests {
 
     #[test]
     fn a_row_clicked_opens_at_once() {
-        let mut d = Drill::new(Sheet::Changes);
+        let mut d = Drill::new(CHANGES);
         assert!(d.open_at(&files(&["a.rs", "b.rs"]), 1));
         assert_eq!(
             d.spot(),
             Some(Spot::Diff(Rev::WorkingCopy, change("M", "b.rs")))
         );
-        assert!(!Drill::new(Sheet::Changes).open_at(&files(&["a.rs"]), 3));
+        assert!(!Drill::new(CHANGES).open_at(&files(&["a.rs"]), 3));
     }
 
     #[test]
     fn a_refreshed_list_keeps_the_selected_row_or_the_place_it_was_at() {
-        let mut d = Drill::new(Sheet::Changes);
+        let mut d = Drill::new(CHANGES);
         d.step(&files(&["a", "b", "c"]), 1);
         // `b` moved down: it stays selected.
         let moved = files(&["new", "a", "b", "c"]);
@@ -1809,7 +1750,7 @@ mod tests {
             (Listing::Error("no such revision".into()), "an error"),
             (Listing::Diff(Vec::new()), "an empty diff"),
         ] {
-            let mut d = Drill::new(Sheet::Log);
+            let mut d = Drill::new(LOG);
             assert!(d.open(&log(&["x"])));
             assert!(d.open(&files(&["a.rs"])));
             assert!(d.refreshed(&gone), "{why}");
@@ -1819,25 +1760,25 @@ mod tests {
 
     #[test]
     fn an_empty_change_s_file_list_and_the_top_level_stay_put() {
-        let mut d = Drill::new(Sheet::Log);
+        let mut d = Drill::new(LOG);
         assert!(d.open(&log(&["x"])));
         assert!(!d.refreshed(&files(&[])));
         assert!(matches!(d.spot(), Some(Spot::Files(_))));
-        let mut top = Drill::new(Sheet::Changes);
+        let mut top = Drill::new(CHANGES);
         assert!(!top.refreshed(&Listing::Error("not a repository".into())));
-        assert_eq!(top.spot(), Some(Spot::Files(Rev::WorkingCopy)));
+        assert_eq!(top.spot(), None);
     }
 
     #[test]
     fn the_crumbs_name_each_opened_level() {
-        let mut d = Drill::new(Sheet::Log);
+        let mut d = Drill::new(LOG);
         assert!(d.crumbs().is_empty());
         assert!(d.open(&Listing::Log(vec![commit("wmmo", "keep the reader")])));
         let mut renamed = change("R", "new.rs");
         renamed.from = Some("old.rs".into());
         assert!(d.open(&Listing::Files(vec![renamed])));
         assert_eq!(d.crumbs(), ["wmmo keep the reader", "old.rs -> new.rs"]);
-        let mut bare = Drill::new(Sheet::Log);
+        let mut bare = Drill::new(LOG);
         assert!(bare.open(&Listing::Log(vec![commit("zzzz", "")])));
         assert_eq!(bare.crumbs(), ["zzzz (no description)"]);
     }
@@ -1912,7 +1853,7 @@ mod tests {
     #[test]
     fn links_are_selected_by_their_address_and_open_nothing_inside() {
         let list = links(&["https://a.dev", "https://b.dev"]);
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         assert!(list.is_list());
         d.step(&list, 1);
         let moved = links(&["https://new.dev", "https://a.dev", "https://b.dev"]);
@@ -1983,7 +1924,7 @@ mod tests {
         let open = Listing::Entries(resources(&all, &[], &none, &none, usize::MAX));
         assert_eq!(open.heading(Group::Files), Some(2));
         assert_eq!(open.heading(Group::Artifacts), None);
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         d.select(&open, 2);
         let shut = HashSet::from([Group::Links]);
         let folded = Listing::Entries(resources(&all, &[], &shut, &none, usize::MAX));
@@ -2137,7 +2078,7 @@ mod tests {
         );
         // The row is selected apart from the links and the heading.
         let listing = Listing::Entries(rows);
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         d.select(&listing, 6);
         assert_eq!(d.selected(&listing), Some(6));
     }
@@ -2224,7 +2165,7 @@ mod tests {
         assert_eq!(shown_agent(&a, 0).0, "Rename hover to detail");
         let none = HashSet::new();
         let list = Listing::Entries(agents(&[], &[], &[a], &none, &none, usize::MAX));
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         assert!(d.open_at(&list, 1));
         assert_eq!(d.crumbs(), ["Rename hover to detail"]);
     }
@@ -2246,7 +2187,7 @@ mod tests {
         ];
         let none = HashSet::new();
         let list = Listing::Entries(agents(&[], &[], &a, &none, &none, usize::MAX));
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         assert_eq!(d.agent(), None);
         assert!(!d.open(&list), "its heading opens nothing");
         assert!(!d.shows_row());
@@ -2368,7 +2309,7 @@ mod tests {
         let none = HashSet::new();
         let list = Listing::Entries(resources(&[], &shots, &none, &none, 5));
         assert_eq!(list.heading(Group::Images), Some(0));
-        let mut d = Drill::new(Sheet::Overview);
+        let mut d = Drill::new(OVERVIEW);
         d.step(&list, 2);
         assert_eq!(d.selected(&list), Some(2));
         assert!(!d.open(&list));

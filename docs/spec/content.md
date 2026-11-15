@@ -257,7 +257,7 @@ them away. A program asking whether images work is answered.
 Images are drawn over the text, the later ones above the earlier, and an
 animation shows the frame the program last showed.
 
-The images a session's console drew are listed in the Resources sheet
+The images a session's console drew are listed by the details panel
 of the details panel, and stay listed after the console lets them go
 ([details](details.md)). A click on an image in a session's console looks at
 it in the lightbox, as a click on it in Resources does, and does not reach the

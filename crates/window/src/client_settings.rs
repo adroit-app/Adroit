@@ -250,7 +250,8 @@ mod tests {
     }
 
     #[test]
-    fn the_appearance_the_machine_s_resources_and_the_panel_shown_are_the_client_s_over_any_environment_s() {
+    fn the_appearance_the_machine_s_resources_and_the_panel_shown_are_the_client_s_over_any_environment_s()
+     {
         let preferences = Preferences::of(&mine());
         let mut work = Settings {
             keep_awake: true,

@@ -670,18 +670,11 @@ mod tests {
     }
 
     #[test]
-    fn each_sheet_of_the_details_panel_has_a_digit_of_its_own_there() {
+    fn each_tab_of_the_details_panel_has_a_digit_of_its_own_there() {
         let map = Keymap::defaults();
         let details = [Context::Details, Context::Tree, Context::Global];
-        for (digit, action) in [
-            ("1", Action::DetailsOverview),
-            ("2", Action::DetailsChanges),
-            ("3", Action::DetailsLog),
-            ("4", Action::DetailsAgents),
-            ("5", Action::DetailsResources),
-            ("6", Action::DetailsTimeline),
-            ("6", Action::DetailsTimeline),
-        ] {
+        for (digit, action) in (1..=9).map(|n| (n.to_string(), Action::DetailsTab(n))) {
+            let digit = digit.as_str();
             assert_eq!(
                 step(&map, &details, &[], digit),
                 Step::Run(action),

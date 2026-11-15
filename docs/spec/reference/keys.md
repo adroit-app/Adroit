@@ -41,8 +41,8 @@ changes them ([keys](../keys.md)).
 | `window.to_tab` | Move Window to a New Tab | move the focused window to a new tab, unless it is the only one of its tab | `global`: `Ctrl+q T` |
 | `window.edit` |  | switch the focused window between a document's viewer and a Neovim on the document, which runs on hidden while the window shows the viewer ([content](../content.md#viewers)) | `global`: `Ctrl+q e`<br>`viewer`: `e` |
 | `tab.merge_last` |  | merge the content's tab shown into the tab shown before it, or else the tab beside it: every window of it, as it is split, right of every window there, the focused one keeping the focus ([content](../content.md)) | `global`: `Ctrl+q M`, `Ctrl+q m m` |
-| `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
-| `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
+| `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's tabs there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
+| `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's tabs there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
 | `tab.last` | Tab Before | show the content's tab shown before the one shown now | `global`: `Ctrl+q g Tab` |
 | `tab.move_prev` |  | move the content's tab shown one place toward the first; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g <`, `Ctrl+Shift+PageUp` |
 | `tab.move_next` |  | move the content's tab shown one place toward the last; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+q g >`, `Ctrl+Shift+PageDown` |
@@ -98,12 +98,7 @@ changes them ([keys](../keys.md)).
 | `window.open` | New Window | open another window of the instance ([windows](../sessions.md#windows)) | `global`: `Mod+n` |
 | `refresh` | Refresh | read the sessions, and what git says of where they run, again now | `global`: `Mod+r`<br>`tree`: `r` |
 | `filter` | Filter… | narrow the tree to the sessions, shells, workspaces and worktrees whose names hold what is typed next; `Enter` keeps it, `Escape` clears it | `global`: `Mod+f`<br>`tree`: `/` |
-| `details.overview` | Overview | show the overview sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `1` |
-| `details.changes` | Changes | show the changes sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `2` |
-| `details.log` | Log | show the log sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `3` |
-| `details.agents` | Agents | show the agents sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `4` |
-| `details.resources` | Resources | show the resources sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `5` |
-| `details.timeline` | Timeline | show the timeline sheet of the details panel ([details](../details.md)), and the panel when it is hidden | `details`: `6` |
+| `details.tab` |  | show the details panel's tab numbered `n`, from 1 to 9, of those it has for what it describes ([details](../details.md#components)), and the panel when it is hidden | `details`: `1` (`details.tab 1`), `2` (`details.tab 2`), `3` (`details.tab 3`), `4` (`details.tab 4`), `5` (`details.tab 5`), `6` (`details.tab 6`), `7` (`details.tab 7`), `8` (`details.tab 8`), `9` (`details.tab 9`) |
 | `worktrees.toggle` | Toggle All Worktrees | list every worktree git knows, those without sessions too, or only those with sessions again | `tree`: `!` |
 | `scroll.down` |  | scroll the details panel down a step; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows | `viewer`: `j`, `ArrowDown` |
 | `scroll.up` |  | scroll up a step, what `scroll.down` scrolls | `viewer`: `k`, `ArrowUp` |
@@ -321,12 +316,15 @@ changes them ([keys](../keys.md)).
 "Escape" = "cursor.fold"
 "y" = "cursor.copy"
 "Backspace" = "cursor.fold"
-"1" = "details.overview"
-"2" = "details.changes"
-"3" = "details.log"
-"4" = "details.agents"
-"5" = "details.resources"
-"6" = "details.timeline"
+"1" = "details.tab 1"
+"2" = "details.tab 2"
+"3" = "details.tab 3"
+"4" = "details.tab 4"
+"5" = "details.tab 5"
+"6" = "details.tab 6"
+"7" = "details.tab 7"
+"8" = "details.tab 8"
+"9" = "details.tab 9"
 "Ctrl+d" = "scroll.half_down"
 "Ctrl+u" = "scroll.half_up"
 
