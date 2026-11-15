@@ -33,6 +33,45 @@ pub fn LinkButton(
     }
 }
 
+/// A button a component of the details panel is, as its placement says:
+/// coloured by its tone, with its icon, and its label unless it shows its
+/// icon alone, when the label is its tip.
+#[component]
+pub fn PlacedButton(
+    placed: adroit_core::details::Placed,
+    #[props(default)] disabled: bool,
+    #[props(default)] tip: Option<String>,
+    onclick: EventHandler<()>,
+) -> Element {
+    use adroit_core::details::Tone;
+    let label = placed.label();
+    let class = match placed.tone() {
+        Tone::Plain => "button",
+        Tone::Primary => "button primary",
+        Tone::Danger => "button danger",
+    };
+    let icon = placed.button_icon();
+    let icon_only = placed.icon_only && icon.is_some();
+    rsx! {
+        div { class: if icon_only { "details-block details-button icon-only" } else { "details-block details-button" },
+            button {
+                class: "{class}",
+                r#type: "button",
+                disabled,
+                title: tip.clone().unwrap_or_else(|| label.clone()),
+                aria_label: "{label}",
+                onclick: move |_| onclick.call(()),
+                if let Some(icon) = icon {
+                    IconView { icon, size: 13 }
+                }
+                if !icon_only {
+                    "{label}"
+                }
+            }
+        }
+    }
+}
+
 /// The room left in a row, pushing what follows to its far end.
 #[component]
 pub fn Spacer() -> Element {

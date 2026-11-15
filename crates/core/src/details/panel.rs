@@ -133,10 +133,15 @@ enum Use {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
     pub placed: Placed,
+    /// Its place among the components in sight, the foot's after the tab's.
+    pub place: usize,
     pub at: usize,
     pub rows: Vec<Entry>,
     /// Whether it is of the foot.
     pub foot: bool,
+    /// What all its rows come to, folded or not, as the line that folds
+    /// them says it; none for a component that lists no rows.
+    pub said: Option<String>,
 }
 
 /// The tab shown, as the surface of what the panel describes has it.
@@ -166,7 +171,9 @@ pub fn shows(details: &Details, component: Component) -> bool {
 /// The group the rows of `component` are listed under, if it lists any.
 fn group_of(component: Component) -> Option<Group> {
     Some(match component {
+        Component::Timeline => Group::Timeline,
         Component::Running => Group::Running,
+        Component::Processes => Group::Processes,
         Component::About => Group::About,
         Component::Sessions => Group::Sessions,
         Component::Messages => Group::Messages,
@@ -552,14 +559,11 @@ fn fold_tree(details: &mut Details, card: &TreeCard, shut: bool) {
     }
 }
 
-/// The timeline shown from the summary `p`, with the task it names selected
-/// in its tree, unfolded: in the tab shown when it holds the timeline, or
-/// else in the first that does.
+/// The timeline unfolded where its summary `p` is, with the task it names
+/// selected in its tree, unfolded.
 fn show_timeline(details: &mut Details, p: &Progress) {
     fold_tree(details, &p.tree, false);
-    if let Some(at) = tab_of(details, Component::Timeline) {
-        details.drill = Drill::new(at);
-    }
+    fold(details, Group::Timeline, false);
     details
         .drill
         .aim(p.focus.as_ref().map_or(&p.tree.key, |f| &f.id));
@@ -739,6 +743,28 @@ pub fn shown_session<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> O
 /// The rows `placed` lists of the session shown, as it is placed: none for a
 /// component that lists none, or while no session is shown. One `alone` in
 /// its tab never folds.
+/// Every row `placed` lists of `group`, unfolded and shown whole.
+fn all_rows(
+    details: &Details,
+    work: Option<&WorkSnapshot>,
+    placed: &Placed,
+    group: Group,
+) -> Vec<Entry> {
+    let mut whole = details.clone();
+    // Unfolded, whichever way the placement starts.
+    if placed_folded(details, group) {
+        whole.toggled.insert(group);
+    } else {
+        whole.toggled.remove(&group);
+    }
+    whole.opened.insert(group);
+    let placed = Placed {
+        folded: Some(false),
+        ..placed.clone()
+    };
+    rows_of(&whole, work, &placed, false)
+}
+
 fn rows_of(
     details: &Details,
     work: Option<&WorkSnapshot>,
@@ -796,11 +822,24 @@ fn rows_of(
             .collect()
     };
     match c {
-        Component::Progress => progress(&timeline_of(read))
+        Component::Timeline if is_folded(details, Group::Timeline) => progress(&timeline_of(read))
             .map(Entry::Progress)
             .into_iter()
             .collect(),
-        Component::Timeline => timeline_entries(&timeline_of(read), &toggled_trees(details)),
+        Component::Timeline => {
+            let entries = timeline_entries(&timeline_of(read), &toggled_trees(details));
+            // Unfolded where it is placed folded, a line over it folds it again.
+            if placed.folded == Some(true) && !entries.is_empty() {
+                let heading = Entry::Heading {
+                    group: Group::Timeline,
+                    count: entries.len(),
+                    folded: false,
+                };
+                std::iter::once(heading).chain(entries).collect()
+            } else {
+                entries
+            }
+        }
         Component::Running => {
             let processes = read
                 .and_then(|r| r.processes.as_deref())
@@ -809,6 +848,22 @@ fn rows_of(
                 &ties(),
                 &links.agents,
                 processes,
+                &folded,
+                opened,
+                first(d.links_shown),
+            )
+        }
+        Component::Processes => {
+            let rows = read
+                .and_then(|r| r.processes.as_deref())
+                .unwrap_or_default()
+                .iter()
+                .cloned()
+                .map(Entry::Process)
+                .collect();
+            grouped(
+                Group::Processes,
+                rows,
                 &folded,
                 opened,
                 first(d.links_shown),
@@ -866,18 +921,23 @@ pub fn parts(details: &Details, work: Option<&WorkSnapshot>) -> Vec<Part> {
     let in_tab = sight.iter().filter(|(_, foot)| !foot).count();
     sight
         .into_iter()
-        .map(|(placed, foot)| {
+        .enumerate()
+        .map(|(place, (placed, foot))| {
             let alone = !foot && in_tab == 1;
             let mut rows = rows_of(details, work, &placed, alone);
             if alone {
                 // The tab's own title names what it lists.
                 rows.retain(|e| !matches!(e, Entry::Heading { .. }));
             }
+            let said = group_of(placed.component)
+                .map(|group| crate::details::said(group, &all_rows(details, work, &placed, group)));
             let part = Part {
                 placed,
+                place,
                 at,
                 rows,
                 foot,
+                said,
             };
             at += part.rows.len();
             part
@@ -885,23 +945,45 @@ pub fn parts(details: &Details, work: Option<&WorkSnapshot>) -> Vec<Part> {
         .collect()
 }
 
-/// `parts` as they are drawn: the machine's meters next to each other, and
-/// the agent's gauges next to each other, each drawn together as one; the
-/// rest each on its own.
-pub fn runs(parts: Vec<Part>) -> Vec<Vec<Part>> {
-    let family = |p: &Part| {
-        let c = p.placed.component;
-        (p.foot, c.meter().is_some(), c.gauge().is_some())
-    };
-    let mut out: Vec<Vec<Part>> = Vec::new();
+/// `parts` as they are drawn: in lines, each of a part and those beside it;
+/// and the lines in runs, those of the machine's meters next to each other
+/// drawn together as one, as are those of the agent's gauges, the rest each
+/// on its own.
+pub fn runs(parts: Vec<Part>) -> Vec<Vec<Vec<Part>>> {
+    let mut lines: Vec<Vec<Part>> = Vec::new();
     for part in parts {
-        let joins = out.last().and_then(|run| run.last()).is_some_and(|last| {
-            let (foot, meter, gauge) = family(last);
-            (meter || gauge) && (foot, meter, gauge) == family(&part)
+        let joins = part.placed.beside
+            && lines
+                .last()
+                .and_then(|l| l.last())
+                .is_some_and(|last| last.foot == part.foot);
+        match lines.last_mut() {
+            Some(line) if joins => line.push(part),
+            _ => lines.push(vec![part]),
+        }
+    }
+    // Whether a line is all meters or all gauges, and where it is.
+    let family = |line: &[Part]| {
+        let all = |f: fn(Component) -> bool| line.iter().all(|p| f(p.placed.component));
+        let kind = if all(|c| c.meter().is_some()) {
+            Some(true)
+        } else if all(|c| c.gauge().is_some()) {
+            Some(false)
+        } else {
+            None
+        };
+        kind.map(|k| (k, line.first().is_some_and(|p| p.foot)))
+    };
+    let mut out: Vec<Vec<Vec<Part>>> = Vec::new();
+    for line in lines {
+        let joins = family(&line).is_some_and(|f| {
+            out.last()
+                .and_then(|run| run.last())
+                .is_some_and(|last| family(last) == Some(f))
         });
         match out.last_mut() {
-            Some(run) if joins => run.push(part),
-            _ => out.push(vec![part]),
+            Some(run) if joins => run.push(line),
+            _ => out.push(vec![line]),
         }
     }
     out
@@ -1121,6 +1203,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
     let reads_entries = [
         Component::Prompts,
         Component::Running,
+        Component::Processes,
         Component::Sessions,
         Component::Messages,
         Component::Subagents,
@@ -1212,6 +1295,23 @@ pub(crate) mod tests {
     const AGENTS: usize = 3;
     const RESOURCES: usize = 4;
     const TIMELINE: usize = 5;
+
+    /// The tabs the behaviour below is told against: one sheet each, as the
+    /// panel had them before it was arranged, so what Adroit ships may
+    /// change without these.
+    const CLASSIC: &str = "[panel.session]\n\
+        foot = [\"context\", \"session-limit\", \"week-limit\", \"model-limits\", \"cpu\", \"gpu\", \"memory\", \"storage\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Overview\"\n\
+        components = [\"session\", \"change\", { component = \"timeline\", folded = true }, \"running\", { component = \"about\", folded = true }]\n\
+        [[panel.session.tabs]]\ntitle = \"Changes\"\ncomponents = [\"changes\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Log\"\ncomponents = [\"log\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Agents\"\ncomponents = [\"sessions\", \"messages\", \"subagents\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Resources\"\ncomponents = [\"artifacts\", \"images\", \"links\", \"files\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Timeline\"\ncomponents = [\"timeline\"]\n";
+
+    fn scenario() -> Scenario {
+        Scenario::new().event(crate::config::testing::configured(CLASSIC))
+    }
 
     use crate::testing::here;
     use std::collections::BTreeMap;
@@ -1330,7 +1430,7 @@ pub(crate) mod tests {
     #[test]
     fn another_environment_s_tab_has_its_details_read_by_that_environment_s_host() {
         use crate::testing::{shows_there, there};
-        let run = Scenario::new().event(snapshot().listed(listing()));
+        let run = scenario().event(snapshot().listed(listing()));
         let run =
             shows_there(run, [session("b").cwd("/t")]).send(Msg::ShowSession(there(), "b".into()));
         let watched_by = |environment: &EnvironmentId| {
@@ -1353,7 +1453,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_host_is_asked_to_read_what_the_panel_shows_once_each_time_it_changes() {
-        let run = Scenario::new().send_all([
+        let run = scenario().send_all([
             shown(Some("a"), Some("/w")),
             shown(Some("a"), Some("/w")),
             Msg::DetailsTab(LOG),
@@ -1376,6 +1476,8 @@ pub(crate) mod tests {
         assert_eq!(
             sights,
             [
+                // As the settings are first taken in, with nothing shown.
+                (None, true, vec![]),
                 (
                     Some("a".into()),
                     true,
@@ -1397,7 +1499,7 @@ pub(crate) mod tests {
             }])),
             revision: None,
         };
-        let opened = Scenario::new()
+        let opened = scenario()
             .event(work(DetailsWork::default()))
             .send_all([
                 shown(Some("a"), Some("/w")),
@@ -1435,7 +1537,7 @@ pub(crate) mod tests {
             ),
         ];
         for (msgs, sheet) in cases {
-            let run = Scenario::new().send_all(msgs.clone());
+            let run = scenario().send_all(msgs.clone());
             assert_eq!(run.state().details.drill, Drill::new(sheet), "{msgs:?}");
         }
     }
@@ -1482,7 +1584,7 @@ pub(crate) mod tests {
             (vec![Key::Copy], vec![]),
         ];
         for (keys, want) in cases {
-            let run = Scenario::new()
+            let run = scenario()
                 .event(work(read("a", with_links(links.clone()))))
                 .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
                 .send_all(keys.iter().copied().map(Msg::DetailsKey));
@@ -1500,12 +1602,12 @@ pub(crate) mod tests {
             }],
             ..Default::default()
         };
-        let running = Scenario::new()
+        let running = scenario()
             .event(work(read("a", with_links(peers("b")))))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
         assert_eq!(local(&running), [Effect::ShowSession(here(), "b".into())]);
-        let gone = Scenario::new()
+        let gone = scenario()
             .event(work(read("a", with_links(peers("gone")))))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
             .send(Msg::DetailsClick(1));
@@ -1523,7 +1625,7 @@ pub(crate) mod tests {
             files: vec![link(LinkKind::File(Touch::Read), "/w/a.rs")],
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(read("a", with_links(links))))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
@@ -1537,7 +1639,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_panel_is_open_with_its_side_panel_and_reads_by_the_settings() {
-        let run = Scenario::new().event(crate::config::testing::configured(
+        let run = scenario().event(crate::config::testing::configured(
             "[details]\nlinks_shown = 3\n",
         ));
         assert!(run.state().details.shown.open);
@@ -1556,7 +1658,7 @@ pub(crate) mod tests {
                 .collect(),
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(crate::config::testing::configured(
                 "[details]\nlinks_shown = 2\n",
             ))
@@ -1585,7 +1687,7 @@ pub(crate) mod tests {
             }]),
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(read("session-one", processes)))
             .send(shown(Some("session-one"), None));
         let Some(Listing::Entries(entries)) = entries_of(&run) else {
@@ -1609,7 +1711,7 @@ pub(crate) mod tests {
             urls: vec![link(LinkKind::Url, "https://a.dev")],
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(read("s1", with_links(links))))
             .send_all([
                 shown(Some("s1"), None),
@@ -1701,9 +1803,9 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let resources = |id: Option<&str>| [shown(id, None), Msg::DetailsTab(RESOURCES)];
-        let run = Scenario::new().event(work(read("s1", with_links(links))));
+        let run = scenario().event(work(read("s1", with_links(links))));
         assert!(entries_of(&run.send_all(resources(Some("s1")))).is_some());
-        let run = Scenario::new().event(work(read(
+        let run = scenario().event(work(read(
             "s1",
             with_links(Links {
                 urls: vec![link(LinkKind::Url, "https://a.dev")],
@@ -1711,7 +1813,7 @@ pub(crate) mod tests {
             }),
         )));
         assert!(entries_of(&run.send_all(resources(Some("s2")))).is_none());
-        let run = Scenario::new().event(work(read("s1", SessionRead::default())));
+        let run = scenario().event(work(read("s1", SessionRead::default())));
         assert!(entries_of(&run.send_all(resources(None))).is_none());
     }
 
@@ -1735,7 +1837,7 @@ pub(crate) mod tests {
                 revision: None,
             },
         };
-        let opened = Scenario::new()
+        let opened = scenario()
             .event(work(DetailsWork::default()))
             .send_all([
                 shown(Some("a"), Some("/w")),
@@ -1776,7 +1878,7 @@ pub(crate) mod tests {
             agents: vec![agent],
             ..Default::default()
         };
-        let opened = Scenario::new()
+        let opened = scenario()
             .event(work(read("a", with_links(links))))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
@@ -1806,7 +1908,7 @@ pub(crate) mod tests {
             body: "Look around".into(),
             sent_ms: 0,
         };
-        let opened = Scenario::new()
+        let opened = scenario()
             .event(work(read(
                 "a",
                 SessionRead {
@@ -1872,7 +1974,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_task_of_the_timeline_opens_its_history_and_the_keys_that_go_back_leave_it_for_its_tree() {
-        let shown_tree = Scenario::new()
+        let shown_tree = scenario()
             .event(work(read("a", working())))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)]);
         assert_eq!(timeline_rows(&shown_tree), 4);
@@ -1898,7 +2000,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_tree_folds_from_its_card_and_from_its_tasks() {
-        let shown_tree = Scenario::new()
+        let shown_tree = scenario()
             .event(work(read("a", working())))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)]);
         let folded = shown_tree.send(Msg::DetailsKey(Key::Open));
@@ -1913,8 +2015,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_overview_sums_up_the_timeline_first_and_opens_it_at_the_task_in_progress() {
-        let overview = Scenario::new()
+    fn the_overview_sums_up_the_timeline_first_and_unfolds_it_there_at_the_task_in_progress() {
+        let overview = scenario()
             .event(work(read("a", working())))
             .send(shown(Some("a"), None));
         assert_eq!(selected_key(&overview).as_deref(), Some("progress"));
@@ -1927,13 +2029,29 @@ pub(crate) mod tests {
         assert_eq!(p.tree.bar.percent(), "33.33%");
         assert_eq!(p.focus.as_ref().map(|f| f.id.as_str()), Some("b"));
         let timeline = overview.send(Msg::DetailsKey(Key::Open));
-        assert_eq!(timeline.state().details.drill.tab(), TIMELINE);
+        assert_eq!(timeline.state().details.drill.tab(), OVERVIEW);
         assert_eq!(selected_key(&timeline).as_deref(), Some("b"));
+        let Some(Listing::Entries(unfolded)) = entries_of(&timeline) else {
+            panic!("the overview lists its rows");
+        };
+        assert!(matches!(
+            unfolded[0],
+            Entry::Heading {
+                group: Group::Timeline,
+                folded: false,
+                ..
+            }
+        ));
+        let folded = timeline.send(Msg::DetailsClick(0));
+        assert!(matches!(
+            entries_of(&folded),
+            Some(Listing::Entries(e)) if matches!(e[0], Entry::Progress(_))
+        ));
     }
 
     #[test]
     fn the_overview_says_nothing_of_a_timeline_its_agent_never_recorded() {
-        let overview = Scenario::new()
+        let overview = scenario()
             .event(work(read(
                 "a",
                 SessionRead {
@@ -1949,7 +2067,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_task_opened_that_is_removed_meanwhile_is_gone_back_from() {
-        let opened = Scenario::new()
+        let opened = scenario()
             .event(work(read("a", working())))
             .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)])
             .send_all([Msg::DetailsKey(Key::Last), Msg::DetailsKey(Key::Open)]);
@@ -1975,7 +2093,7 @@ pub(crate) mod tests {
             (Key::Last, Scroll::Bottom),
         ];
         for (key, scroll) in cases {
-            let run = Scenario::new().send(Msg::DetailsKey(key));
+            let run = scenario().send(Msg::DetailsKey(key));
             assert_eq!(local(&run), [Effect::ScrollDetails(scroll)], "{key:?}");
         }
     }
@@ -2026,7 +2144,7 @@ pub(crate) mod tests {
                 },
                 limits.clone(),
             );
-            let run = Scenario::new()
+            let run = scenario()
                 .event(
                     work(details)
                         .with(|w| w.agents = with_usage(Agent::Claude, usage_of.is_some())),
@@ -2081,7 +2199,7 @@ pub(crate) mod tests {
 
     #[test]
     fn about_is_folded_until_unfolded_and_copies_the_fact_selected() {
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(read("a", SessionRead::default())))
             .send(shown(Some("a"), Some("/w")));
         let Some(Listing::Entries(entries)) = entries_of(&run) else {
@@ -2128,7 +2246,7 @@ pub(crate) mod tests {
             }]),
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(read("a", processes)))
             .send(shown(Some("a"), None))
             .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Fold)]);
@@ -2151,7 +2269,7 @@ pub(crate) mod tests {
                 description: "core: keep it\n\nWhy.".into(),
             }),
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(work(DetailsWork::default()))
             .send(shown(Some("a"), Some("/w")))
             .event(patch(2).change(DetailsChange::Repository {
@@ -2173,8 +2291,7 @@ pub(crate) mod tests {
     #[test]
     fn the_agents_and_resources_sheets_are_read_from_the_conversation_and_not_the_worktree() {
         for sheet in [AGENTS, RESOURCES] {
-            let run =
-                Scenario::new().send_all([shown(Some("a"), Some("/w")), Msg::DetailsTab(sheet)]);
+            let run = scenario().send_all([shown(Some("a"), Some("/w")), Msg::DetailsTab(sheet)]);
             let sight = watched(&run).last().cloned().unwrap();
             assert!(sight.overview, "{sheet:?}");
             assert!(sight.repositories.is_empty(), "{sheet:?}");
@@ -2196,7 +2313,7 @@ pub(crate) mod tests {
             thumbs: BTreeMap::from([("/w/plot.png".to_string(), None)]),
             ..Default::default()
         };
-        Scenario::new().event(work(read("a", read_now))).send_all([
+        scenario().event(work(read("a", read_now))).send_all([
             shown(Some("a"), Some("/w")),
             Msg::DetailsTab(RESOURCES),
             told(Told {
@@ -2297,7 +2414,7 @@ pub(crate) mod tests {
             (Key::OpenIn(Opening::Tab), vec![]),
         ];
         for (key, want) in cases {
-            let run = Scenario::new()
+            let run = scenario()
                 .event(work(read("a", with_links(links.clone()))))
                 .send_all([shown(Some("a"), None), Msg::DetailsTab(RESOURCES)])
                 .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(key)]);
@@ -2417,7 +2534,7 @@ pub(crate) mod tests {
                 .collect(),
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(crate::config::testing::configured(
                 "[[panel.session.tabs]]\ntitle = \"T\"\n\
                  components = [\"links\", { component = \"files\", shown = 1 }]\n",
@@ -2469,37 +2586,48 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn meters_side_by_side_and_gauges_side_by_side_are_drawn_together() {
-        let part = |c, foot| Part {
-            placed: Placed::new(c),
+    fn parts_beside_each_other_share_a_line_and_lines_of_meters_or_of_gauges_are_drawn_together() {
+        let part = |c, foot, beside| Part {
+            placed: Placed {
+                beside,
+                ..Placed::new(c)
+            },
+            place: 0,
             at: 0,
             rows: Vec::new(),
             foot,
+            said: None,
         };
         use Component as C;
         let runs = runs(vec![
-            part(C::Cpu, false),
-            part(C::Memory, false),
-            part(C::Session, false),
-            part(C::Storage, false),
-            part(C::Gpu, true),
-            part(C::Context, true),
-            part(C::WeekLimit, true),
-            part(C::Cpu, true),
+            part(C::Cpu, false, false),
+            part(C::Gpu, false, true),
+            part(C::Memory, false, false),
+            part(C::Session, false, false),
+            part(C::Files, false, true),
+            part(C::Storage, false, false),
+            part(C::Gpu, true, true),
+            part(C::Context, true, false),
+            part(C::WeekLimit, true, false),
+            part(C::Cpu, true, false),
         ]);
-        let names: Vec<Vec<&str>> = runs
+        let names: Vec<Vec<Vec<&str>>> = runs
             .iter()
-            .map(|r| r.iter().map(|p| p.placed.component.name()).collect())
+            .map(|r| {
+                r.iter()
+                    .map(|l| l.iter().map(|p| p.placed.component.name()).collect())
+                    .collect()
+            })
             .collect();
         assert_eq!(
             names,
             [
-                vec!["cpu", "memory"],
-                vec!["session"],
-                vec!["storage"],
-                vec!["gpu"],
-                vec!["context", "week-limit"],
-                vec!["cpu"],
+                vec![vec!["cpu", "gpu"], vec!["memory"]],
+                vec![vec!["session", "files"]],
+                vec![vec!["storage"]],
+                vec![vec!["gpu"]],
+                vec![vec!["context"], vec!["week-limit"]],
+                vec![vec!["cpu"]],
             ]
         );
     }
@@ -2547,7 +2675,7 @@ pub(crate) mod tests {
 
     #[test]
     fn showing_a_component_shows_the_tab_shown_when_it_holds_it_or_else_the_first_that_does() {
-        let run = Scenario::new().send(Msg::DetailsShowComponent(Component::Changes));
+        let run = scenario().send(Msg::DetailsShowComponent(Component::Changes));
         assert_eq!(run.state().details.drill.tab(), CHANGES);
         let laid = laid_out(
             "[[panel.session.tabs]]\ntitle = \"A\"\ncomponents = [\"files\"]\n\
@@ -2567,14 +2695,15 @@ pub(crate) mod tests {
     #[test]
     fn a_tab_the_layout_does_not_have_is_not_shown_and_one_it_no_longer_has_gives_way_to_its_last()
     {
-        let run = Scenario::new().send(Msg::DetailsTab(TIMELINE));
+        let run = scenario().send(Msg::DetailsTab(TIMELINE));
         assert_eq!(run.state().details.drill.tab(), TIMELINE);
         assert_eq!(
             run.send(Msg::DetailsTab(8)).state().details.drill.tab(),
             TIMELINE
         );
         let mut details = Details::default();
-        show_tab(&mut details, TIMELINE);
+        let last = Surface::session().tabs.len() - 1;
+        show_tab(&mut details, last);
         let mut layout = DetailsLayout::default();
         let mut two = Surface::session();
         two.tabs.truncate(2);
@@ -2613,7 +2742,7 @@ pub(crate) mod tests {
         };
         let mut repository = adroit_model::github::Repository::new("o/r");
         repository.pulls = Some(Ok(vec![pull(3, "other"), pull(7, "main")]));
-        let run = Scenario::new()
+        let run = scenario()
             .event(snapshot().listed(listed().session(session("a").cwd("/r"))))
             .event(patch(2).change(adroit_protocol::TreeChange::GitHub {
                 repository: "/r".into(),
@@ -2632,7 +2761,7 @@ pub(crate) mod tests {
     #[test]
     fn the_pull_requests_of_the_repository_shown_are_read_while_github_is_in_sight() {
         let reads = |panel: &str| {
-            let run = Scenario::new()
+            let run = scenario()
                 .event(crate::config::testing::configured(panel))
                 .event(snapshot().listed(listed().session(session("a").cwd("/r"))))
                 .send(shown(Some("a"), Some("/r")));
@@ -2646,7 +2775,10 @@ pub(crate) mod tests {
             reads("[[panel.session.tabs]]\ntitle = \"PR\"\ncomponents = [\"github\"]\n"),
             Some(pulls)
         );
-        assert_eq!(reads(""), Some(Default::default()));
+        assert_eq!(
+            reads("[[panel.session.tabs]]\ntitle = \"F\"\ncomponents = [\"files\"]\n"),
+            Some(Default::default())
+        );
     }
     #[test]
     fn the_prompts_sent_open_whole_and_copy_their_text() {
@@ -2662,7 +2794,7 @@ pub(crate) mod tests {
             ],
             ..Default::default()
         };
-        let run = Scenario::new()
+        let run = scenario()
             .event(crate::config::testing::configured(
                 "[[panel.session.tabs]]\ntitle = \"P\"\ncomponents = [\"prompts\"]\n",
             ))

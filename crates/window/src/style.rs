@@ -36,8 +36,18 @@ pub const CSS: &str = concat!(
     include_str!("../assets/css/lightbox.css"),
 );
 
-/// The Settings window's stylesheet, on the main window's colours.
+/// The Settings window's stylesheet, on the main window's colours, with the
+/// main window's own inside the picture of the details panel, so the picture
+/// is drawn as the panel is.
 pub const SETTINGS_CSS: &str = concat!(
     include_str!("../assets/css/tokens.css"),
     include_str!("../assets/css/settings.css"),
+    "@scope (.dl-preview) {\n",
+    include_str!("../assets/css/base.css"),
+    include_str!("../assets/css/chrome.css"),
+    include_str!("../assets/css/tree.css"),
+    include_str!("../assets/css/prompt.css"),
+    include_str!("../assets/css/details.css"),
+    include_str!("../assets/css/controls.css"),
+    "}\n",
 );

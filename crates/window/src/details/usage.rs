@@ -9,19 +9,23 @@ use dioxus::prelude::*;
 use crate::components::LinkButton;
 use crate::icons::{Icon, IconView};
 
-/// The account's gauges, with a button to the agent's usage page while
-/// they include the account's limits: `usage_url` is the page where the
-/// agent's account shows its usage.
+/// The account's gauges, in lines of those beside each other, with a button
+/// to the agent's usage page while they include the account's limits:
+/// `usage_url` is the page where the agent's account shows its usage.
 #[component]
-pub(super) fn AgentUsage(gauges: Vec<Gauge>, agent: Agent, usage_url: Option<String>) -> Element {
-    let account = gauges.iter().any(|g| !g.context());
+pub(super) fn AgentUsage(
+    lines: Vec<Vec<Gauge>>,
+    agent: Agent,
+    usage_url: Option<String>,
+) -> Element {
+    let lines: Vec<Vec<Gauge>> = lines.into_iter().filter(|l| !l.is_empty()).collect();
+    let account = lines.iter().flatten().any(|g| !g.context());
     rsx! {
-        if !gauges.is_empty() {
+        if !lines.is_empty() {
             div { class: "details-usage",
                 title: "Account limits and context utilization reported by the session's agent",
-                div { class: "usage-header",
-                    span { class: "details-label", "Usage" }
-                    if let Some(url) = usage_url.filter(|_| account) {
+                if let Some(url) = usage_url.filter(|_| account) {
+                    div { class: "usage-header web-only",
                         LinkButton {
                             icon: Icon::Link,
                             title: "Open {agent.label()} usage settings in your browser",
@@ -33,7 +37,11 @@ pub(super) fn AgentUsage(gauges: Vec<Gauge>, agent: Agent, usage_url: Option<Str
                         }
                     }
                 }
-                Gauges { gauges }
+                for (at , gauges) in lines.into_iter().enumerate() {
+                    div { key: "{at}", class: "usage-gauge-line", style: "--beside:{gauges.len()}",
+                        Gauges { gauges: gauges.clone() }
+                    }
+                }
             }
         }
     }
@@ -66,15 +74,18 @@ pub(crate) fn Gauges(gauges: Vec<Gauge>) -> Element {
     }
 }
 
-/// The whole machine's usage, as its host last sampled it.
+/// The whole machine's usage, as its host last sampled it, in lines of the
+/// meters beside each other.
 #[component]
-pub(crate) fn MachineUsage(system: Vec<SystemGauge>) -> Element {
+pub(crate) fn MachineUsage(lines: Vec<Vec<SystemGauge>>) -> Element {
+    let lines: Vec<Vec<SystemGauge>> = lines.into_iter().filter(|l| !l.is_empty()).collect();
     rsx! {
-        if !system.is_empty() {
+        if !lines.is_empty() {
             div { class: "details-system-usage",
                 title: "Whole-machine resource usage",
-                div { class: "system-usage-grid",
-                    for g in system {
+                for (at , system) in lines.into_iter().enumerate() {
+                div { key: "{at}", class: "system-usage-grid", style: "--beside:{system.len()}",
+                    for g in system.iter().cloned() {
                         div { key: "{g.label}", class: "{g.class}",
                             div { class: "usage-resource-head",
                                 span { class: "usage-resource-label",
@@ -91,6 +102,7 @@ pub(crate) fn MachineUsage(system: Vec<SystemGauge>) -> Element {
                             }
                         }
                     }
+                }
                 }
             }
         }

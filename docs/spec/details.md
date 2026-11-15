@@ -19,12 +19,14 @@ the panel, show the tab of that number ([keys](keys.md)). With a single tab,
 no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
-change, a summary of its timeline, what runs for it and, folded, About),
-Changes, Log, Agents (sessions, messages and subagents), Resources
-(artifacts, images, links and files) and Timeline, over a foot of the agent's
-usage and the machine's; an environment's has its connection and its
-profiles over the machine's usage; and a pull request's or issue's has it
-alone.
+change, the branch's pull request, and, folded, its timeline, what runs for
+it and About), Code (changes and log), Timeline, Conversation (prompts,
+messages, subagents and sessions) and Resources (files, links, artifacts and
+images), over a foot of the conversation's context, the account's limits and
+the machine's load. An environment's has the tabs Overview (its connection,
+its buttons and what waits for it) and Profiles, over a foot of its
+machine's meters; a pull request's or issue's has the tabs Overview (it and
+its buttons), Conversation and Files, over a foot of its checks.
 
 ## Components
 
@@ -41,15 +43,16 @@ window or such a row is described.
 - **change** — the change the worktree is on: its description's first line
   and how many files it changes; a click on it shows the tab that holds
   **changes**.
-- **progress** — once the session's agent has recorded a timeline, a summary
-  of it: the tree at work, its status, how much of it is completed, the task
-  in progress in it, or else the next one to do, how many of its leaf tasks
-  are completed and how long it has taken. Opening it shows the tab that
-  holds **timeline**, with that task selected.
+- **section** — a heading of your own over what follows it.
 - **timeline** — the task trees the session's agent recorded of its work
-  ([below](#the-timeline)).
+  ([below](#the-timeline)). Folded, it sums up the tree at work instead: its
+  status, how much of it is completed, the task in progress in it, or else
+  the next one to do, how many of its leaf tasks are completed and how long
+  it has taken; opening that unfolds it where it is, with that task
+  selected.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
+- **processes** — its live work processes alone.
 - **about** — the facts that change little: the tokens the whole
   conversation has used, its prompt and tool call counts, the profile and the
   login it started from, the workspace and the worktree, and the
@@ -97,9 +100,11 @@ window or such a row is described.
 - **cpu**, **gpu**, **memory** and **storage** — the machine's meter of each
   ([below](#usage)).
 - **environment** — how the environment's connection stands, when it last
-  worked, the address and key of its work machine, what went wrong, the
-  changes and drafts waiting for it, and buttons to try again, pair again
-  and open Settings on it.
+  worked, the address and key of its work machine, and what went wrong.
+- **environment-waiting** — the changes and drafts waiting for it.
+- **environment-retry**, **environment-pair** and **environment-settings** —
+  buttons that try its connection again, while that can be done, pair with
+  its work machine again, and open Settings on it.
 - **profiles** — each agent profile of the environment, with its agent,
   whether it is the default, whether its login is logged in, as that
   environment's machine says, and, for an agent whose account has usage
@@ -111,14 +116,23 @@ window or such a row is described.
   where it is on GitHub, who opened it and when it was last updated, its
   labels, assignees and milestone, and of a pull request its branches, how
   much it changes, how its review stands and who it awaits, and how many of
-  its checks passed, failed or still run, naming those that failed. Buttons
-  show it, open it on GitHub and start a session on it, as its row's keys do
-  ([tree](tree.md)).
+  its checks passed, failed or still run, naming those that failed, each
+  opening its checks on GitHub.
+- **github-conversation**, **github-files** and **github-checks** — what was
+  said on it, each post in brief; the files a pull request changes, with
+  their lines added and taken out; and its checks, those that failed first,
+  each opening where it tells more.
+- **github-show**, **github-open** and **github-start** — buttons that open
+  it in Adroit, open it on GitHub and start a session on it, as its row's
+  keys do ([tree](tree.md)).
+
+A value of a table, as the session's, the environment's or a pull request's,
+is copied by the button shown while the pointer is over it.
 
 A shell or a draft has no conversation, and what is read of one shows
-nothing for it. A component that lists rows lists them under a heading of
-its own, which folds and unfolds them; one alone in its tab lists them
-without a heading.
+nothing for it. A component that lists rows lists them under a line that
+says what they come to, how many and the first of them, which folds and
+unfolds them; one alone in its tab lists them without it.
 
 ## Arranging the panel
 
@@ -131,7 +145,7 @@ Adroit has it, and one given replaces Adroit's whole.
 
 ```toml
 [panel.session]
-foot = ["context", "week-limit", "cpu", "memory"]
+foot = ["context", { component = "cpu", beside = true }]
 
 [[panel.session.tabs]]
 title = "Work"
@@ -152,25 +166,29 @@ components = [
   and its `components`, top first.
 - `foot` lists the components shown under every tab; none when left out.
 - A component is written by its name, or as a table with its name in
-  `component` and how it shows there: `folded` starts its heading folded or
+  `component` and how it shows there: `folded` starts it folded or
   unfolded, `shown` is how many rows it shows before a row that shows them
-  all. Unset, a component shows as Adroit has it.
+  all, and `beside` puts it beside the one before it on the same line. A
+  section's `title` is what it says; a button's `title` is its label,
+  `icon` its icon, none when empty, `icon-only` hides its label, and `tone`
+  colours it `plain`, `primary` or `danger`. Unset, a component shows as
+  Adroit has it.
 
 A component placed where it cannot tell anything, an icon Adroit does not
 have, or a subject with no tab, is refused as any setting out of form is.
 
 The Settings window arranges it too, under All environments in Details
-panel, on a picture of the panel for each of the three: its tabs, each named
-and given an icon picked among the icons, with a sketch of each component
-it holds, and the foot. The components the subject can be given are listed
-beside it, each with what it shows, to be dragged onto a tab or the foot, or
-added to the one pointed at; a component placed is dragged to move it, to
-another tab or the foot too, or moved and taken out by its buttons. Adroit's
-arrangement can be put back. How a component shows where it is placed is
-written in the file.
+panel, on a picture of the panel for each of the three, drawn as the panel
+draws itself with sample content: its tabs, each named and given an icon
+picked among the icons, and the foot. The components the subject can be
+given are listed beside it, each with what it shows, to be dragged onto a
+tab or the foot; one placed is dragged to move it, onto the right of another
+to put it beside that one, or taken out. Clicking one sets how it shows.
+Adroit's arrangement can be put back.
 
 Meters placed next to each other are drawn together, as are the agent's
-gauges.
+gauges; components beside each other share their line among those that show
+anything.
 A work process is one the session started; the agent and its supporting
 runtimes are excluded from both the list and kill targets, while work
 processes launched through those runtimes remain available. Processes that
@@ -240,7 +258,7 @@ cannot be read is marked unavailable. The meters have distinct colors; high
 usage overrides those colors with a warning. Memory and storage include used
 and total capacity; CPU and GPU include hardware information when available.
 
-The heading over the limits links to the shown agent's account usage
+A link over the limits opens the shown agent's account usage
 settings in the default browser, where available resets and account limits can be managed.
 
 ## Following what is read

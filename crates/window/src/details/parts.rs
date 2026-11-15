@@ -14,19 +14,20 @@ use super::timeline::{ProgressCard, TimelineRows};
 use super::usage::{AgentUsage, MachineUsage};
 use crate::bridge::AppCtx;
 use crate::components::ListRow;
-use crate::connection::{EnvironmentAgents, EnvironmentCard};
+use crate::connection::{
+    EnvironmentAgents, EnvironmentButton, EnvironmentCard, EnvironmentPress, EnvironmentWaiting,
+};
 use crate::details::{
     Component, Entry, Listing, Part, branch_pull, machine_gauges, shown_session, usage,
     working_copy,
 };
-use adroit_core::details::GaugeKind;
 use adroit_core::tree::nav::Item;
 
-/// The components of a run of `runs`: the machine's meters or the agent's
-/// gauges drawn together, or else the one component.
+/// The lines of a run of `runs`: the machine's meters or the agent's gauges
+/// drawn together, or else the one line, its components beside each other.
 #[component]
 pub(super) fn RunView(
-    run: Vec<Part>,
+    run: Vec<Vec<Part>>,
     worktree: Option<PathBuf>,
     kind: Worktree,
     live_input_ms: Option<u64>,
@@ -36,42 +37,73 @@ pub(super) fn RunView(
     on_menu: EventHandler<LinkMenu>,
 ) -> Element {
     let app = use_context::<AppCtx>();
-    let components: Vec<Component> = run.iter().map(|p| p.placed.component).collect();
-    if components.iter().all(|c| c.meter().is_some()) {
-        let system = components
+    let all = |f: fn(Component) -> bool| run.iter().flatten().all(|p| f(p.placed.component));
+    if all(|c| c.meter().is_some()) {
+        let lines = run
             .iter()
-            .filter_map(|c| c.meter())
-            .flat_map(|meter| machine_gauges(&app, &app.shown_environment(), &meter))
+            .map(|line| {
+                line.iter()
+                    .filter_map(|p| p.placed.component.meter())
+                    .flat_map(|meter| machine_gauges(&app, &app.shown_environment(), &meter))
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
-        return rsx! { MachineUsage { system } };
+        return rsx! { MachineUsage { lines } };
     }
-    let kinds: Vec<GaugeKind> = components.iter().filter_map(|c| c.gauge()).collect();
-    if kinds.len() == components.len() {
+    if all(|c| c.gauge().is_some()) {
         let details = app.details.read().clone();
         let hosts = app.hosts.read();
         let work = hosts.work(&app.shown_environment());
-        let all = usage(&details, work, now_ms);
-        let gauges = kinds
+        let gauges = usage(&details, work, now_ms);
+        let lines = run
             .iter()
-            .flat_map(|k| all.iter().filter(move |g| g.kind == *k).cloned())
+            .map(|line| {
+                line.iter()
+                    .filter_map(|p| p.placed.component.gauge())
+                    .flat_map(|k| gauges.iter().filter(move |g| g.kind == k).cloned())
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
         let usage_url = work
             .and_then(|w| w.agents.of(agent))
             .and_then(|facts| facts.usage_url.clone());
-        return rsx! { AgentUsage { gauges, agent, usage_url } };
+        return rsx! { AgentUsage { lines, agent, usage_url } };
     }
     rsx! {
-        for part in run {
-            PartView {
-                key: "{part.placed.component.name()}-{part.at}",
-                part,
-                worktree: worktree.clone(),
-                kind,
-                live_input_ms,
-                agent,
-                now_ms,
-                on_kill,
-                on_menu,
+        for line in run {
+            if line.len() == 1 {
+                PartView {
+                    key: "{line[0].place}-{line[0].placed.component.name()}",
+                    part: line[0].clone(),
+                    worktree: worktree.clone(),
+                    kind,
+                    live_input_ms,
+                    agent,
+                    now_ms,
+                    on_kill,
+                    on_menu,
+                }
+            } else {
+                // Only a line of several is wrapped, so the panel's rules on
+                // what follows what still hold between lines of one.
+                div {
+                    key: "{line[0].place}-{line[0].placed.component.name()}",
+                    class: "details-line beside",
+                    style: "--beside:{line.len()}",
+                    for part in line.iter().cloned() {
+                        PartView {
+                            key: "{part.place}-{part.placed.component.name()}",
+                            part,
+                            worktree: worktree.clone(),
+                            kind,
+                            live_input_ms,
+                            agent,
+                            now_ms,
+                            on_kill,
+                            on_menu,
+                        }
+                    }
+                }
             }
         }
     }
@@ -102,24 +134,35 @@ pub(super) fn PartView(
     match part.placed.component {
         Component::Session => rsx! { SessionHead { live_input_ms, now_ms } },
         Component::Change => rsx! { ChangeLine {} },
-        Component::Progress => match rows.first() {
-            Some(Entry::Progress(progress)) => rsx! {
-                ProgressCard { progress: progress.clone(), at: base, selected: selected == Some(base), now_ms }
-            },
-            _ => rsx! {},
-        },
         Component::Timeline => {
+            if let Some(Entry::Progress(progress)) = rows.first() {
+                return rsx! {
+                    ProgressCard { progress: progress.clone(), at: base, selected: selected == Some(base), now_ms }
+                };
+            }
+            // Folded, the timeline sums up the tree at work, and says nothing
+            // while there is none.
             let has_session = {
                 let details = app.details.read();
                 let hosts = app.hosts.read();
-                shown_session(&details, hosts.work(&app.shown_environment())).is_some()
+                !adroit_core::details::is_folded(&details, adroit_core::details::Group::Timeline)
+                    && shown_session(&details, hosts.work(&app.shown_environment())).is_some()
             };
+            // Unfolded where it is placed folded, a line over it folds it again.
+            let heading = rows
+                .first()
+                .filter(|e| matches!(e, Entry::Heading { .. }))
+                .cloned();
             let rows: Vec<(usize, Entry)> = rows
                 .into_iter()
                 .enumerate()
                 .map(|(i, e)| (base + i, e))
+                .filter(|(_, e)| !matches!(e, Entry::Heading { .. }))
                 .collect();
             rsx! {
+                if let Some(heading) = heading {
+                    GroupedRows { rows: vec![heading], said: part.said.clone(), base, paths_from: PathBuf::new(), now_ms, on_kill, on_menu }
+                }
                 if !rows.is_empty() {
                     TimelineRows { rows, selected, now_ms }
                 } else if has_session {
@@ -129,7 +172,9 @@ pub(super) fn PartView(
                 }
             }
         }
-        Component::Changes => rsx! { Changed { rows, base, selected, worktree, kind } },
+        Component::Changes => {
+            rsx! { Changed { rows, said: part.said.clone(), base, selected, worktree, kind } }
+        }
         Component::Log => {
             let commits = rows
                 .iter()
@@ -149,7 +194,7 @@ pub(super) fn PartView(
                 .cloned();
             rsx! {
                 if let Some(heading) = heading {
-                    GroupedRows { rows: vec![heading], base, paths_from: PathBuf::new(), now_ms, on_kill, on_menu }
+                    GroupedRows { rows: vec![heading], said: part.said.clone(), base, paths_from: PathBuf::new(), now_ms, on_kill, on_menu }
                 }
                 match (kind, commits.is_empty()) {
                     (Worktree::None, _) => rsx! { ListRow { kind: "dim", "Open a worktree to see it here" } },
@@ -164,27 +209,71 @@ pub(super) fn PartView(
             }
         }
         Component::Environment => rsx! { EnvironmentCard { environment } },
+        Component::EnvironmentRetry => {
+            rsx! { EnvironmentButton { press: EnvironmentPress::Retry, placed: part.placed.clone(), environment } }
+        }
+        Component::EnvironmentPair => {
+            rsx! { EnvironmentButton { press: EnvironmentPress::Pair, placed: part.placed.clone(), environment } }
+        }
+        Component::EnvironmentSettings => {
+            rsx! { EnvironmentButton { press: EnvironmentPress::Settings, placed: part.placed.clone(), environment } }
+        }
+        Component::EnvironmentWaiting => rsx! { EnvironmentWaiting { environment } },
         Component::Profiles => rsx! { EnvironmentAgents { environment } },
-        Component::Github => match selected_item {
-            Some(Item::GitHubItem(environment, root, listing, number)) => rsx! {
-                super::GitHubCard { environment, root, listing, number }
-            },
-            _ => {
-                let pull = {
+        Component::Section => {
+            let title = part.placed.title.clone().unwrap_or_default();
+            rsx! { div { class: "details-section", span { class: "details-label", "{title}" } } }
+        }
+        c @ (Component::Github
+        | Component::GithubShow
+        | Component::GithubOpen
+        | Component::GithubStart
+        | Component::GithubConversation
+        | Component::GithubFiles
+        | Component::GithubChecks) => {
+            use super::github::{
+                GitHubButton, GitHubCard, GitHubChecks, GitHubConversation, GitHubFiles, Press,
+            };
+            use adroit_model::github::Listing as L;
+            // The pull request or issue selected in the tree, or else the
+            // pull request of the branch shown; placed among others, a branch
+            // with none says nothing rather than that it has none.
+            let target = match selected_item {
+                Some(Item::GitHubItem(environment, root, listing, number)) => {
+                    Some((environment, root, listing, number))
+                }
+                _ => {
                     let details = app.details.read();
                     let hosts = app.hosts.read();
                     branch_pull(&details, hosts.work(&environment))
-                };
-                match pull {
-                    Some((root, number)) => rsx! {
-                        super::GitHubCard { environment, root, listing: adroit_model::github::Listing::Pulls, number }
-                    },
-                    None => rsx! {
-                        div { class: "details-block timeline-empty", "No pull request is open for this branch." }
-                    },
+                        .map(|(root, number)| (environment.clone(), root, L::Pulls, number))
                 }
+            };
+            let Some((environment, root, listing, number)) = target else {
+                return rsx! {};
+            };
+            match c {
+                Component::GithubShow => {
+                    rsx! { GitHubButton { press: Press::Show, placed: part.placed.clone(), environment, root, listing, number } }
+                }
+                Component::GithubOpen => {
+                    rsx! { GitHubButton { press: Press::Open, placed: part.placed.clone(), environment, root, listing, number } }
+                }
+                Component::GithubStart => {
+                    rsx! { GitHubButton { press: Press::Start, placed: part.placed.clone(), environment, root, listing, number } }
+                }
+                Component::GithubConversation => {
+                    rsx! { GitHubConversation { environment, root, listing, number } }
+                }
+                Component::GithubFiles => {
+                    rsx! { GitHubFiles { environment, root, listing, number } }
+                }
+                Component::GithubChecks => {
+                    rsx! { GitHubChecks { environment, root, listing, number } }
+                }
+                _ => rsx! { GitHubCard { environment, root, listing, number } },
             }
-        },
+        }
         _ => {
             let paths_from = worktree
                 .clone()
@@ -195,7 +284,7 @@ pub(super) fn PartView(
                         .map(|s| s.cwd.clone())
                 })
                 .unwrap_or_default();
-            rsx! { GroupedRows { rows, base, paths_from, now_ms, on_kill, on_menu } }
+            rsx! { GroupedRows { rows, said: part.said.clone(), base, paths_from, now_ms, on_kill, on_menu } }
         }
     }
 }
@@ -204,6 +293,7 @@ pub(super) fn PartView(
 #[component]
 fn Changed(
     rows: Vec<Entry>,
+    said: Option<String>,
     base: usize,
     selected: Option<usize>,
     worktree: Option<PathBuf>,
@@ -259,10 +349,7 @@ fn Changed(
                                         selected: selected == Some(at),
                                         onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                                         crate::icons::IconView { icon: if folded { crate::icons::Icon::ChevronRight } else { crate::icons::Icon::ChevronDown }, size: 12 }
-                                        span { class: "details-label", "Changes" }
-                                        if folded {
-                                            span { class: "details-link-tag", "{count}" }
-                                        }
+                                        span { class: "list-row-name details-summary", {said.clone().unwrap_or_else(|| format!("{count} changed"))} }
                                     }
                                 },
                                 Entry::More { hidden, .. } => rsx! {

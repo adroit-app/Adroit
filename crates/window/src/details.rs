@@ -14,6 +14,5 @@ mod timeline;
 mod usage;
 
 pub(crate) use adroit_core::details::*;
-pub(crate) use github::GitHubCard;
 pub(crate) use panel::*;
 pub(crate) use usage::Gauges;

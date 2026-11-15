@@ -35,6 +35,7 @@ mod details;
 mod environment;
 mod neovim;
 mod profiles;
+mod specimen;
 
 pub(crate) use neovim::use_asks;
 

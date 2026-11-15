@@ -16,7 +16,7 @@ use adroit_model::time::now_ms;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::{LinkButton, Spacer};
+use crate::components::{CopyValue, LinkButton, PlacedButton, Spacer};
 use crate::details::Gauges;
 use crate::icons::{Icon, IconView};
 use crate::link::{RemotePhase, RemoteStatus};
@@ -230,9 +230,8 @@ pub(crate) fn StandingPill(note: Note) -> Element {
     }
 }
 
-/// The details of `environment` while its heading is selected: where it
-/// is, how its connection stands and what went wrong, a way to try again at
-/// once, and the drafts and changes waiting for it.
+/// How the connection to `environment` stands: where it is, what went
+/// wrong, and the facts of its work machine.
 #[component]
 pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
     let app = use_context::<AppCtx>();
@@ -240,9 +239,6 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
     let standing = standing_of(&app, &environment);
     let remote = app.remotes.read().get(&environment).cloned();
     let now = *app.clock.read();
-    let retry = environment.clone();
-    let pair = environment.clone();
-    let configure = environment.clone();
     let machine = {
         let environment = environment.clone();
         use_memo(use_reactive((&environment,), |(environment,)| {
@@ -254,13 +250,6 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
         .and_then(|r| r.last_work_ms)
         .map(|at| adroit_model::time::ago(now.saturating_sub(at)));
     let problem = remote.as_ref().and_then(|r| r.problem.clone());
-    let retryable = remote.as_ref().is_some_and(|r| {
-        r.retryable && matches!(r.phase, RemotePhase::Reconnecting | RemotePhase::Error)
-    });
-    let (pending, drafts) = remote
-        .as_ref()
-        .map(|r| (r.pending.clone(), r.drafts.clone()))
-        .unwrap_or_default();
     rsx! {
         div { class: "environment-card",
             div { class: "environment-card-head",
@@ -277,61 +266,95 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
                 if let Some(problem) = problem {
                     div { class: "environment-card-problem", role: "status", "{problem}" }
                 }
-                if retryable || remote.is_some() {
-                    div { class: "environment-card-actions",
-                        if retryable {
-                            button { class: "button primary", onclick: move |_| app.retry_remote(&retry),
-                                IconView { icon: Icon::Refresh, size: 13 }
-                                "Retry now"
-                            }
-                        }
-                        if remote.is_some() {
-                            button {
-                                class: "button",
-                                title: "Pair with this work machine again, as when it no longer accepts this computer",
-                                onclick: move |_| match work_machine(&pair) {
-                                    Some(machine) => app.pair_again(machine.address, app.environment_name(&pair)),
-                                    None => app.notice("this environment's work machine is no longer listed".into()),
-                                },
-                                "Pair again"
-                            }
-                        }
-                    }
-                }
                 div { class: "details-facts",
                     span { class: "details-facts-key", "Status" }
-                    span { class: "details-facts-value", "{standing.words()}" }
+                    span { class: "details-facts-value", "{standing.words()}" CopyValue { text: standing.words().to_string() } }
                     if let Some(last_work) = last_work {
                         span { class: "details-facts-key", "Last work" }
-                        span { class: "details-facts-value", "{last_work}" }
+                        span { class: "details-facts-value", "{last_work}" CopyValue { text: last_work.clone() } }
                     }
                     if let Some(machine) = machine() {
                         span { class: "details-facts-key", "Address" }
-                        span { class: "details-facts-value environment-card-mono", "{machine.address}" }
+                        span { class: "details-facts-value environment-card-mono", "{machine.address}" CopyValue { text: machine.address.to_string() } }
                         span { class: "details-facts-key", "Machine key" }
                         span { class: "details-facts-value environment-card-mono", title: "{machine.server}",
                             "{crate::serving_pane::short(&machine.server)}"
+                            CopyValue { text: machine.server.to_string() }
                         }
                     }
                 }
             }
-            if !pending.is_empty() || !drafts.is_empty() {
-                div { class: "details-block",
-                    span { class: "details-label", "Waiting for it" }
-                    for record in pending.iter() {
-                        PendingChange { environment: environment.clone(), record: record.clone() }
-                    }
-                    for record in drafts.iter() {
-                        PendingChange { environment: environment.clone(), record: record.clone(), saved: true }
-                    }
-                }
+        }
+    }
+}
+
+/// What a button of an environment does.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum EnvironmentPress {
+    Retry,
+    Pair,
+    Settings,
+}
+
+/// A button for `environment`: one that tries its connection again, while
+/// that can be done, pairs with its work machine again, or opens Settings
+/// on it.
+#[component]
+pub(crate) fn EnvironmentButton(
+    press: EnvironmentPress,
+    placed: adroit_core::details::Placed,
+    environment: EnvironmentId,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    let remote = app.remotes.read().get(&environment).cloned();
+    let retryable = remote.as_ref().is_some_and(|r| {
+        r.retryable && matches!(r.phase, RemotePhase::Reconnecting | RemotePhase::Error)
+    });
+    let shows = match press {
+        EnvironmentPress::Retry => retryable,
+        EnvironmentPress::Pair => remote.is_some(),
+        EnvironmentPress::Settings => true,
+    };
+    let tip = (press == EnvironmentPress::Pair).then(|| {
+        "Pair with this work machine again, as when it no longer accepts this computer".to_string()
+    });
+    rsx! {
+        if shows {
+            PlacedButton {
+                placed,
+                tip,
+                onclick: move |_| match press {
+                    EnvironmentPress::Retry => app.retry_remote(&environment),
+                    EnvironmentPress::Pair => match work_machine(&environment) {
+                        Some(machine) => app.pair_again(machine.address, app.environment_name(&environment)),
+                        None => app.notice("this environment's work machine is no longer listed".into()),
+                    },
+                    EnvironmentPress::Settings => app.open_settings(&environment),
+                },
             }
+        }
+    }
+}
+
+/// The changes and drafts waiting for `environment`; nothing while none
+/// waits.
+#[component]
+pub(crate) fn EnvironmentWaiting(environment: EnvironmentId) -> Element {
+    let app = use_context::<AppCtx>();
+    let (pending, drafts) = app
+        .remotes
+        .read()
+        .get(&environment)
+        .map(|r| (r.pending.clone(), r.drafts.clone()))
+        .unwrap_or_default();
+    rsx! {
+        if !pending.is_empty() || !drafts.is_empty() {
             div { class: "details-block",
-                div { class: "environment-card-actions",
-                    button { class: "button", onclick: move |_| app.open_settings(&configure),
-                        IconView { icon: Icon::Settings, size: 13 }
-                        "Environment settings"
-                    }
+                for record in pending.iter() {
+                    PendingChange { environment: environment.clone(), record: record.clone() }
+                }
+                for record in drafts.iter() {
+                    PendingChange { environment: environment.clone(), record: record.clone(), saved: true }
                 }
             }
         }
@@ -399,7 +422,6 @@ pub(crate) fn EnvironmentAgents(environment: EnvironmentId) -> Element {
     rsx! {
         if !rows.is_empty() {
             div { class: "details-block",
-                span { class: "details-label", "Agents" }
                 if let Some(error) = unread {
                     div { class: "environment-card-problem", role: "status",
                         "The settings cannot be read, so the profiles last read are listed: {error}"

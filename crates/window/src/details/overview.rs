@@ -13,7 +13,7 @@ use super::process::ProcessView;
 use super::subagent::SubagentView;
 use super::timeline::TaskView;
 use crate::bridge::AppCtx;
-use crate::components::{Fact, Facts, ListRow, Section};
+use crate::components::{CopyValue, Fact, Facts, ListRow, Section};
 use crate::details::{
     Component, Entry, Group, change_line, entry_listing, link_sections, opened_agent, opened_note,
     opened_process, opened_prompt, opened_task, overview_facts, shown_session, stats, working_copy,
@@ -54,9 +54,13 @@ pub(super) fn SessionHead(live_input_ms: Option<u64>, now_ms: u64) -> Element {
                                 if let Some(note) = &fact.note {
                                     span { class: "details-facts-note", "{note}" }
                                 }
+                                CopyValue { text: fact.value.clone() }
                             }
                         } else {
-                            span { class: "details-facts-value", title: "{fact.value}", "{fact.value}" }
+                            span { class: "details-facts-value", title: "{fact.value}",
+                                "{fact.value}"
+                                CopyValue { text: fact.value.clone() }
+                            }
                         }
                     }
                 }
@@ -164,6 +168,9 @@ pub(super) fn OpenedRow(back_keys: String, on_kill: EventHandler<(Session, Proce
 #[component]
 pub(super) fn GroupedRows(
     rows: Vec<Entry>,
+    /// What all its rows come to, which the line that folds them says.
+    #[props(default)]
+    said: Option<String>,
     base: usize,
     paths_from: std::path::PathBuf,
     now_ms: u64,
@@ -200,9 +207,14 @@ pub(super) fn GroupedRows(
                         selected: selected == Some(at),
                         onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
                         IconView { icon: if section.folded { Icon::ChevronRight } else { Icon::ChevronDown }, size: 12 }
-                        span { class: "details-label", "{section.group.title()}" }
-                        if section.folded {
-                            span { class: "details-link-tag", "{section.count}" }
+                        match said.clone().filter(|s| !s.is_empty()) {
+                            Some(said) => rsx! { span { class: "list-row-name details-summary", "{said}" } },
+                            None => rsx! {
+                                span { class: "details-label", "{section.group.title()}" }
+                                if section.folded {
+                                    span { class: "details-link-tag", "{section.count}" }
+                                }
+                            },
                         }
                     }
                 }
@@ -231,7 +243,10 @@ pub(super) fn GroupedRows(
                                 },
                                 if facts {
                                     span { class: "details-facts-key", "{r.label}" }
-                                    span { class: "list-row-name details-facts-value", "{r.tag}" }
+                                    span { class: "list-row-name details-facts-value",
+                                        "{r.tag}"
+                                        CopyValue { text: r.tag.clone() }
+                                    }
                                 } else if let Some(thumb) = &r.thumb {
                                     img { class: "details-thumb", src: "{thumb}", alt: "" }
                                 } else if r.tone.is_empty() {

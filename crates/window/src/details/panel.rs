@@ -93,7 +93,7 @@ pub(crate) fn DetailsPanel(
     };
     let (body, foot): (Vec<_>, Vec<_>) = runs(parts(&details, work))
         .into_iter()
-        .partition(|r| !r.first().is_some_and(|p| p.foot));
+        .partition(|r| !r.first().and_then(|l| l.first()).is_some_and(|p| p.foot));
     let opened_row = details.drill.shows_row();
     rsx! {
         if tabs.len() > 1 {
@@ -126,7 +126,7 @@ pub(crate) fn DetailsPanel(
             } else {
                 for run in body {
                     RunView {
-                        key: "{run[0].placed.component.name()}-{run[0].at}",
+                        key: "{run[0][0].place}-{run[0][0].placed.component.name()}",
                         run,
                         worktree: worktree.clone(),
                         kind: shown_kind,
@@ -143,7 +143,7 @@ pub(crate) fn DetailsPanel(
             div { class: "details-foot",
                 for run in foot {
                     RunView {
-                        key: "foot-{run[0].placed.component.name()}-{run[0].at}",
+                        key: "foot-{run[0][0].place}-{run[0][0].placed.component.name()}",
                         run,
                         worktree: worktree.clone(),
                         kind: shown_kind,

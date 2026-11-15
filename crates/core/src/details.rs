@@ -517,6 +517,8 @@ pub enum Group {
     /// The changes leading to the worktree.
     Log,
     Prompts,
+    /// The live processes the session started.
+    Processes,
 }
 
 impl Group {
@@ -543,6 +545,7 @@ impl Group {
             Group::Changed => "Changes",
             Group::Log => "Log",
             Group::Prompts => "Prompts",
+            Group::Processes => "Processes",
         }
     }
 }
@@ -600,6 +603,7 @@ impl Entry {
                 Group::Changed => "\0changed",
                 Group::Log => "\0log",
                 Group::Prompts => "\0prompts",
+                Group::Processes => "\0processes",
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Message(n) => n.id.as_str(),
@@ -628,6 +632,7 @@ impl Entry {
                 Group::Changed => "\0more changed",
                 Group::Log => "\0more log",
                 Group::Prompts => "\0more prompts",
+                Group::Processes => "\0more processes",
             },
         }
     }
@@ -649,6 +654,30 @@ impl Entry {
             Entry::Prompt(_) => Group::Prompts,
             Entry::More { group, .. } => *group,
         }
+    }
+}
+
+/// How many of each kind run for the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RunningSummary {
+    pub sessions: usize,
+    pub agents: usize,
+    pub processes: usize,
+}
+
+impl RunningSummary {
+    /// What it counts, in words: each kind that runs, by how many.
+    pub fn said(&self) -> String {
+        [
+            (self.agents, "subagent", "subagents"),
+            (self.processes, "process", "processes"),
+            (self.sessions, "session", "sessions"),
+        ]
+        .into_iter()
+        .filter(|(n, ..)| *n > 0)
+        .map(|(n, one, many)| plural(n as u64, one, many))
+        .collect::<Vec<_>>()
+        .join(" · ")
     }
 }
 
@@ -885,6 +914,148 @@ pub(crate) fn grouped(
         }
     }
     out
+}
+
+/// What the `rows` of `group` come to, in a line, as the line that folds
+/// them says it: how many there are, and the first of them or how they
+/// stand.
+pub fn said(group: Group, rows: &[Entry]) -> String {
+    let n = rows
+        .iter()
+        .filter(|e| !matches!(e, Entry::Heading { .. } | Entry::More { .. }))
+        .count();
+    let first = |names: Vec<String>| {
+        let mut names: Vec<String> = names
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .take(3)
+            .collect();
+        names.dedup();
+        names.join(", ")
+    };
+    let line = |what: String, rest: String| match rest.is_empty() {
+        true => what,
+        false => format!("{what} · {rest}"),
+    };
+    let link_name = |l: &Link| match (&l.kind, &l.title) {
+        (LinkKind::File(_), _) => Path::new(&l.target)
+            .file_name()
+            .map_or_else(|| l.target.clone(), |f| f.to_string_lossy().into_owned()),
+        (_, Some(title)) => title.clone(),
+        (_, None) => l
+            .target
+            .split_once("://")
+            .map_or(l.target.as_str(), |(_, r)| r)
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned(),
+    };
+    let names = |f: &dyn Fn(&Entry) -> Option<String>| first(rows.iter().filter_map(f).collect());
+    match group {
+        Group::Running => {
+            let summary = RunningSummary {
+                sessions: rows
+                    .iter()
+                    .filter(|e| matches!(e, Entry::Session(_)))
+                    .count(),
+                agents: rows.iter().filter(|e| matches!(e, Entry::Agent(_))).count(),
+                processes: rows
+                    .iter()
+                    .filter(|e| matches!(e, Entry::Process(_)))
+                    .count(),
+            };
+            summary.said()
+        }
+        Group::About => rows
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Fact(f) => Some(f.value.clone()),
+                _ => None,
+            })
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" · "),
+        Group::Agents => {
+            let of = |s: Standing| {
+                rows.iter()
+                    .filter(|e| matches!(e, Entry::Agent(a) if a.standing == s))
+                    .count()
+            };
+            [
+                (of(Standing::Running), "running"),
+                (of(Standing::Done), "done"),
+                (of(Standing::Failed) + of(Standing::Stopped), "stopped"),
+            ]
+            .into_iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, w)| format!("{n} {w}"))
+            .collect::<Vec<_>>()
+            .join(" · ")
+        }
+        Group::Sessions => line(
+            plural(n as u64, "session", "sessions"),
+            names(&|e| match e {
+                Entry::Session(r) => Some(r.name.clone()),
+                _ => None,
+            }),
+        ),
+        Group::Messages => line(
+            plural(n as u64, "message", "messages"),
+            names(&|e| match e {
+                Entry::Message(m) => Some(m.other.clone()),
+                _ => None,
+            }),
+        ),
+        Group::Processes => line(
+            plural(n as u64, "process", "processes"),
+            names(&|e| match e {
+                Entry::Process(p) => Some(p.name.clone()),
+                _ => None,
+            }),
+        ),
+        Group::Artifacts | Group::Links | Group::Files => {
+            let (one, many) = match group {
+                Group::Artifacts => ("artifact", "artifacts"),
+                Group::Links => ("link", "links"),
+                _ => ("file", "files"),
+            };
+            line(
+                plural(n as u64, one, many),
+                names(&|e| match e {
+                    Entry::Link(l) => Some(link_name(l)),
+                    _ => None,
+                }),
+            )
+        }
+        Group::Images => plural(n as u64, "image", "images"),
+        Group::Prompts => line(
+            plural(n as u64, "prompt", "prompts"),
+            rows.iter()
+                .find_map(|e| match e {
+                    Entry::Prompt(p) => Some(format!("latest: {}", p.summary())),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+        ),
+        Group::Changed => plural(n as u64, "file changed", "files changed"),
+        Group::Log => line(
+            plural(n as u64, "change", "changes"),
+            rows.iter()
+                .find_map(|e| match e {
+                    Entry::Commit(c) => Some(format!("latest: {}", c.subject)),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+        ),
+        Group::Timeline => rows
+            .iter()
+            .find_map(|e| match e {
+                Entry::Tree(t) => Some(t.title.clone()),
+                _ => None,
+            })
+            .unwrap_or_default(),
+    }
 }
 
 /// What was read for a spot, and which worktree it was about.
@@ -1224,6 +1395,42 @@ mod tests {
             name: format!("command-{pid}"),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_line_that_folds_a_group_says_how_many_rows_it_has_and_the_first_of_them() {
+        let file = |path: &str| {
+            Entry::Link(Link {
+                kind: LinkKind::File(Touch::Edited),
+                target: path.into(),
+                title: None,
+                line: None,
+            })
+        };
+        assert_eq!(
+            said(
+                Group::Files,
+                &[file("/w/src/login.rs"), file("/w/README.md")]
+            ),
+            "2 files · login.rs, README.md"
+        );
+        let a = [
+            agent("toolu_1", "Survey", Standing::Running),
+            agent("toolu_2", "Fix", Standing::Done),
+            agent("toolu_3", "Doc", Standing::Done),
+        ];
+        let rows: Vec<Entry> = a.iter().cloned().map(Entry::Agent).collect();
+        assert_eq!(said(Group::Agents, &rows), "1 running · 2 done");
+    }
+
+    #[test]
+    fn a_folded_running_says_how_many_of_each_kind_run_leaving_out_those_none_do() {
+        let s = RunningSummary {
+            sessions: 0,
+            agents: 1,
+            processes: 2,
+        };
+        assert_eq!(s.said(), "1 subagent · 2 processes");
     }
 
     #[test]

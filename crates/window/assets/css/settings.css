@@ -178,7 +178,8 @@ button.about-link:hover { background: var(--raised); border-color: var(--line-st
 .settings-nav-heading { margin: 16px 10px 6px; color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
 .settings-nav-heading:first-child { margin-top: 2px; }
 
-/* The details panel's arrangement: a picture of the panel beside the components it can hold. */
+/* The details panel's arrangement: a picture of the panel, drawn by the panel's own styles, beside what edits it. */
+.dl-pane.dragging, .dl-pane.dragging * { cursor: grabbing !important; }
 .dl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dl-subjects { display: inline-flex; padding: 2px; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .dl-subject { background: transparent; color: var(--text-2); padding: 4px 12px; border-radius: 6px; }
@@ -186,66 +187,73 @@ button.about-link:hover { background: var(--raised); border-color: var(--line-st
 .dl-subject.on { background: var(--select); color: var(--text); font-weight: 500; }
 .dl-restore { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .dl-lead { margin: 10px 0 14px; }
-.dl-editor { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-/* As wide as the panel tends to be, so what fits on it is what fits in the window. */
-.dl-mock { flex: none; width: 280px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
-  box-shadow: var(--shadow); overflow: hidden; position: relative; display: flex; flex-direction: column; }
-.dl-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); }
-.dl-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; background: transparent; color: var(--text-3);
-  border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; flex: none; }
-.dl-tab:hover { background: var(--raised); color: var(--text); }
-.dl-tab.on { color: var(--text); border-bottom-color: var(--run); }
-.dl-tab-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.dl-tab-letter { display: inline-flex; width: 16px; justify-content: center; font-weight: 600; }
-.dl-tab-add { color: var(--text-3); }
-.dl-tab-head { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.dl-editor { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
+/* As much of the window as is left, the foot at its bottom as it is in the panel. */
+.dl-preview { flex: 1 1 340px; min-width: 280px; display: flex; }
+.dl-preview > .app-panel { flex: 1; min-width: 0; box-shadow: var(--shadow); }
+.dl-area { position: relative; }
+.dl-area.details-scroll { min-height: 80px; }
+.dl-area.details-foot { min-height: 44px; border-top: 1px dashed var(--line-strong); }
+.dl-foot-mark { position: absolute; top: -9px; right: 10px; padding: 0 6px; font-size: 10px; color: var(--text-3); background: var(--panel); z-index: 1; }
+.dl-slot { position: relative; min-width: 0; cursor: grab; }
+.dl-slot::after { content: ""; position: absolute; inset: 1px; border: 1px solid transparent; border-radius: 6px; pointer-events: none; }
+.dl-slot:hover::after { border-color: var(--line-strong); }
+.dl-slot.chosen::after { border-color: var(--run); border-width: 2px; }
+.dl-slot.lifted { opacity: .35; }
+/* Where a dragged component would go: a bar between lines, or beside the one it would follow. */
+.dl-slot.drop-above::before, .dl-drop-line { content: ""; display: block; height: 2px; margin: 0 12px; border-radius: 1px; background: var(--run); }
+.dl-slot.drop-above::before { position: absolute; left: 0; right: 0; top: -1px; margin: 0 8px; z-index: 2; }
+.dl-slot.drop-beside::before { content: ""; position: absolute; top: 6px; bottom: 6px; right: -2px; width: 2px; border-radius: 1px; background: var(--run); z-index: 2; }
+.dl-slot-bar { position: absolute; top: 4px; right: 6px; z-index: 3; display: none; align-items: center; gap: 1px; padding: 1px 2px 1px 6px;
+  background: var(--ground); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: var(--shadow); font-size: 11px; color: var(--text-2); }
+.dl-slot:hover > .dl-slot-bar { display: inline-flex; }
+.dl-pane.dragging .dl-slot-bar { display: none !important; }
+.dl-slot-name { margin: 0 4px 0 3px; white-space: nowrap; }
+.dl-zone { position: absolute; z-index: 4; }
+.dl-zone.above { top: 0; left: 0; right: 30%; height: 50%; }
+.dl-zone.below { bottom: 0; left: 0; right: 30%; height: 50%; }
+.dl-zone.beside { top: 0; bottom: 0; right: 0; width: 30%; }
+.dl-rest { flex: 1; min-height: 16px; }
+.dl-rest.empty { display: flex; align-items: center; justify-content: center; min-height: 64px; margin: 8px 12px; border: 1px dashed var(--line-strong);
+  border-radius: 8px; color: var(--text-3); font-size: 12px; text-align: center; padding: 8px; }
+.dl-area.target > .dl-rest.empty { border-color: var(--run); }
+.dl-ghost { position: fixed; z-index: 50; pointer-events: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;
+  background: var(--ground); border: 1px solid var(--run); border-radius: 6px; box-shadow: var(--shadow); font-size: 12px; }
+.dl-tool { display: inline-flex; align-items: center; justify-content: center; padding: 3px; min-width: 22px; height: 22px;
+  background: transparent; color: var(--text-3); border-radius: 5px; }
+.dl-slot-bar .dl-tool { min-width: 18px; height: 18px; padding: 2px; }
+.dl-tool:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.dl-tool:disabled { opacity: .35; }
+.dl-tool.on { color: var(--run); }
+.dl-tool.danger:hover:not(:disabled) { color: var(--fail); }
+/* As tall as the picture, the list scrolling inside, so a component is dragged from it onto any place of the picture. */
+.dl-side { flex: 0 0 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.dl-card-box { flex: none; position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.dl-placeholder { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--text-3); font-size: 12px; line-height: 1.4; }
+.dl-placeholder .icon { flex: none; margin-top: 1px; }
+.dl-about { margin: -4px 0 0; }
+.dl-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.dl-option input[type=number] { width: 56px; }
+.dl-box-head { display: flex; align-items: center; gap: 8px; }
+.dl-box-title { font-weight: 600; }
+.dl-box-tools { margin-left: auto; display: inline-flex; gap: 2px; }
+.dl-tab-fields { display: flex; align-items: center; gap: 6px; }
 .dl-tab-name { flex: 1; min-width: 0; }
 .dl-tab-name input { width: 100%; box-sizing: border-box; font-family: var(--sans); font-size: 13px; }
 .dl-icon-pick { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; background: var(--ground); border: 1px solid var(--line-strong); }
 .dl-icon-pick.on { border-color: var(--run); }
-.dl-tool { display: inline-flex; align-items: center; justify-content: center; padding: 3px; min-width: 22px; height: 22px;
-  background: transparent; color: var(--text-3); border-radius: 5px; }
-.dl-tool:hover:not(:disabled) { background: var(--raised); color: var(--text); }
-.dl-tool:disabled { opacity: .35; }
-.dl-tool.danger:hover:not(:disabled) { color: var(--fail); }
-.dl-tool.flip .icon { transform: rotate(180deg); }
-.dl-icons { position: absolute; z-index: 2; top: 84px; left: 8px; right: 8px; max-height: 220px; overflow-y: auto;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 2px; padding: 6px;
-  background: var(--ground); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); }
-.dl-icon { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0; background: transparent; color: var(--text-2); }
+.dl-no-icon { display: inline-flex; width: 15px; justify-content: center; font-weight: 600; }
+/* Laid over what is below it, so the picker is never cut by the box it opens from. */
+.dl-icon-pop { position: absolute; z-index: 20; top: 72px; left: 8px; width: 340px; max-width: calc(100vw - 48px); display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; background: var(--ground); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); }
+.dl-scrim { position: fixed; inset: 0; z-index: 19; }
+.dl-icon-filter { width: 100%; box-sizing: border-box; }
+.dl-icons { max-height: 260px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 2px; }
+.dl-icon { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0; background: transparent; color: var(--text-2); }
 .dl-icon:hover { background: var(--raised); color: var(--text); }
 .dl-icon.on { background: var(--select); color: var(--text); outline: 1px solid var(--run); }
-.dl-area { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-height: 96px; border: 1px dashed transparent; margin: 4px; border-radius: 8px; }
-.dl-area.foot { min-height: 56px; }
-.dl-area.target { border-color: var(--line-strong); }
-.dl-area.over { border-color: var(--run); background: var(--run-tint); }
-.dl-foot-label { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 0; border-top: 1px solid var(--line);
-  font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
-.dl-foot-label .settings-hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
-.dl-block { background: var(--ground); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 6px; cursor: grab; }
-.dl-block:hover { border-color: var(--line-strong); }
-.dl-block.over { box-shadow: 0 -3px 0 0 var(--run); }
-.dl-block-head { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
-.dl-block-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.dl-block-tools { display: inline-flex; gap: 1px; opacity: 0; }
-.dl-block:hover .dl-block-tools, .dl-block:focus-within .dl-block-tools { opacity: 1; }
-.dl-block-tools .dl-tool { min-width: 18px; height: 18px; padding: 2px; }
-.dl-empty { color: var(--text-3); font-size: 12px; text-align: center; margin: auto 0; padding: 12px 4px; }
-/* What a component shows, in grey: bars for meters, lines for rows. */
-.dl-sketch { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
-.dl-line { height: 4px; border-radius: 3px; background: var(--line-strong); width: 90%; }
-.dl-line.short { width: 55%; }
-.dl-bar { height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.dl-fill { height: 100%; width: 45%; border-radius: 3px; background: var(--run); }
-.dl-sketch.cpu .dl-fill { background: var(--usage-cpu); }
-.dl-sketch.gpu .dl-fill { background: var(--usage-gpu); width: 25%; }
-.dl-sketch.memory .dl-fill { background: var(--usage-memory); width: 65%; }
-.dl-sketch.storage .dl-fill { background: var(--usage-storage); width: 80%; }
-.dl-sketch.context .dl-fill { background: var(--usage-context); width: 35%; }
-.dl-palette { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-.dl-palette-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.dl-palette-head .settings-hint { margin: 0; }
-.dl-palette-title { font-weight: 600; }
+.dl-palette { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.dl-palette-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
 .dl-kind { display: flex; flex-direction: column; gap: 4px; }
 .dl-kind-title { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; padding: 0 2px; }
 .dl-card { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 8px; background: var(--panel); border: 1px solid var(--line);
@@ -257,5 +265,27 @@ button.about-link:hover { background: var(--raised); border-color: var(--line-st
 .dl-card-mark { display: inline-flex; color: var(--done); }
 .dl-card-about { color: var(--text-3); font-size: 11px; line-height: 1.35; margin-top: 1px; }
 .dl-card.placed .dl-card-title { color: var(--text-2); }
+/* The pane needs the room of a picture and the list beside it. */
+/* The arrangement fills the height the pane has left, so nothing but the list inside it scrolls. */
+.settings-pane:has(.dl-pane) { display: flex; flex-direction: column; padding-bottom: 16px; }
+.settings-pane:has(.dl-pane) > .settings-measure { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+.settings-pane:has(.dl-pane) > .settings-pane-head { width: 100%; box-sizing: border-box; }
+.settings-pane:has(.dl-pane) .settings-fields { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dl-pane { flex: 1; min-height: 360px; display: flex; flex-direction: column; }
+/* The picture is drawn with the panel's styles, some of which let text be selected; here it is dragged instead. */
+.dl-pane, .dl-pane * { -webkit-user-select: none !important; user-select: none !important; }
+
 .settings-part-title { font-size: 15px; font-weight: 600; color: var(--text); margin: 6px 0 12px; padding: 0 2px; }
 .settings-part-title ~ .settings-part-title { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+/* In the picture each component sits in a slot of its own; a button keeps its whole label there as in the panel. */
+.dl-preview .details-line.beside:has(> .dl-slot > .details-button) { gap: 8px; padding: 0 16px; }
+.dl-preview .details-line.beside > .dl-slot:has(> .details-button) { flex: 1 1 auto; min-width: auto; }
+.dl-preview .details-line.beside > .dl-slot > .details-button { padding-left: 0; padding-right: 0; }
+.dl-icon-picker { position: relative; display: inline-flex; }
+.dl-icon-picker .dl-icon-pop { top: calc(100% + 4px); left: auto; right: 0; }
+.dl-tones { display: inline-flex; padding: 2px; gap: 2px; background: var(--ground); border: 1px solid var(--line); border-radius: 7px; }
+.dl-tone { padding: 2px 8px; background: transparent; color: var(--text-2); font-size: 12px; border-radius: 5px; }
+.dl-tone.on { background: var(--select); color: var(--text); font-weight: 500; }
+.dl-option input[type=text] { width: 150px; font-family: var(--sans); }
+.details-button.icon-only .button { padding: 0 8px; }
+.dl-preview .details-line.beside > .dl-slot:has(> .details-button.icon-only) { flex: none; }

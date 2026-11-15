@@ -1528,9 +1528,13 @@ mod tests {
             } else {
                 run.send(Msg::PanelToggle(crate::layout::Side::Details))
             };
+            // On the tab that lists the profiles, as Adroit has it.
             run.send(Msg::TreeSelect(Some(Item::Environment(environment))))
+                .send(Msg::DetailsTab(1))
         };
         let there_heading = heading(there());
+        let overview = heading(there()).send(Msg::DetailsTab(0));
+        assert!(!agents(&overview, there()), "the profiles are not in sight");
         assert!(agents(&there_heading, there()));
         assert!(!agents(&there_heading, here()));
         let here_heading = heading(here());

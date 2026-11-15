@@ -100,6 +100,18 @@ impl Preferences {
         // The machine's meters were chosen here before the details panel
         // placed each of them; a file that still names them is read without.
         table.remove("usage");
+        // A panel this version cannot read, as one another version wrote,
+        // leaves Adroit's in its place rather than every preference unread
+        // and unwritable.
+        if let Some(Err(error)) = table
+            .get("panel")
+            .map(|p| p.clone().try_into::<DetailsLayout>())
+        {
+            tracing::debug!(%error, "the details panel in window.toml cannot be read; Adroit's is shown");
+            let shipped =
+                toml::Value::try_from(DetailsLayout::default()).map_err(|e| e.to_string())?;
+            table.insert("panel".into(), shipped);
+        }
         let all =
             toml::Table::try_from(Self::of(&Settings::default())).map_err(|e| e.to_string())?;
         if all.keys().any(|key| !table.contains_key(key)) {
@@ -282,6 +294,15 @@ mod tests {
             "the rest is the earlier settings'"
         );
         assert_eq!(settings.appearance, Appearance::Dark);
+    }
+
+    #[test]
+    fn a_panel_this_version_cannot_read_leaves_adroit_s_and_the_other_preferences_read() {
+        let mut text = toml::to_string_pretty(&Preferences::of(&Settings::default())).unwrap();
+        text.push_str("[panel.session]\nfoot = [\"machine\"]\n");
+        let read = Preferences::read(&text, || panic!("names every preference")).unwrap();
+        assert_eq!(read.panel, DetailsLayout::default());
+        assert_eq!(read, Preferences::of(&Settings::default()));
     }
 
     #[test]
