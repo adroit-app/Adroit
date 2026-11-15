@@ -376,8 +376,7 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     use crate::cli::RemoteCommand;
     let done = (|| -> std::io::Result<()> {
         let logs = crate::remote::root();
-        std::fs::create_dir_all(logs.parent().unwrap_or(Path::new("/")))?;
-        crate::remote::private_dir(&logs, true)?;
+        adroit_sys::fs::private_dir(&logs)?;
         let path = crate::env::login_shell()
             .and_then(|shell| crate::env::login_path(&shell))
             .or_else(|| std::env::var("PATH").ok())

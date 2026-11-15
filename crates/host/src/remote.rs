@@ -42,25 +42,6 @@ fn invalid(error: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::other(error.to_string())
 }
 
-pub(crate) fn private_dir(path: &Path, create: bool) -> std::io::Result<()> {
-    if create {
-        use adroit_sys::fs::DirBuilderExt;
-        match std::fs::DirBuilder::new().mode(0o700).create(path) {
-            Ok(()) => adroit_sys::fs::set_mode(path, 0o700)?,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-    }
-    let m = std::fs::symlink_metadata(path)?;
-    if !m.is_dir() || m.uid() != adroit_sys::euid() || m.mode() & 0o777 != 0o700 {
-        return Err(invalid(format!(
-            "{} is not a private directory of this user",
-            path.display()
-        )));
-    }
-    Ok(())
-}
-
 fn read_private(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut file = OpenOptions::new()
         .read(true)
@@ -132,7 +113,7 @@ fn live(endpoint: &RemoteEndpoint) -> std::io::Result<()> {
 
 pub fn info() -> std::io::Result<RemoteInfo> {
     let dir = root();
-    private_dir(&dir, false)?;
+    adroit_sys::fs::check_private_dir(&dir)?;
     let identity = String::from_utf8(read_private(&dir.join("instance-id"))?).map_err(invalid)?;
     let info = RemoteInfo {
         instance: identity,
@@ -198,8 +179,7 @@ impl Publication {
 
     fn create_in(dir: &Path, role: &str, socket: Option<&Path>) -> std::io::Result<Self> {
         let dir = dir.to_path_buf();
-        std::fs::create_dir_all(dir.parent().unwrap())?;
-        private_dir(&dir, true)?;
+        adroit_sys::fs::private_dir(&dir)?;
         let claim = OpenOptions::new()
             .read(true)
             .write(true)
@@ -215,9 +195,9 @@ impl Publication {
         let generation = random()?;
         // /tmp keeps Unix socket paths within the platform's small limit.
         let sockets = PathBuf::from(format!("/tmp/adroit-r-{}", adroit_sys::euid()));
-        private_dir(&sockets, true)?;
+        adroit_sys::fs::private_dir(&sockets)?;
         let sockets = sockets.join(&identity);
-        private_dir(&sockets, true)?;
+        adroit_sys::fs::private_dir(&sockets)?;
         let generation_socket = sockets.join(format!("{generation}.sock"));
         if generation_socket.as_os_str().len() > 100 {
             return Err(invalid("remote generation socket path is too long"));

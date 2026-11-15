@@ -1,7 +1,7 @@
 //! A startup lease whose owner survives the work host.
 
 use crate::{Error, Result, Spawn};
-use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use adroit_sys::fs::OpenOptionsExt;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
@@ -31,21 +31,11 @@ fn address(path: &Path) -> std::io::Result<()> {
     {
         return Err(std::io::Error::other("invalid startup lease address"));
     }
-    let metadata = std::fs::symlink_metadata(root())?;
-    if !metadata.is_dir() || metadata.uid() != adroit_sys::euid() || metadata.mode() & 0o077 != 0 {
-        return Err(std::io::Error::other(
-            "startup lease directory is not private",
-        ));
-    }
-    Ok(())
+    adroit_sys::fs::check_private_dir(root())
 }
 
 pub(crate) fn leased(spawn: Spawn, program: &Path, timeout: Duration) -> Result<Spawn> {
-    match std::fs::DirBuilder::new().mode(0o700).create(root()) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e.into()),
-    }
+    adroit_sys::fs::private_dir(root())?;
     let mut random = [0; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut random)?;
     let id: String = random.iter().map(|b| format!("{b:02x}")).collect();

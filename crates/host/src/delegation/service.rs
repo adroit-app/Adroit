@@ -1,7 +1,6 @@
 //! The work host's side of delegation: it answers sessions on a socket,
 //! starts the sessions they ask for, hands Codex its messages and watches
 //! every session it keeps a record of.
-use adroit_sys::fs::{DirBuilderExt, MetadataExt};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -91,20 +90,7 @@ impl Service {
         program: PathBuf,
         settings: impl Fn() -> std::result::Result<Settings, String> + Send + Sync + 'static,
     ) -> Result<Self> {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(root)
-            .map_err(Error::storage)?;
-        let metadata = std::fs::symlink_metadata(root).map_err(Error::storage)?;
-        if !metadata.is_dir()
-            || metadata.mode() & 0o077 != 0
-            || metadata.uid() != adroit_sys::euid()
-        {
-            return Err(Error::storage(
-                "the delegation directory must be private and owned by the current user",
-            ));
-        }
+        adroit_sys::fs::private_dir(root).map_err(Error::storage)?;
         let claim = adroit_sys::fs::lockable(root).map_err(Error::storage)?;
         claim.try_lock().map_err(Error::storage)?;
         let store = Store::open(&super::app::database(root))?;

@@ -235,23 +235,29 @@ fn staged(
 }
 
 /// Make `path` a folder open to its user alone, with its missing parents,
-/// unless one is there; one already there has to be a folder, not a link,
-/// owned by this user and closed to everyone else.
+/// unless one is there, which has to be private as [`check_private_dir`]
+/// says. A folder made is written to the disk with its parent's listing.
 pub fn private_dir(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
     let path = path.as_ref();
+    let above = parent(path);
+    std::fs::create_dir_all(above)?;
     match std::fs::DirBuilder::new().mode(0o700).create(path) {
-        // Made in `0o700` less the umask, which may take the user's own bits.
-        Ok(()) => set_mode(path, 0o700)?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(path)?;
+        Ok(()) => {
+            // Made in `0o700` less the umask, which may take the user's own bits.
             set_mode(path, 0o700)?;
+            sync_dir(above)?;
         }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
+    check_private_dir(path)
+}
+
+/// Whether `path` is a private folder of this user: a folder, not a link to
+/// one, owned by this user and closed to everyone else. Its own bits are the
+/// user's to set.
+pub fn check_private_dir(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    let path = path.as_ref();
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_dir() || metadata.uid() != crate::euid() || metadata.mode() & 0o077 != 0 {
         return Err(std::io::Error::new(
@@ -401,13 +407,15 @@ mod tests {
     #[test]
     fn a_private_folder_is_made_open_to_its_user_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("state");
+        let path = dir.path().join("state").join("instance");
 
         private_dir(&path).unwrap();
 
         assert!(path.is_dir());
         assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o700);
         private_dir(&path).unwrap();
+        check_private_dir(&path).unwrap();
+        assert!(check_private_dir(dir.path().join("missing")).is_err());
     }
 
     #[cfg(unix)]

@@ -5,7 +5,7 @@ use adroit_net::{
     Admin, AdminAnswer, Fingerprint, Gateway, GatewayFiles, Hosts, HostsNow, Identity,
     PAIRING_PERIOD, Pairing, PeerFile, Waiting, ask_gateway,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -143,8 +143,7 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     use crate::cli::RemoteCommand;
     let dir = crate::remote::root();
     let done = (|| -> std::io::Result<i32> {
-        std::fs::create_dir_all(dir.parent().unwrap_or(Path::new("/")))?;
-        crate::remote::private_dir(&dir, true)?;
+        adroit_sys::fs::private_dir(&dir)?;
         let files = GatewayFiles::in_dir(&dir);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

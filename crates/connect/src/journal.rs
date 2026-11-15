@@ -1,7 +1,7 @@
 //! Exact intents saved before a remote change can be written to a socket.
 
 use adroit_protocol::{MutationStamp, MutationState, Request, is_generation};
-use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use adroit_sys::fs::{MetadataExt, OpenOptionsExt};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -104,23 +104,7 @@ fn private(metadata: &std::fs::Metadata) -> Result<(), String> {
 }
 
 fn directory(path: &Path) -> Result<(), String> {
-    match std::fs::DirBuilder::new().mode(0o700).create(path) {
-        Ok(()) => {
-            // The mode given to mkdir is narrowed by the umask, which another
-            // thread binding a socket may have narrowed for a moment.
-            adroit_sys::fs::set_mode(path, 0o700).map_err(|e| e.to_string())?;
-            if let Some(parent) = path.parent() {
-                adroit_sys::fs::sync_dir(parent).map_err(|e| e.to_string())?;
-            }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e.to_string()),
-    }
-    let metadata = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
-    if !metadata.is_dir() {
-        return Err("mutation journal directory must not be a symlink".into());
-    }
-    private(&metadata)
+    adroit_sys::fs::private_dir(path).map_err(|e| e.to_string())
 }
 
 impl Journal {
