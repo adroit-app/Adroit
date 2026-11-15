@@ -4,6 +4,8 @@
 use dioxus::document;
 use dioxus::prelude::*;
 
+use adroit_core::overlay::hints::Hint;
+
 use crate::components::{Dialog, KeyHint, Keys};
 use crate::icons::{Icon, IconView};
 use crate::keys_help::Group;
@@ -20,7 +22,7 @@ pub fn scroll(lines: i32) {
 }
 
 #[component]
-pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
+pub fn KeysHelpView(groups: Vec<Group>, hints: Vec<Hint>, onclose: EventHandler<()>) -> Element {
     rsx! {
         Dialog { kind: "keys-help-dialog", onclose, icon: Icon::Keyboard, title: "Keyboard Shortcuts",
             div { class: "keys-help-groups",
@@ -77,8 +79,9 @@ pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
                 }
             }
             div { class: "keys-help-footer",
-                KeyHint { keys: "j/k", does: "scroll" }
-                KeyHint { keys: "Esc", does: "close" }
+                for hint in hints {
+                    KeyHint { key: "{hint.keys}", keys: hint.keys.clone(), does: hint.does }
+                }
                 span { class: "keys-help-legend",
                     span { class: "keys-help-repeats", "↻" }
                     "the last key repeats it"

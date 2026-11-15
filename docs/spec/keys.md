@@ -48,8 +48,10 @@ answers yes to what chooses and no to what closes, and to the keys of its own
 `confirm` area besides, `y` and `n`. The keys help scrolls by what moves. A
 menu closes on a key it does not take, and does nothing else. A text field
 over the window, such as the picker's query, types the keys that type and
-leaves the others to these bindings, so `j` and `k` type there. The keys a
-picker takes besides, such as `Ctrl+f` for its file tree, are its own
+leaves the others to these bindings, so `j` and `k` type there. A picker,
+the keys help and a question name the keys bound now along their foot or on
+their buttons. The keys a picker takes besides, such as `Ctrl+f` for its file
+tree, are its own
 ([the tree](tree.md#going-to-a-session-or-starting-one),
 [sessions](sessions.md#resuming-a-past-conversation)).
 

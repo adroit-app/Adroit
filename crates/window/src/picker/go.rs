@@ -7,8 +7,6 @@ use dioxus::prelude::*;
 
 use super::{PickerKeys, QueryField};
 use crate::bridge::AppCtx;
-use adroit_core::actions::Action;
-use adroit_core::keymap::Context;
 
 use crate::components::{Dialog, FileLook, FileRow, ListRow, PlaceMark};
 use crate::icons::Icon;
@@ -33,44 +31,10 @@ pub(super) fn Go(picker: GoPicker) -> Element {
     let hosts = app.hosts.read();
     let tree = app.tree.read();
     let work = hosts.work(&picker.environment);
-    let fixed = |keys: &[(&str, &str)]| -> Vec<(String, String)> {
-        keys.iter()
-            .map(|(k, w)| (k.to_string(), w.to_string()))
-            .collect()
-    };
     let adding = picker.purpose == Purpose::Add;
-    let (title, choose) = match adding {
-        true => ("Add a directory to the tree", "add"),
-        false => ("Go to a session, or start one", "choose"),
-    };
-    // What a row's directory is taken for besides what choosing it does.
-    let there = fixed(&[("Ctrl+s", "shell"), ("Ctrl+e", "Neovim")])
-        .into_iter()
-        .chain((!adding).then(|| ("Ctrl+t".to_string(), "add to tree".to_string())));
-    let keys = match picker.mode {
-        Mode::List => fixed(&[("Ctrl+n/p", "move"), ("Enter", choose)])
-            .into_iter()
-            .chain(there)
-            .chain(fixed(&[("Ctrl+f", "file tree"), ("Esc", "close")]))
-            .collect(),
-        // The filer's keys, as the keymap binds them.
-        Mode::Tree => {
-            let km = app.chrome.read().keymap.clone();
-            let filer = [
-                (Action::FilerDown, "down"),
-                (Action::FilerUp, "up"),
-                (Action::FilerInto, "open"),
-                (Action::FilerOut, "close"),
-                (Action::FilerHidden, "hidden"),
-                (Action::FilerOpen, choose),
-            ];
-            filer
-                .iter()
-                .filter_map(|(a, w)| km.keys_for(Context::Filer, a).map(|k| (k, w.to_string())))
-                .chain(there)
-                .chain(fixed(&[("Ctrl+f", "list"), ("Esc", "close")]))
-                .collect()
-        }
+    let title = match adding {
+        true => "Add a directory to the tree",
+        false => "Go to a session, or start one",
     };
     rsx! {
         Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), title: "{title}",
@@ -133,7 +97,7 @@ pub(super) fn Go(picker: GoPicker) -> Element {
                     }
                 },
             }
-            PickerKeys { keys }
+            PickerKeys {}
         }
     }
 }

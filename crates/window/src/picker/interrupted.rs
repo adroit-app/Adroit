@@ -19,11 +19,6 @@ pub(super) fn Interrupted(list: Waiting) -> Element {
     let hosts = app.hosts.read();
     let rows = rows(&list, &home, &hosts);
     let now = now_ms();
-    let keys: &[(&str, &str)] = &[
-        ("Ctrl+n/p", "move"),
-        ("Enter", "bring back"),
-        ("Esc", "close"),
-    ];
     rsx! {
         Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), icon: Icon::Restore, title: "Bring back what the sessions' daemon took",
             div { class: "filter-field",
@@ -55,7 +50,7 @@ pub(super) fn Interrupted(list: Waiting) -> Element {
                     }
                 }
             }
-            PickerKeys { keys: keys.iter().map(|(k, w)| (k.to_string(), w.to_string())).collect() }
+            PickerKeys {}
         }
     }
 }

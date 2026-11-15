@@ -2,6 +2,7 @@
 //! view state holds it, and its keys go there.
 
 use adroit_core::msg::Msg;
+use adroit_core::overlay::hints;
 use adroit_core::picker::Picking;
 use dioxus::prelude::*;
 
@@ -67,13 +68,18 @@ fn QueryField(query: String, #[props(default)] placeholder: String) -> Element {
     }
 }
 
-/// The keys a picker takes, each with what it does, along its foot.
+/// The keys the picker open takes, each with what it does, along its foot.
 #[component]
-fn PickerKeys(keys: Vec<(String, String)>) -> Element {
+fn PickerKeys() -> Element {
+    let app = use_context::<AppCtx>();
+    let hints = match &app.picker.read().open {
+        Some(open) => hints::picker(&app.chrome.read().keymap, open),
+        None => Vec::new(),
+    };
     rsx! {
         div { class: "picker-keys",
-            for (k, what) in keys.into_iter() {
-                KeyHint { key: "{k}", keys: k.clone(), does: what }
+            for hint in hints {
+                KeyHint { key: "{hint.keys}", keys: hint.keys.clone(), does: hint.does }
             }
         }
     }

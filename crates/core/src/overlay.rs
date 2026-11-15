@@ -22,6 +22,7 @@ use crate::update::step;
 mod banner;
 pub mod confirm;
 pub mod context_menu;
+pub mod hints;
 pub mod lightbox;
 pub mod naming;
 pub mod rename;

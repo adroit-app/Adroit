@@ -4,7 +4,7 @@
 
 use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::{Reach, Target};
-use adroit_core::overlay::{self, MenuEntry};
+use adroit_core::overlay::{self, MenuEntry, hints};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
@@ -26,11 +26,13 @@ pub(crate) fn KeysHelp() -> Element {
         .keys_help
         .as_ref()
         .map(|here| keys_help::groups(&chrome.keymap, here));
+    let hints = hints::keys_help(&chrome.keymap);
     drop(chrome);
     rsx! {
         if let Some(groups) = groups {
             KeysHelpView {
                 groups,
+                hints,
                 onclose: move |_| app.dispatch(Msg::KeysHelpClose),
             }
         }
@@ -143,16 +145,23 @@ pub(crate) fn ConfirmDialog() -> Element {
         return rsx! {};
     };
     let (icon, title, body, act) = ask.dialog();
+    let (no, yes) = hints::answers(&app.chrome.read().keymap);
     rsx! {
         Dialog { icon, title, onclose: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
             div { "{body}" }
             div { class: "dialog-actions",
                 Button { onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
-                    Keys { keys: "n" } "Cancel"
+                    if let Some(keys) = no {
+                        Keys { keys }
+                    }
+                    "Cancel"
                 }
                 Button { kind: if ask.destroys() { "danger" } else { "primary" },
                     onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),
-                    Keys { keys: "y" } "{act}"
+                    if let Some(keys) = yes {
+                        Keys { keys }
+                    }
+                    "{act}"
                 }
             }
         }

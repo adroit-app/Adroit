@@ -23,12 +23,6 @@ pub(super) fn Resume(list: List) -> Element {
         (Some(dir), false) => short(dir, &home),
         _ => "every directory".to_string(),
     };
-    let keys: &[(&str, &str)] = &[
-        ("Ctrl+n/p", "move"),
-        ("Enter", "resume"),
-        ("Ctrl+a", "this directory or every one"),
-        ("Esc", "close"),
-    ];
     rsx! {
         Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), icon: Icon::TransferIn, title: "Resume a conversation",
             div { class: "filter-field",
@@ -68,7 +62,7 @@ pub(super) fn Resume(list: List) -> Element {
                     },
                 }
             }
-            PickerKeys { keys: keys.iter().map(|(k, w)| (k.to_string(), w.to_string())).collect() }
+            PickerKeys {}
         }
     }
 }
