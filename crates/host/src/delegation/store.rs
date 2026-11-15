@@ -615,25 +615,25 @@ impl Store {
 const SESSION_COLUMNS: &str = "id, parent, agent, name, cwd, terminal, conversation, readiness, started_ms, ended, profile, home, model, permissions, generation, interrupted, brought_back_by, name_given, code";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
-    let id: String = row.get(0)?;
-    let parent: Option<String> = row.get(1)?;
-    let agent: String = row.get(2)?;
-    let cwd: String = row.get(4)?;
-    let terminal: Option<String> = row.get(5)?;
-    let readiness: String = row.get(7)?;
-    let started_ms: i64 = row.get(8)?;
-    let name = row.get(3)?;
-    let conversation = row.get(6)?;
-    let ended = row.get(9)?;
-    let profile: String = row.get(10)?;
-    let home: Option<String> = row.get(11)?;
-    let model = row.get(12)?;
-    let permissions: Option<String> = row.get(13)?;
-    let generation = row.get(14)?;
-    let interrupted = row.get(15)?;
-    let brought_back_by: Option<String> = row.get(16)?;
-    let name_given = row.get(17)?;
-    let code: Option<String> = row.get(18)?;
+    let id: String = row.get("id")?;
+    let parent: Option<String> = row.get("parent")?;
+    let agent: String = row.get("agent")?;
+    let cwd: String = row.get("cwd")?;
+    let terminal: Option<String> = row.get("terminal")?;
+    let readiness: String = row.get("readiness")?;
+    let started_ms: i64 = row.get("started_ms")?;
+    let name = row.get("name")?;
+    let conversation = row.get("conversation")?;
+    let ended = row.get("ended")?;
+    let profile: String = row.get("profile")?;
+    let home: Option<String> = row.get("home")?;
+    let model = row.get("model")?;
+    let permissions: Option<String> = row.get("permissions")?;
+    let generation = row.get("generation")?;
+    let interrupted = row.get("interrupted")?;
+    let brought_back_by: Option<String> = row.get("brought_back_by")?;
+    let name_given = row.get("name_given")?;
+    let code: Option<String> = row.get("code")?;
     Ok((|| {
         Ok(Session {
             id: id.parse().map_err(Error::storage)?,
@@ -677,15 +677,15 @@ fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Session>> {
 }
 
 fn read_terminal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<KeptTerminal>> {
-    let id: String = row.get(0)?;
-    let generation = row.get(1)?;
-    let name = row.get(2)?;
-    let cwd: String = row.get(3)?;
-    let program: String = row.get(4)?;
-    let file: Option<String> = row.get(5)?;
-    let command: String = row.get(6)?;
-    let started_ms: i64 = row.get(7)?;
-    let resource_id: String = row.get(8)?;
+    let id: String = row.get("id")?;
+    let generation = row.get("generation")?;
+    let name = row.get("name")?;
+    let cwd: String = row.get("cwd")?;
+    let program: String = row.get("program")?;
+    let file: Option<String> = row.get("file")?;
+    let command: String = row.get("command")?;
+    let started_ms: i64 = row.get("started_ms")?;
+    let resource_id: String = row.get("resource_id")?;
     Ok((|| {
         Ok(KeptTerminal {
             terminal: TerminalSession {
@@ -723,12 +723,12 @@ fn known(connection: &Connection, id: SessionId) -> Result<Session> {
 const MESSAGE_COLUMNS: &str = "id, sender, recipient, body, sent_ms, delivered";
 
 fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
-    let id: String = row.get(0)?;
-    let sender: String = row.get(1)?;
-    let recipient: String = row.get(2)?;
-    let sent_ms: i64 = row.get(4)?;
-    let body = row.get(3)?;
-    let delivered = row.get(5)?;
+    let id: String = row.get("id")?;
+    let sender: String = row.get("sender")?;
+    let recipient: String = row.get("recipient")?;
+    let sent_ms: i64 = row.get("sent_ms")?;
+    let body = row.get("body")?;
+    let delivered = row.get("delivered")?;
     Ok((|| {
         Ok(Message {
             id: id.parse().map_err(Error::storage)?,
