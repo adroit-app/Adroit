@@ -12,8 +12,8 @@ use crate::chrome::{self, Chrome, status_line};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::host::Hosts;
+use crate::keymap::help::{self, Press};
 use crate::keymap::{Context, Step};
-use crate::keys_help::{self, Press};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
 use crate::settings::{RestoreSessions, Settings};
@@ -157,7 +157,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
         Some(Holder::KeysHelp) => {
             let chrome = &mut state.chrome;
             let here = chrome.keys_help.as_deref().unwrap_or_default();
-            match keys_help::press(&chrome.keymap, here, &key) {
+            match help::press(&chrome.keymap, here, &key) {
                 Press::Close => chrome::close_keys_help(chrome),
                 Press::Scroll(lines) => vec![Effect::ScrollKeysHelp(lines)],
                 Press::Nothing => Vec::new(),

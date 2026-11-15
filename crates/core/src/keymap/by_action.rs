@@ -4,8 +4,7 @@
 //! made to every area it works in at once.
 
 use crate::actions::{ACTIONS, Action};
-use crate::keymap::{Chord, Context, Error, Keymap};
-use crate::keys_edit;
+use crate::keymap::{Chord, Context, Error, Keymap, edit};
 
 /// The headings actions are listed under, each with the names it takes: a
 /// name ending in `.` takes every action it begins, any other only itself,
@@ -246,7 +245,7 @@ fn bound_in(text: &str, area: Context) -> Result<Vec<(String, String)>, Error> {
         .collect())
 }
 
-fn edit_error(e: keys_edit::Error) -> Error {
+fn edit_error(e: edit::Error) -> Error {
     Error(e.to_string())
 }
 
@@ -255,10 +254,10 @@ fn edit_error(e: keys_edit::Error) -> Error {
 pub fn add(text: &str, action: &str, keys: &str, areas: &[Context]) -> Result<String, Error> {
     let mut out = text.to_string();
     for area in areas {
-        out = if keys_edit::default_of(area.name(), keys).as_deref() == Some(action) {
-            keys_edit::reset(&out, area.name(), keys)
+        out = if edit::default_of(area.name(), keys).as_deref() == Some(action) {
+            edit::reset(&out, area.name(), keys)
         } else {
-            keys_edit::bind(&out, area.name(), keys, action)
+            edit::bind(&out, area.name(), keys, action)
         }
         .map_err(edit_error)?;
     }
@@ -275,7 +274,7 @@ pub fn remove(text: &str, action: &str, keys: &str, areas: &[Context]) -> Result
             .into_iter()
             .any(|(k, a)| k == keys && a == action);
         if runs {
-            out = keys_edit::unbind(&out, area.name(), keys).map_err(edit_error)?;
+            out = edit::unbind(&out, area.name(), keys).map_err(edit_error)?;
         }
     }
     Ok(out)
@@ -354,13 +353,13 @@ pub fn reset(text: &str, action: &str) -> Result<String, Error> {
     for area in Context::ALL {
         for (keys, a) in bound_in(&out, area)? {
             if a == action {
-                out = keys_edit::reset(&out, area.name(), &keys).map_err(edit_error)?;
+                out = edit::reset(&out, area.name(), &keys).map_err(edit_error)?;
             }
         }
     }
     for (area, keys, a) in Keymap::defaults().listed() {
         if a == action {
-            out = keys_edit::reset(&out, area, &keys).map_err(edit_error)?;
+            out = edit::reset(&out, area, &keys).map_err(edit_error)?;
         }
     }
     Ok(out)
