@@ -2,11 +2,9 @@
 //! only to answer it.
 
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::Started;
 
@@ -32,33 +30,12 @@ pub(crate) async fn ask<T>(
     timeout: Duration,
     mut read: impl FnMut(&str) -> Option<Option<T>>,
 ) -> Option<T> {
-    let (program, args, env) = start(PROBE_ARGS.iter().map(|a| a.to_string()).collect());
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
-        .envs(env)
-        .current_dir(dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let mut lines = BufReader::new(child.stdout.take()?).lines();
-    let asked = async {
-        stdin.write_all(request.as_bytes()).await.ok()?;
-        stdin.flush().await.ok()?;
-        while let Some(line) = lines.next_line().await.ok()? {
-            if let Some(settled) = read(&line) {
-                return settled;
-            }
-        }
-        None
-    };
-    let got = tokio::time::timeout(timeout, asked).await.ok().flatten();
-    let _ = child.start_kill();
-    let _ = child.wait().await;
-    got
+    let started = start(PROBE_ARGS.iter().map(|a| a.to_string()).collect());
+    crate::child::converse(started, dir, timeout, async |talk| {
+        talk.write(request).await?;
+        talk.until(&mut read).await.flatten()
+    })
+    .await
 }
 
 /// The id every request adroit writes carries, which its answer echoes.

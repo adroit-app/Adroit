@@ -2,12 +2,10 @@
 //! session and runs no turn.
 
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use adroit_model::ProviderModel;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::AgentContext;
 
@@ -27,49 +25,22 @@ pub(super) fn args(context: &AgentContext) -> Vec<String> {
 /// Pi's answer to the command `kind`, started by `start` in `dir`; none for
 /// a failure, a refusal or no answer within `timeout`.
 pub(super) async fn request(
-    (program, args, env): crate::Started,
+    started: crate::Started,
     dir: &Path,
     timeout: Duration,
     kind: &str,
 ) -> Option<Value> {
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
-        .envs(env)
-        .current_dir(dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let mut stdout = BufReader::new(child.stdout.take()?);
-    let asked = async {
+    crate::child::converse(started, dir, timeout, async |talk| {
         let command = json!({"id": "adroit", "type": kind});
-        stdin
-            .write_all(format!("{command}\n").as_bytes())
-            .await
-            .ok()?;
-        stdin.flush().await.ok()?;
-        // Records are split on LF alone: a JSON string may hold U+2028.
-        let mut line = Vec::new();
-        loop {
-            line.clear();
-            if stdout.read_until(b'\n', &mut line).await.ok()? == 0 {
-                return None;
-            }
-            let Ok(reply) = serde_json::from_slice::<Value>(&line) else {
-                continue;
-            };
-            if reply["type"] == "response" && reply["id"] == "adroit" {
-                return (reply["success"] == true).then(|| reply["data"].clone());
-            }
-        }
-    };
-    let got = tokio::time::timeout(timeout, asked).await.ok().flatten();
-    let _ = child.start_kill();
-    let _ = child.wait().await;
-    got
+        talk.write(&format!("{command}\n")).await?;
+        talk.until(|line| {
+            let reply = serde_json::from_str::<Value>(line).ok()?;
+            (reply["type"] == "response" && reply["id"] == "adroit")
+                .then(|| (reply["success"] == true).then(|| reply["data"].clone()))
+        })
+        .await?
+    })
+    .await
 }
 
 /// The models `data` lists, each named as Pi's `--model` takes it.
