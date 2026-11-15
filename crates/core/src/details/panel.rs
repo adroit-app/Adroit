@@ -49,8 +49,6 @@ pub struct Shown {
     pub selected: Option<Item>,
     /// What the panel is made of.
     pub layout: DetailsLayout,
-    /// The machine's meters shown where a component does not say which.
-    pub meters: UsageSettings,
 }
 
 impl Shown {
@@ -222,15 +220,13 @@ pub(crate) fn follow_usage(
 }
 
 /// The panel is open while its side panel is shown, reads by the settings
-/// and is made as the layout says, with the machine's meters `meters` where
-/// a component does not say. A tab no longer in the layout gives way to the
-/// last there is.
+/// and is made as the layout says. A tab no longer in the layout gives way
+/// to the last there is.
 pub(crate) fn follow_settings(
     details: &mut Details,
     open: bool,
     settings: &DetailsSettings,
     layout: &DetailsLayout,
-    meters: UsageSettings,
 ) {
     details.shown.open = open;
     if details.shown.settings != *settings {
@@ -242,9 +238,6 @@ pub(crate) fn follow_settings(
         if details.drill.tab() >= tabs {
             details.drill = Drill::new(tabs.saturating_sub(1));
         }
-    }
-    if details.shown.meters != meters {
-        details.shown.meters = meters;
     }
 }
 
@@ -892,6 +885,28 @@ pub fn parts(details: &Details, work: Option<&WorkSnapshot>) -> Vec<Part> {
         .collect()
 }
 
+/// `parts` as they are drawn: the machine's meters next to each other, and
+/// the agent's gauges next to each other, each drawn together as one; the
+/// rest each on its own.
+pub fn runs(parts: Vec<Part>) -> Vec<Vec<Part>> {
+    let family = |p: &Part| {
+        let c = p.placed.component;
+        (p.foot, c.meter().is_some(), c.gauge().is_some())
+    };
+    let mut out: Vec<Vec<Part>> = Vec::new();
+    for part in parts {
+        let joins = out.last().and_then(|run| run.last()).is_some_and(|last| {
+            let (foot, meter, gauge) = family(last);
+            (meter || gauge) && (foot, meter, gauge) == family(&part)
+        });
+        match out.last_mut() {
+            Some(run) if joins => run.push(part),
+            _ => out.push(vec![part]),
+        }
+    }
+    out
+}
+
 /// The rows the components in sight list, in their order; none while a
 /// change of the log or a file it changed is opened, or no component lists
 /// any.
@@ -1086,8 +1101,7 @@ pub fn branch_pull(details: &Details, work: Option<&WorkSnapshot>) -> Option<(Pa
 pub fn meters(details: &Details) -> Option<UsageSettings> {
     in_sight(details)
         .iter()
-        .filter(|(p, _)| p.component == Component::Machine)
-        .map(|(p, _)| p.meters.unwrap_or(details.shown.meters))
+        .filter_map(|(p, _)| p.component.meter())
         .reduce(|a, b| a.or(b))
 }
 
@@ -1142,7 +1156,13 @@ pub(crate) fn sight(details: &Details) -> Sight {
         details: shown.open,
         overview: reads_entries,
         repositories,
-        usage: shown.usage.clone().filter(|_| has(Component::AgentUsage)),
+        usage: shown.usage.clone().filter(|_| {
+            Component::ALL.iter().any(|c| {
+                c.gauge()
+                    .is_some_and(|g| g != crate::details::GaugeKind::Context)
+                    && has(*c)
+            })
+        }),
         ..Default::default()
     }
 }
@@ -2018,7 +2038,7 @@ pub(crate) mod tests {
                 0,
             );
             assert_eq!(
-                (got.len(), got[0].context),
+                (got.len(), got[0].context()),
                 (count, context),
                 "{read_id} {asked_id} {usage_of:?}"
             );
@@ -2426,7 +2446,7 @@ pub(crate) mod tests {
                 .expect("the host is asked")
         };
         let machine = sight(
-            "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"M\"\ncomponents = [\"machine\"]\n",
+            "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"M\"\ncomponents = [\"cpu\", \"gpu\", \"memory\", \"storage\"]\n",
         );
         assert!(!machine.overview);
         assert!(machine.repositories.is_empty());
@@ -2449,12 +2469,70 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn meters_side_by_side_and_gauges_side_by_side_are_drawn_together() {
+        let part = |c, foot| Part {
+            placed: Placed::new(c),
+            at: 0,
+            rows: Vec::new(),
+            foot,
+        };
+        use Component as C;
+        let runs = runs(vec![
+            part(C::Cpu, false),
+            part(C::Memory, false),
+            part(C::Session, false),
+            part(C::Storage, false),
+            part(C::Gpu, true),
+            part(C::Context, true),
+            part(C::WeekLimit, true),
+            part(C::Cpu, true),
+        ]);
+        let names: Vec<Vec<&str>> = runs
+            .iter()
+            .map(|r| r.iter().map(|p| p.placed.component.name()).collect())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                vec!["cpu", "memory"],
+                vec!["session"],
+                vec!["storage"],
+                vec!["gpu"],
+                vec!["context", "week-limit"],
+                vec!["cpu"],
+            ]
+        );
+    }
+
+    #[test]
+    fn the_account_s_usage_is_asked_only_while_one_of_its_limits_is_in_sight() {
+        let mut details = Details::default();
+        details.shown.usage = Some(adroit_protocol::Account {
+            agent: adroit_model::Agent::Claude,
+            home: None,
+        });
+        let mut layout = DetailsLayout::default();
+        let mut only = |components: &[Component]| {
+            let mut s = Surface::session();
+            s.foot = components.iter().copied().map(Placed::new).collect();
+            layout.set(Subject::Session, s);
+            let settings = details.shown.settings.clone();
+            follow_settings(&mut details, true, &settings, &layout);
+            sight(&details).usage.is_some()
+        };
+        assert!(!only(&[Component::Context, Component::Cpu]));
+        assert!(only(&[Component::WeekLimit]));
+    }
+
+    #[test]
     fn the_machine_s_meters_sampled_are_those_its_components_in_sight_name_together() {
         let run = laid_out(
             "[panel.session]\n\
-             foot = [{ component = \"machine\", meters = { cpu = false, gpu = false, storage = false } }]\n\
+             foot = [\"memory\"]\n\
              [[panel.session.tabs]]\ntitle = \"M\"\n\
-             components = [{ component = \"machine\", meters = { gpu = false, memory = false, storage = false } }]\n",
+             components = [\"cpu\"]\n\
+             [[panel.session.tabs]]\ntitle = \"N\"\n\
+             components = [\"storage\"]\n",
         );
         let system = watched(&run).last().and_then(|s| s.system);
         assert_eq!(
@@ -2502,13 +2580,7 @@ pub(crate) mod tests {
         two.tabs.truncate(2);
         layout.set(Subject::Session, two);
         let settings = details.shown.settings.clone();
-        follow_settings(
-            &mut details,
-            true,
-            &settings,
-            &layout,
-            UsageSettings::default(),
-        );
+        follow_settings(&mut details, true, &settings, &layout);
         assert_eq!(details.drill.tab(), 1);
     }
 

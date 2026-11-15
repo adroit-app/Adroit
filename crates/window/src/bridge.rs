@@ -208,11 +208,8 @@ pub(crate) fn use_app() -> AppCtx {
             &mut events,
             [Msg::ContentOpened { kept, scratch }],
         ));
-        // This computer's bindings and meters, over whatever the hosts read.
-        let chosen = crate::client_settings::chosen()
-            .map(|p| [Msg::UsageChosen(p.usage), Msg::PanelChosen(p.panel)])
-            .into_iter()
-            .flatten();
+        // This computer's details panel, over whatever the hosts read.
+        let chosen = crate::client_settings::chosen().map(|p| Msg::PanelChosen(p.panel));
         effects.extend(pump(
             &mut view,
             &links,
@@ -556,9 +553,6 @@ impl AppCtx {
         }
         let chosen = crate::client_settings::chosen();
         if let Some(preferences) = &chosen {
-            if self.view.read().config.usage() != Some(preferences.usage) {
-                self.dispatch(Msg::UsageChosen(preferences.usage));
-            }
             if self.view.read().config.settings.panel != preferences.panel {
                 self.dispatch(Msg::PanelChosen(preferences.panel.clone()));
             }

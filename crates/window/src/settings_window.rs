@@ -844,32 +844,6 @@ fn WindowPane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
     }
-        SettingGroup { title: "System usage",
-            SettingRow { label: "CPU", hint: "Whole-machine CPU utilization.",
-                Toggle {
-                    checked: now.usage.cpu,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.cpu = on)),
-                }
-            }
-            SettingRow { label: "GPU", hint: "GPU utilization, when the system reports it.",
-                Toggle {
-                    checked: now.usage.gpu,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.gpu = on)),
-                }
-            }
-            SettingRow { label: "Memory", hint: "Used physical memory as a percentage of total memory.",
-                Toggle {
-                    checked: now.usage.memory,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.memory = on)),
-                }
-            }
-            SettingRow { label: "Storage", hint: "Used capacity on the startup volume.",
-                Toggle {
-                    checked: now.usage.storage,
-                    onchange: move |on| change(Box::new(move |s: &mut Settings| s.usage.storage = on)),
-                }
-            }
-        }
     }
 }
 

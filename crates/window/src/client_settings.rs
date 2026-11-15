@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use adroit_core::config::Config;
 use adroit_core::details::DetailsLayout;
-use adroit_core::settings::{Appearance, ConsoleSettings, Settings, UsageSettings};
+use adroit_core::settings::{Appearance, ConsoleSettings, Settings};
 use adroit_model::EnvironmentId;
 use adroit_protocol::{ConfigFile, ConfigWork, FileText};
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,6 @@ pub(crate) struct Preferences {
     prompt_max_rows: usize,
     notify_waiting: bool,
     console: ConsoleSettings,
-    pub(crate) usage: UsageSettings,
     appearance: Appearance,
     light_theme: String,
     dark_theme: String,
@@ -66,7 +65,6 @@ impl Preferences {
             prompt_max_rows: settings.prompt_max_rows,
             notify_waiting: settings.notify_waiting,
             console: settings.console.clone(),
-            usage: settings.usage,
             appearance: settings.appearance,
             light_theme: settings.light_theme.clone(),
             dark_theme: settings.dark_theme.clone(),
@@ -82,7 +80,6 @@ impl Preferences {
         settings.prompt_max_rows = self.prompt_max_rows;
         settings.notify_waiting = self.notify_waiting;
         settings.console = self.console.clone();
-        settings.usage = self.usage;
         settings.panel = self.panel.clone();
         self.looks().apply(settings);
     }
@@ -100,6 +97,9 @@ impl Preferences {
     /// `earlier`.
     fn read(text: &str, earlier: impl FnOnce() -> Result<Self, String>) -> Result<Self, String> {
         let mut table: toml::Table = toml::from_str(text).map_err(|e| e.to_string())?;
+        // The machine's meters were chosen here before the details panel
+        // placed each of them; a file that still names them is read without.
+        table.remove("usage");
         let all =
             toml::Table::try_from(Self::of(&Settings::default())).map_err(|e| e.to_string())?;
         if all.keys().any(|key| !table.contains_key(key)) {
@@ -232,14 +232,10 @@ mod tests {
             appearance: Appearance::Dark,
             light_theme: "Dayfox".into(),
             dark_theme: "Nord".into(),
-            usage: UsageSettings {
-                memory: true,
-                ..UsageSettings::NONE
-            },
             panel: DetailsLayout {
                 github: Some(adroit_core::details::Surface {
                     foot: vec![adroit_core::details::Placed::new(
-                        adroit_core::details::Component::Machine,
+                        adroit_core::details::Component::Memory,
                     )],
                     ..adroit_core::details::Surface::github()
                 }),
@@ -250,8 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn the_appearance_the_machine_s_resources_and_the_panel_shown_are_the_client_s_over_any_environment_s()
-     {
+    fn the_appearance_and_the_panel_shown_are_the_client_s_over_any_environment_s() {
         let preferences = Preferences::of(&mine());
         let mut work = Settings {
             keep_awake: true,
@@ -261,7 +256,6 @@ mod tests {
         assert_eq!(work.appearance, Appearance::Dark);
         assert_eq!(work.light_theme, "Dayfox");
         assert_eq!(work.dark_theme, "Nord");
-        assert_eq!(work.usage, mine().usage);
         assert_eq!(work.panel, mine().panel);
         assert!(work.keep_awake);
     }
@@ -288,7 +282,14 @@ mod tests {
             "the rest is the earlier settings'"
         );
         assert_eq!(settings.appearance, Appearance::Dark);
-        assert_eq!(settings.usage, mine().usage);
+    }
+
+    #[test]
+    fn the_machine_s_meters_an_earlier_version_chose_here_are_left_unread() {
+        let mut text = toml::to_string_pretty(&Preferences::of(&mine())).unwrap();
+        text.push_str("[usage]\ncpu = false\n");
+        let read = Preferences::read(&text, || panic!("names every preference"));
+        assert_eq!(read, Ok(Preferences::of(&mine())));
     }
 
     fn work(text: &str) -> ConfigWork {

@@ -9,8 +9,8 @@ there. Environments are added below the main window's tree.
 
 Its sidebar lists that environment's work settings under the environment's
 name, and below them, under All environments, what belongs to this computer
-for every environment: the window, what the details panel is made of and which of the machine's
-meters it shows, the console, the prompt and their embedded Neovims, the appearance and
+for every environment: the window, what the details panel is made of, the
+console, the prompt and their embedded Neovims, the appearance and
 its themes, the key bindings, accepting connections from other computers, and
 the removed environments. These stay editable while the environment cannot be
 reached. Changes apply to windows using the same settings owner and remain
@@ -30,10 +30,10 @@ the theme's name is written: a theme of your own is read on the work machine,
 from `themes/` beside its own `settings.toml`, so one kept only on this
 computer is not found there.
 
-Which meters the details show is this computer's choice for every
-environment, and a work host samples only what a window shows; the `[usage]`
-table of a work machine's `settings.toml` is what it samples for a window that
-does not say.
+Which of the machine's meters the details show is what this computer places
+in the details panel, and a work host samples only what a window shows; the
+`[usage]` table of a work machine's `settings.toml` is what it samples for a
+window that does not say.
 
 ## settings.toml
 

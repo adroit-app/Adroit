@@ -16,9 +16,66 @@ use crate::bridge::AppCtx;
 use crate::components::ListRow;
 use crate::connection::{EnvironmentAgents, EnvironmentCard};
 use crate::details::{
-    Component, Entry, Listing, Part, branch_pull, machine_gauges, shown_session, working_copy,
+    Component, Entry, Listing, Part, branch_pull, machine_gauges, shown_session, usage,
+    working_copy,
 };
+use adroit_core::details::GaugeKind;
 use adroit_core::tree::nav::Item;
+
+/// The components of a run of `runs`: the machine's meters or the agent's
+/// gauges drawn together, or else the one component.
+#[component]
+pub(super) fn RunView(
+    run: Vec<Part>,
+    worktree: Option<PathBuf>,
+    kind: Worktree,
+    live_input_ms: Option<u64>,
+    agent: Agent,
+    now_ms: u64,
+    on_kill: EventHandler<(Session, Process)>,
+    on_menu: EventHandler<LinkMenu>,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    let components: Vec<Component> = run.iter().map(|p| p.placed.component).collect();
+    if components.iter().all(|c| c.meter().is_some()) {
+        let system = components
+            .iter()
+            .filter_map(|c| c.meter())
+            .flat_map(|meter| machine_gauges(&app, &app.shown_environment(), &meter))
+            .collect::<Vec<_>>();
+        return rsx! { MachineUsage { system } };
+    }
+    let kinds: Vec<GaugeKind> = components.iter().filter_map(|c| c.gauge()).collect();
+    if kinds.len() == components.len() {
+        let details = app.details.read().clone();
+        let hosts = app.hosts.read();
+        let work = hosts.work(&app.shown_environment());
+        let all = usage(&details, work, now_ms);
+        let gauges = kinds
+            .iter()
+            .flat_map(|k| all.iter().filter(move |g| g.kind == *k).cloned())
+            .collect::<Vec<_>>();
+        let usage_url = work
+            .and_then(|w| w.agents.of(agent))
+            .and_then(|facts| facts.usage_url.clone());
+        return rsx! { AgentUsage { gauges, agent, usage_url } };
+    }
+    rsx! {
+        for part in run {
+            PartView {
+                key: "{part.placed.component.name()}-{part.at}",
+                part,
+                worktree: worktree.clone(),
+                kind,
+                live_input_ms,
+                agent,
+                now_ms,
+                on_kill,
+                on_menu,
+            }
+        }
+    }
+}
 
 #[component]
 pub(super) fn PartView(
@@ -105,23 +162,6 @@ pub(super) fn PartView(
                     },
                 }
             }
-        }
-        Component::AgentUsage => {
-            let details = app.details.read().clone();
-            let hosts = app.hosts.read();
-            let work = hosts.work(&app.shown_environment());
-            let gauges = crate::details::usage(&details, work, now_ms);
-            let usage_url = work
-                .and_then(|w| w.agents.of(agent))
-                .and_then(|facts| facts.usage_url.clone());
-            rsx! { AgentUsage { gauges, agent, usage_url } }
-        }
-        Component::Machine => {
-            let meters = part
-                .placed
-                .meters
-                .unwrap_or(app.details.read().shown.meters);
-            rsx! { MachineUsage { system: machine_gauges(&app, &app.shown_environment(), &meters) } }
         }
         Component::Environment => rsx! { EnvironmentCard { environment } },
         Component::Profiles => rsx! { EnvironmentAgents { environment } },

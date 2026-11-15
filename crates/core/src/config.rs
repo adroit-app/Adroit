@@ -8,7 +8,7 @@ use adroit_protocol::{Colours, ConfigFile, ConfigWork, Configured, FileText};
 use crate::chrome::status_line::{self, StatusLine};
 use crate::effect::Effect;
 use crate::keymap::Keymap;
-use crate::settings::{Settings, UsageSettings};
+use crate::settings::Settings;
 use crate::state::ViewState;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -24,8 +24,6 @@ pub struct Config {
     pub keys: Option<ConfigFile>,
     /// Why the key bindings file cannot be had, while it cannot.
     keys_error: Option<String>,
-    /// The machine's resources this computer shows, once it said.
-    usage: Option<UsageSettings>,
     /// What this computer makes the details panel of, once it said.
     panel: Option<crate::details::DetailsLayout>,
     /// The files as they were last taken in.
@@ -58,11 +56,6 @@ impl Config {
     pub fn files(&self) -> &ConfigWork {
         &self.taken
     }
-
-    /// The machine's resources this computer shows, once it said.
-    pub fn usage(&self) -> Option<UsageSettings> {
-        self.usage
-    }
 }
 
 /// The files the host read, taken in once each time one changes: the
@@ -88,9 +81,6 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
                 Ok(settings) => {
                     config.settings = settings;
                     config.settings_error = None;
-                    if let Some(usage) = config.usage {
-                        config.settings.usage = usage;
-                    }
                     if let Some(panel) = &config.panel {
                         config.settings.panel = panel.clone();
                     }
@@ -143,14 +133,6 @@ pub(crate) fn panel_chosen(
 ) -> Vec<Effect> {
     config.settings.panel = panel.clone();
     config.panel = Some(panel);
-    Vec::new()
-}
-
-/// This computer shows `usage` of the machine, over what any host's settings
-/// say.
-pub(crate) fn usage_chosen(config: &mut Config, usage: UsageSettings) -> Vec<Effect> {
-    config.usage = Some(usage);
-    config.settings.usage = usage;
     Vec::new()
 }
 
@@ -382,35 +364,6 @@ mod tests {
         assert_eq!(run.state().config.settings.zoom, 1.25);
         assert_eq!(run.state().config.settings.panel, mine);
         assert_eq!(run.state().details.shown.layout, mine);
-    }
-
-    #[test]
-    fn the_machine_s_resources_this_computer_shows_stay_over_the_host_s_settings_and_are_what_it_is_asked_to_sample()
-     {
-        use crate::settings::UsageSettings;
-        let memory = UsageSettings {
-            memory: true,
-            ..UsageSettings::NONE
-        };
-        let run = Scenario::new()
-            .send(home())
-            .event(configured("[usage]\ncpu = false\n"));
-        assert_eq!(run.state().config.usage(), None);
-        let run = run
-            .send(Msg::UsageChosen(memory))
-            .tell(ConfigChange::Settings {
-                file: settings_file("zoom = 1.25\n[usage]\ncpu = true\n"),
-            });
-        assert_eq!(run.state().config.settings.zoom, 1.25);
-        assert_eq!(run.state().config.settings.usage, memory);
-        let asked = run.effects().iter().rev().find_map(|e| match e {
-            Effect::Host {
-                request: adroit_protocol::Request::Watch(sight),
-                ..
-            } => Some(sight.system),
-            _ => None,
-        });
-        assert_eq!(asked, Some(Some(memory)));
     }
 
     #[test]

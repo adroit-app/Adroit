@@ -88,9 +88,13 @@ window or such a row is described.
   running off the end leads to a change not listed. Opening a change lists
   the files it changed, and opening one of those shows its diff in that
   change.
-- **agent-usage** — the usage of the agent of the focused window
+- **context** — how full the focused session's conversation is
   ([below](#usage)).
-- **machine** — the machine's CPU, GPU, memory and storage
+- **session-limit**, **week-limit** and **model-limits** — the limits of
+  the account of the focused window's agent: the one that resets within
+  hours, the one of the week, and the rest, such as a model's own of the
+  week ([below](#usage)).
+- **cpu**, **gpu**, **memory** and **storage** — the machine's meter of each
   ([below](#usage)).
 - **environment** — how the environment's connection stands, when it last
   worked, the address and key of its work machine, what went wrong, the
@@ -127,7 +131,7 @@ Adroit has it, and one given replaces Adroit's whole.
 
 ```toml
 [panel.session]
-foot = ["agent-usage", "machine"]
+foot = ["context", "week-limit", "cpu", "memory"]
 
 [[panel.session.tabs]]
 title = "Work"
@@ -139,7 +143,7 @@ title = "Code"
 components = [
   "changes",
   { component = "log", folded = true },
-  { component = "machine", meters = { gpu = false } },
+  "storage",
 ]
 ```
 
@@ -150,19 +154,23 @@ components = [
 - A component is written by its name, or as a table with its name in
   `component` and how it shows there: `folded` starts its heading folded or
   unfolded, `shown` is how many rows it shows before a row that shows them
-  all, and `meters`, of **machine**, which of `cpu`, `gpu`, `memory` and
-  `storage` it shows, each shown unless set to `false`. Unset, a component
-  shows as Adroit has it, and **machine** the meters the Settings window
-  chooses.
+  all. Unset, a component shows as Adroit has it.
 
 A component placed where it cannot tell anything, an icon Adroit does not
 have, or a subject with no tab, is refused as any setting out of form is.
 
 The Settings window arranges it too, under All environments in Details
-panel: for each of the three, its tabs, named and given an icon, each with
-its components, then the foot, each added, moved and taken out there, and
-Adroit's arrangement put back. How a component shows where it is placed is
+panel, on a picture of the panel for each of the three: its tabs, each named
+and given an icon picked among the icons, with a sketch of each component
+it holds, and the foot. The components the subject can be given are listed
+beside it, each with what it shows, to be dragged onto a tab or the foot, or
+added to the one pointed at; a component placed is dragged to move it, to
+another tab or the foot too, or moved and taken out by its buttons. Adroit's
+arrangement can be put back. How a component shows where it is placed is
 written in the file.
+
+Meters placed next to each other are drawn together, as are the agent's
+gauges.
 A work process is one the session started; the agent and its supporting
 runtimes are excluded from both the list and kill targets, while work
 processes launched through those runtimes remain available. Processes that
@@ -208,32 +216,31 @@ row opened names what was opened, and a click on it goes back.
 
 ## Usage
 
-**agent-usage** follows the agent of the focused window, and the
-account it is logged in as: that of the login the session runs in, or,
-for a draft, that of the profile it starts from. It shows each reported
-account limit as a bar of what is used, with what is left and
-when it resets. A session's reported context utilization appears with those
-limits. Shell and Neovim windows show no account limits or context utilization.
+The limits follow the agent of the focused window, and the account it is
+logged in as: that of the login the session runs in, or, for a draft, that
+of the profile it starts from. Each reported limit is a bar of what is used,
+with what is left and when it resets; **context** is the session's reported
+context utilization. Shell and Neovim windows show no account limits or
+context utilization.
 
-The usage limits are asked of the session's agent while **agent-usage** is
-in sight, again every few minutes, without starting a conversation or spending any of
+The usage limits are asked of the session's agent while one of its limits
+is in sight, again every few minutes, without starting a conversation or spending any of
 them. Those of an environment's profiles are asked the same way, on that
 environment's machine, only while **profiles** is in sight. An account without such limits, or an agent that does not answer,
 shows none; one that stops answering keeps showing what it last said.
 When the conversation does not record its context window, the context
 utilization is asked of the agent the same way, again as the conversation
 moves on, without changing or continuing the conversation.
-**machine** shows live CPU, GPU and memory usage for the whole machine and
+The meters show live CPU, GPU and memory usage for the whole machine and
 capacity used on the startup volume, in Shell and Neovim windows too. The
 machine is that of the environment of the row selected in the tree, or else
-of what is shown. Which meters it shows is chosen in Settings, once for every
-environment, or by the component where it is placed, and a work machine
-samples only the meters some window shows of it. A meter that
+of what is shown. A work machine samples only the meters some window shows
+of it. A meter that
 cannot be read is marked unavailable. The meters have distinct colors; high
 usage overrides those colors with a warning. Memory and storage include used
 and total capacity; CPU and GPU include hardware information when available.
 
-The heading of **agent-usage** links to the shown agent's account usage
+The heading over the limits links to the shown agent's account usage
 settings in the default browser, where available resets and account limits can be managed.
 
 ## Following what is read

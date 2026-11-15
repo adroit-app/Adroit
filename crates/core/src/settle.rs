@@ -257,13 +257,7 @@ fn details_shown(state: &mut ViewState, _: &mut Vec<Effect>) {
 fn details_told(state: &mut ViewState, _: &mut Vec<Effect>) {
     let open = state.chrome.panels.layout.show_details;
     let settings = &state.config.settings;
-    details::follow_settings(
-        &mut state.details,
-        open,
-        &settings.details,
-        &settings.panel,
-        state.config.usage().unwrap_or(settings.usage),
-    );
+    details::follow_settings(&mut state.details, open, &settings.details, &settings.panel);
     details::follow_selected(&mut state.details, state.tree.selected.as_ref());
 }
 

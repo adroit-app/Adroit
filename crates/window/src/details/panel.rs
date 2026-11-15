@@ -15,9 +15,9 @@ use super::changes::Repository;
 pub(crate) use super::changes::Worktree;
 pub(crate) use super::overview::LinkMenu;
 use super::overview::OpenedRow;
-use super::parts::PartView;
+use super::parts::RunView;
 use crate::bridge::AppCtx;
-use crate::details::{parts, repository, system_gauges};
+use crate::details::{parts, repository, runs, system_gauges};
 use crate::icons::IconView;
 
 /// The usage of the machine of the environment the tree is at, `shown`
@@ -91,7 +91,9 @@ pub(crate) fn DetailsPanel(
     } else {
         kind
     };
-    let (body, foot): (Vec<_>, Vec<_>) = parts(&details, work).into_iter().partition(|p| !p.foot);
+    let (body, foot): (Vec<_>, Vec<_>) = runs(parts(&details, work))
+        .into_iter()
+        .partition(|r| !r.first().is_some_and(|p| p.foot));
     let opened_row = details.drill.shows_row();
     rsx! {
         if tabs.len() > 1 {
@@ -122,10 +124,10 @@ pub(crate) fn DetailsPanel(
             } else if opened_row {
                 OpenedRow { back_keys: back_keys.clone(), on_kill }
             } else {
-                for part in body {
-                    PartView {
-                        key: "{part.placed.component.name()}-{part.at}",
-                        part,
+                for run in body {
+                    RunView {
+                        key: "{run[0].placed.component.name()}-{run[0].at}",
+                        run,
                         worktree: worktree.clone(),
                         kind: shown_kind,
                         live_input_ms,
@@ -139,10 +141,10 @@ pub(crate) fn DetailsPanel(
         }
         if !foot.is_empty() {
             div { class: "details-foot",
-                for part in foot {
-                    PartView {
-                        key: "foot-{part.placed.component.name()}-{part.at}",
-                        part,
+                for run in foot {
+                    RunView {
+                        key: "foot-{run[0].placed.component.name()}-{run[0].at}",
+                        run,
                         worktree: worktree.clone(),
                         kind: shown_kind,
                         live_input_ms,

@@ -57,10 +57,24 @@ pub enum Component {
     Log,
     /// The prompts sent to the session, newest first.
     Prompts,
-    /// The account limits of the agent shown, with the context used.
-    AgentUsage,
-    /// The machine's CPU, GPU, memory and storage.
-    Machine,
+    /// How full the context of the shown conversation is.
+    Context,
+    /// The agent account's limit of the session it is in, that resets
+    /// within hours.
+    SessionLimit,
+    /// The agent account's limit of the week.
+    WeekLimit,
+    /// The agent account's other limits: those of the week for one model,
+    /// and any the agent names on its own.
+    ModelLimits,
+    /// The whole machine's CPU use.
+    Cpu,
+    /// The GPU's use, when the system reports it.
+    Gpu,
+    /// The physical memory used.
+    Memory,
+    /// The capacity used on the startup volume.
+    Storage,
     /// How the connection to the environment stands.
     Environment,
     /// The environment's agent profiles, with their logins and usage.
@@ -82,6 +96,36 @@ pub enum Subject {
     Github,
 }
 
+/// What a component is of, as the Settings window groups them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Session,
+    Resources,
+    Repository,
+    Agent,
+    Machine,
+}
+
+impl Kind {
+    pub const ALL: &[Kind] = &[
+        Kind::Session,
+        Kind::Resources,
+        Kind::Repository,
+        Kind::Agent,
+        Kind::Machine,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Kind::Session => "Session",
+            Kind::Resources => "Resources",
+            Kind::Repository => "Repository",
+            Kind::Agent => "Agent usage",
+            Kind::Machine => "Machine",
+        }
+    }
+}
+
 impl Component {
     pub const ALL: &[Component] = &[
         Component::Session,
@@ -100,8 +144,14 @@ impl Component {
         Component::Changes,
         Component::Log,
         Component::Prompts,
-        Component::AgentUsage,
-        Component::Machine,
+        Component::Context,
+        Component::SessionLimit,
+        Component::WeekLimit,
+        Component::ModelLimits,
+        Component::Cpu,
+        Component::Gpu,
+        Component::Memory,
+        Component::Storage,
         Component::Environment,
         Component::Profiles,
         Component::Github,
@@ -126,8 +176,14 @@ impl Component {
             Component::Changes => "changes",
             Component::Log => "log",
             Component::Prompts => "prompts",
-            Component::AgentUsage => "agent-usage",
-            Component::Machine => "machine",
+            Component::Context => "context",
+            Component::SessionLimit => "session-limit",
+            Component::WeekLimit => "week-limit",
+            Component::ModelLimits => "model-limits",
+            Component::Cpu => "cpu",
+            Component::Gpu => "gpu",
+            Component::Memory => "memory",
+            Component::Storage => "storage",
             Component::Environment => "environment",
             Component::Profiles => "profiles",
             Component::Github => "github",
@@ -153,11 +209,151 @@ impl Component {
             Component::Changes => "Changes",
             Component::Log => "Log",
             Component::Prompts => "Prompts",
-            Component::AgentUsage => "Agent usage",
-            Component::Machine => "Machine",
+            Component::Context => "Context",
+            Component::SessionLimit => "Session limit",
+            Component::WeekLimit => "Weekly limit",
+            Component::ModelLimits => "Per-model limits",
+            Component::Cpu => "CPU",
+            Component::Gpu => "GPU",
+            Component::Memory => "Memory",
+            Component::Storage => "Storage",
             Component::Environment => "Environment",
             Component::Profiles => "Profiles",
             Component::Github => "GitHub",
+        }
+    }
+
+    /// What it shows, in a line, as the Settings window tells it.
+    pub fn about(self) -> &'static str {
+        match self {
+            Component::Session => {
+                "The session's name, state and model, when it started and last took input."
+            }
+            Component::Change => {
+                "The change the worktree is on; it opens the files the change touches."
+            }
+            Component::Progress => "How far the timeline at work has come.",
+            Component::Timeline => "The task trees the session's agent recorded.",
+            Component::Running => {
+                "Subagents at work, live processes and tied sessions still running."
+            }
+            Component::About => "The facts of the session that change little.",
+            Component::Sessions => "The sessions tied to this one.",
+            Component::Messages => "What the session sent and received through Adroit.",
+            Component::Subagents => "The subagents the session set to work.",
+            Component::Artifacts => "The claude.ai artifacts the conversation brought up.",
+            Component::Images => "The images the console drew and the image files seen.",
+            Component::Links => "The other web addresses the conversation brought up.",
+            Component::Files => "The files the session wrote, edited, read or named.",
+            Component::Changes => "The current change's description and its files.",
+            Component::Log => "The changes that lead to the worktree, as a graph.",
+            Component::Prompts => "The prompts sent to the session, newest first.",
+            Component::Context => "How full the conversation's context is.",
+            Component::SessionLimit => "The account's limit that resets within hours.",
+            Component::WeekLimit => "The account's limit of the week.",
+            Component::ModelLimits => "The account's weekly limits of one model, and any other.",
+            Component::Cpu => "The whole machine's CPU use.",
+            Component::Gpu => "The GPU's use, when the system reports it.",
+            Component::Memory => "The physical memory used.",
+            Component::Storage => "The capacity used on the startup volume.",
+            Component::Environment => "How the connection to the environment stands.",
+            Component::Profiles => "The environment's agent profiles, their logins and usage.",
+            Component::Github => {
+                "The pull request or issue selected, or the branch's pull request."
+            }
+        }
+    }
+
+    /// The icon it is shown with in the Settings window.
+    pub fn icon(self) -> Icon {
+        match self {
+            Component::Session => Icon::Terminal2,
+            Component::Change => Icon::GitBranch,
+            Component::Progress => Icon::LayoutDashboard,
+            Component::Timeline => Icon::TimelineEvent,
+            Component::Running => Icon::Loader,
+            Component::About => Icon::InfoCircle,
+            Component::Sessions => Icon::UsersGroup,
+            Component::Messages => Icon::Message,
+            Component::Subagents => Icon::ListTree,
+            Component::Artifacts => Icon::AppWindow,
+            Component::Images => Icon::Photo,
+            Component::Links => Icon::Link,
+            Component::Files => Icon::File,
+            Component::Changes => Icon::FileDiff,
+            Component::Log => Icon::GitCommit,
+            Component::Prompts => Icon::Send,
+            Component::Context => Icon::Notes,
+            Component::SessionLimit => Icon::RotateClockwise,
+            Component::WeekLimit => Icon::Refresh,
+            Component::ModelLimits => Icon::AdjustmentsHorizontal,
+            Component::Cpu => Icon::Cpu,
+            Component::Gpu => Icon::Gpu,
+            Component::Memory => Icon::Memory,
+            Component::Storage => Icon::Database,
+            Component::Environment => Icon::ServerBolt,
+            Component::Profiles => Icon::Lock,
+            Component::Github => Icon::BrandGithub,
+        }
+    }
+
+    /// What it is of, as the Settings window groups the components.
+    pub fn kind(self) -> Kind {
+        match self {
+            Component::Session
+            | Component::Change
+            | Component::Progress
+            | Component::Timeline
+            | Component::Running
+            | Component::About
+            | Component::Sessions
+            | Component::Messages
+            | Component::Subagents
+            | Component::Prompts => Kind::Session,
+            Component::Artifacts | Component::Images | Component::Links | Component::Files => {
+                Kind::Resources
+            }
+            Component::Changes | Component::Log | Component::Github => Kind::Repository,
+            Component::Context
+            | Component::SessionLimit
+            | Component::WeekLimit
+            | Component::ModelLimits => Kind::Agent,
+            Component::Cpu
+            | Component::Gpu
+            | Component::Memory
+            | Component::Storage
+            | Component::Environment
+            | Component::Profiles => Kind::Machine,
+        }
+    }
+
+    /// The machine's meter it is, with nothing else shown.
+    pub fn meter(self) -> Option<UsageSettings> {
+        let none = UsageSettings::NONE;
+        match self {
+            Component::Cpu => Some(UsageSettings { cpu: true, ..none }),
+            Component::Gpu => Some(UsageSettings { gpu: true, ..none }),
+            Component::Memory => Some(UsageSettings {
+                memory: true,
+                ..none
+            }),
+            Component::Storage => Some(UsageSettings {
+                storage: true,
+                ..none
+            }),
+            _ => None,
+        }
+    }
+
+    /// The kind of the agent's gauge it is.
+    pub fn gauge(self) -> Option<crate::details::GaugeKind> {
+        use crate::details::GaugeKind;
+        match self {
+            Component::Context => Some(GaugeKind::Context),
+            Component::SessionLimit => Some(GaugeKind::Session),
+            Component::WeekLimit => Some(GaugeKind::Week),
+            Component::ModelLimits => Some(GaugeKind::Other),
+            _ => None,
         }
     }
 
@@ -166,7 +362,8 @@ impl Component {
     /// pull request or issue, which a row of the tree also is.
     pub fn describes(self, subject: Subject) -> bool {
         match self {
-            Component::Machine | Component::Environment | Component::Profiles => true,
+            Component::Environment | Component::Profiles => true,
+            c if c.meter().is_some() => true,
             Component::Github => matches!(subject, Subject::Session | Subject::Github),
             _ => subject == Subject::Session,
         }
@@ -209,8 +406,6 @@ pub struct Placed {
     /// The rows it shows before a row that shows them all; the details
     /// settings' when unset.
     pub shown: Option<usize>,
-    /// The machine's meters it shows; this computer's choice when unset.
-    pub meters: Option<UsageSettings>,
 }
 
 impl Placed {
@@ -219,7 +414,6 @@ impl Placed {
             component,
             folded: None,
             shown: None,
-            meters: None,
         }
     }
 
@@ -229,7 +423,7 @@ impl Placed {
     }
 
     fn is_bare(&self) -> bool {
-        self.folded.is_none() && self.shown.is_none() && self.meters.is_none()
+        self.folded.is_none() && self.shown.is_none()
     }
 }
 
@@ -248,9 +442,6 @@ enum PlacedFile {
         /// The rows it shows before a row that shows them all.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shown: Option<usize>,
-        /// The machine's meters it shows, of `machine`.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        meters: Option<UsageSettings>,
     },
 }
 
@@ -279,7 +470,6 @@ impl Serialize for Placed {
                 component: self.component,
                 folded: self.folded,
                 shown: self.shown,
-                meters: self.meters,
             }
             .serialize(s)
         }
@@ -294,12 +484,10 @@ impl<'de> Deserialize<'de> for Placed {
                 component,
                 folded,
                 shown,
-                meters,
             } => Placed {
                 component,
                 folded,
                 shown,
-                meters,
             },
         })
     }
@@ -356,7 +544,16 @@ impl Surface {
         use Component as C;
         let p = Placed::new;
         Self {
-            foot: vec![p(C::AgentUsage), p(C::Machine)],
+            foot: vec![
+                p(C::Context),
+                p(C::SessionLimit),
+                p(C::WeekLimit),
+                p(C::ModelLimits),
+                p(C::Cpu),
+                p(C::Gpu),
+                p(C::Memory),
+                p(C::Storage),
+            ],
             tabs: vec![
                 DetailsTab::new(
                     "Overview",
@@ -391,7 +588,7 @@ impl Surface {
         use Component as C;
         let p = Placed::new;
         Self {
-            foot: vec![p(C::Machine)],
+            foot: vec![p(C::Cpu), p(C::Gpu), p(C::Memory), p(C::Storage)],
             tabs: vec![DetailsTab::new(
                 "Environment",
                 Icon::Server,
@@ -454,6 +651,38 @@ impl Surface {
     pub fn add(&mut self, slot: Slot, component: Component) {
         if let Some(list) = self.components_mut(slot) {
             list.push(Placed::new(component));
+        }
+    }
+
+    /// `component` placed in `slot` before what is at `at`, or last when `at`
+    /// is past the end.
+    pub fn insert(&mut self, slot: Slot, at: usize, component: Component) {
+        if let Some(list) = self.components_mut(slot) {
+            list.insert(at.min(list.len()), Placed::new(component));
+        }
+    }
+
+    /// What `from` places at `at` carried, as it shows, to `to` before what
+    /// is at `to_at` there, counted before it was taken out.
+    pub fn carry(&mut self, from: Slot, at: usize, to: Slot, to_at: usize) {
+        let Some(placed) = self
+            .components_mut(from)
+            .filter(|l| at < l.len())
+            .map(|l| l.remove(at))
+        else {
+            return;
+        };
+        let to_at = if from == to && to_at > at {
+            to_at - 1
+        } else {
+            to_at
+        };
+        match self.components_mut(to) {
+            Some(list) => list.insert(to_at.min(list.len()), placed),
+            None => self
+                .components_mut(from)
+                .into_iter()
+                .for_each(|l| l.insert(at, placed)),
         }
     }
 
@@ -630,25 +859,18 @@ mod tests {
         let layout = parse(
             r#"
 [session]
-foot = ["machine"]
+foot = ["cpu"]
 [[session.tabs]]
 title = "Mine"
-components = ["files", { component = "machine", meters = { gpu = false } }, { component = "about", folded = false, shown = 3 }]
+components = ["files", { component = "about", folded = false, shown = 3 }]
 "#,
         )
         .unwrap();
         let s = layout.session.unwrap();
-        assert_eq!(s.foot, [Placed::new(Component::Machine)]);
+        assert_eq!(s.foot, [Placed::new(Component::Cpu)]);
         let c = &s.tabs[0].components;
         assert_eq!(c[0], Placed::new(Component::Files));
-        assert_eq!(
-            c[1].meters,
-            Some(UsageSettings {
-                gpu: false,
-                ..UsageSettings::default()
-            })
-        );
-        assert_eq!((c[2].folded, c[2].shown), (Some(false), Some(3)));
+        assert_eq!((c[1].folded, c[1].shown), (Some(false), Some(3)));
     }
 
     #[test]
@@ -712,7 +934,8 @@ components = ["timeline"]
     fn what_the_environment_describes_can_be_placed_anywhere() {
         for subject in [Subject::Session, Subject::Environment, Subject::Github] {
             for c in [
-                Component::Machine,
+                Component::Cpu,
+                Component::Storage,
                 Component::Environment,
                 Component::Profiles,
             ] {
@@ -769,9 +992,9 @@ components = ["timeline"]
     fn tabs_and_components_are_added_and_taken_out_but_the_last_tab_stays() {
         let mut s = Surface::github();
         s.add_tab("Mine");
-        s.add(Slot::Tab(1), Component::Machine);
+        s.add(Slot::Tab(1), Component::Memory);
         s.add(Slot::Foot, Component::Profiles);
-        assert_eq!(s.tabs[1].components, [Placed::new(Component::Machine)]);
+        assert_eq!(s.tabs[1].components, [Placed::new(Component::Memory)]);
         assert_eq!(s.foot, [Placed::new(Component::Profiles)]);
         s.remove(Slot::Foot, 0);
         s.remove(Slot::Foot, 3);
@@ -783,12 +1006,41 @@ components = ["timeline"]
     }
 
     #[test]
+    fn a_component_is_put_where_it_is_dropped_and_carried_as_it_shows() {
+        let names = |l: &[Placed]| -> Vec<&str> { l.iter().map(|p| p.component.name()).collect() };
+        let mut s = Surface::github();
+        s.insert(Slot::Foot, 0, Component::Cpu);
+        s.insert(Slot::Foot, 0, Component::Memory);
+        s.insert(Slot::Foot, 9, Component::Storage);
+        assert_eq!(names(&s.foot), ["memory", "cpu", "storage"]);
+        s.carry(Slot::Foot, 0, Slot::Foot, 2);
+        assert_eq!(names(&s.foot), ["cpu", "memory", "storage"]);
+        s.foot[2].folded = Some(true);
+        s.carry(Slot::Foot, 2, Slot::Tab(0), 0);
+        assert_eq!(names(&s.foot), ["cpu", "memory"]);
+        assert_eq!(names(&s.tabs[0].components), ["storage", "github"]);
+        assert_eq!(s.tabs[0].components[0].folded, Some(true));
+        s.carry(Slot::Foot, 0, Slot::Tab(7), 0);
+        assert_eq!(names(&s.foot), ["cpu", "memory"]);
+    }
+
+    #[test]
+    fn every_component_has_its_own_icon_and_a_line_on_what_it_shows() {
+        let icons: std::collections::HashSet<_> = Component::ALL.iter().map(|c| c.icon()).collect();
+        assert_eq!(icons.len(), Component::ALL.len());
+        assert!(Component::ALL.iter().all(|c| c.about().ends_with('.')));
+    }
+
+    #[test]
     fn the_components_offered_for_a_subject_are_those_that_can_describe_it() {
         let offered: Vec<Component> = Component::placeable(Subject::Github).collect();
         assert_eq!(
             offered,
             [
-                Component::Machine,
+                Component::Cpu,
+                Component::Gpu,
+                Component::Memory,
+                Component::Storage,
                 Component::Environment,
                 Component::Profiles,
                 Component::Github

@@ -199,9 +199,29 @@ pub struct Gauge {
     pub used: u32,
     pub left: String,
     pub note: String,
-    /// Whether this is the conversation's context, not an account limit.
-    pub context: bool,
+    pub kind: GaugeKind,
     pub severity: Severity,
+}
+
+/// What a gauge measures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GaugeKind {
+    /// The conversation's context.
+    Context,
+    /// The account's limit of the session it is in.
+    Session,
+    /// The account's limit of the week.
+    Week,
+    /// Any other account limit: one model's of the week, or one the agent
+    /// names on its own.
+    Other,
+}
+
+impl Gauge {
+    /// Whether this is the conversation's context, not an account limit.
+    pub fn context(&self) -> bool {
+        self.kind == GaugeKind::Context
+    }
 }
 
 /// Context utilization alongside the agent's account usage limits.
@@ -217,7 +237,7 @@ pub fn context_gauge(stats: &adroit_model::ConversationStats) -> Option<Gauge> {
             tokens(used),
             tokens(total)
         ),
-        context: true,
+        kind: GaugeKind::Context,
         severity: Severity::Normal,
     })
 }
@@ -227,11 +247,11 @@ pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
     limits
         .iter()
         .map(|l| {
-            let label = match &l.window {
-                Window::Session => "Session".to_string(),
-                Window::Week => "Week".to_string(),
-                Window::WeekOf(name) => format!("Week · {name}"),
-                Window::Other(kind) => kind.replace('_', " "),
+            let (label, kind) = match &l.window {
+                Window::Session => ("Session".to_string(), GaugeKind::Session),
+                Window::Week => ("Week".to_string(), GaugeKind::Week),
+                Window::WeekOf(name) => (format!("Week · {name}"), GaugeKind::Other),
+                Window::Other(kind) => (kind.replace('_', " "), GaugeKind::Other),
             };
             let (percent, note) = match l.resets_ms {
                 Some(at) if at <= now_ms => (0, "reset".to_string()),
@@ -249,7 +269,7 @@ pub fn gauges(limits: &[Limit], now_ms: u64) -> Vec<Gauge> {
                 used: percent.min(100),
                 left: format!("{}% left", 100u32.saturating_sub(percent)),
                 note,
-                context: false,
+                kind,
                 severity: l.severity,
             }
         })
@@ -1353,7 +1373,7 @@ mod tests {
     fn context_utilization_is_a_usage_gauge_when_the_window_is_reported() {
         let gauge = context_gauge(&stats()).expect("reported window");
         assert_eq!(gauge.label, "Context");
-        assert!(gauge.context);
+        assert!(gauge.context());
         assert_eq!(gauge.used, 22);
         assert_eq!(gauge.left, "78% left");
         assert_eq!(gauge.note, "22% used · 219k / 1M tokens");
@@ -1600,7 +1620,7 @@ mod tests {
                 used: 3,
                 left: "97% left".into(),
                 note: "3% used · resets in 4 h 13 min".into(),
-                context: false,
+                kind: GaugeKind::Session,
                 severity: Severity::Normal,
             }]
         );

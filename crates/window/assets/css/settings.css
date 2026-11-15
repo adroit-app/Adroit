@@ -48,7 +48,6 @@ h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; p
 .settings-hint { color: var(--text-3); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .settings-mono { font-family: var(--mono); font-size: 12px; }
 .settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; margin-left: auto; }
-.settings-buttons { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 select, input, button, textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }
@@ -178,3 +177,83 @@ button.about-link:hover { background: var(--raised); border-color: var(--line-st
 
 .settings-nav-heading { margin: 16px 10px 6px; color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
 .settings-nav-heading:first-child { margin-top: 2px; }
+
+/* The details panel's arrangement: a picture of the panel beside the components it can hold. */
+.dl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dl-subjects { display: inline-flex; padding: 2px; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.dl-subject { background: transparent; color: var(--text-2); padding: 4px 12px; border-radius: 6px; }
+.dl-subject:hover { background: var(--raised); color: var(--text); }
+.dl-subject.on { background: var(--select); color: var(--text); font-weight: 500; }
+.dl-restore { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.dl-lead { margin: 10px 0 14px; }
+.dl-editor { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+/* As wide as the panel tends to be, so what fits on it is what fits in the window. */
+.dl-mock { flex: none; width: 280px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: var(--shadow); overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.dl-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); }
+.dl-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; background: transparent; color: var(--text-3);
+  border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; flex: none; }
+.dl-tab:hover { background: var(--raised); color: var(--text); }
+.dl-tab.on { color: var(--text); border-bottom-color: var(--run); }
+.dl-tab-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.dl-tab-letter { display: inline-flex; width: 16px; justify-content: center; font-weight: 600; }
+.dl-tab-add { color: var(--text-3); }
+.dl-tab-head { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.dl-tab-name { flex: 1; min-width: 0; }
+.dl-tab-name input { width: 100%; box-sizing: border-box; font-family: var(--sans); font-size: 13px; }
+.dl-icon-pick { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; background: var(--ground); border: 1px solid var(--line-strong); }
+.dl-icon-pick.on { border-color: var(--run); }
+.dl-tool { display: inline-flex; align-items: center; justify-content: center; padding: 3px; min-width: 22px; height: 22px;
+  background: transparent; color: var(--text-3); border-radius: 5px; }
+.dl-tool:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.dl-tool:disabled { opacity: .35; }
+.dl-tool.danger:hover:not(:disabled) { color: var(--fail); }
+.dl-tool.flip .icon { transform: rotate(180deg); }
+.dl-icons { position: absolute; z-index: 2; top: 84px; left: 8px; right: 8px; max-height: 220px; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 2px; padding: 6px;
+  background: var(--ground); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); }
+.dl-icon { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0; background: transparent; color: var(--text-2); }
+.dl-icon:hover { background: var(--raised); color: var(--text); }
+.dl-icon.on { background: var(--select); color: var(--text); outline: 1px solid var(--run); }
+.dl-area { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-height: 96px; border: 1px dashed transparent; margin: 4px; border-radius: 8px; }
+.dl-area.foot { min-height: 56px; }
+.dl-area.target { border-color: var(--line-strong); }
+.dl-area.over { border-color: var(--run); background: var(--run-tint); }
+.dl-foot-label { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 0; border-top: 1px solid var(--line);
+  font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+.dl-foot-label .settings-hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
+.dl-block { background: var(--ground); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 6px; cursor: grab; }
+.dl-block:hover { border-color: var(--line-strong); }
+.dl-block.over { box-shadow: 0 -3px 0 0 var(--run); }
+.dl-block-head { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
+.dl-block-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.dl-block-tools { display: inline-flex; gap: 1px; opacity: 0; }
+.dl-block:hover .dl-block-tools, .dl-block:focus-within .dl-block-tools { opacity: 1; }
+.dl-block-tools .dl-tool { min-width: 18px; height: 18px; padding: 2px; }
+.dl-empty { color: var(--text-3); font-size: 12px; text-align: center; margin: auto 0; padding: 12px 4px; }
+/* What a component shows, in grey: bars for meters, lines for rows. */
+.dl-sketch { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.dl-line { height: 4px; border-radius: 3px; background: var(--line-strong); width: 90%; }
+.dl-line.short { width: 55%; }
+.dl-bar { height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.dl-fill { height: 100%; width: 45%; border-radius: 3px; background: var(--run); }
+.dl-sketch.cpu .dl-fill { background: var(--usage-cpu); }
+.dl-sketch.gpu .dl-fill { background: var(--usage-gpu); width: 25%; }
+.dl-sketch.memory .dl-fill { background: var(--usage-memory); width: 65%; }
+.dl-sketch.storage .dl-fill { background: var(--usage-storage); width: 80%; }
+.dl-sketch.context .dl-fill { background: var(--usage-context); width: 35%; }
+.dl-palette { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.dl-palette-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dl-palette-head .settings-hint { margin: 0; }
+.dl-palette-title { font-weight: 600; }
+.dl-kind { display: flex; flex-direction: column; gap: 4px; }
+.dl-kind-title { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; padding: 0 2px; }
+.dl-card { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 8px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; cursor: grab; }
+.dl-card:hover { border-color: var(--line-strong); background: var(--raised); }
+.dl-card-icon { flex: none; display: inline-flex; color: var(--text-2); }
+.dl-card-text { flex: 1; min-width: 0; }
+.dl-card-title { display: flex; align-items: center; gap: 5px; font-weight: 500; }
+.dl-card-mark { display: inline-flex; color: var(--done); }
+.dl-card-about { color: var(--text-3); font-size: 11px; line-height: 1.35; margin-top: 1px; }
+.dl-card.placed .dl-card-title { color: var(--text-2); }

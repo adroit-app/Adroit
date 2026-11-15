@@ -46,7 +46,6 @@ impl Default for ViewState {
             state.chrome.panels.layout.show_details,
             &settings.details,
             &settings.panel,
-            state.config.usage().unwrap_or(settings.usage),
         );
         // A window that shows nothing asks nothing of the host, which starts
         // out reading nothing.

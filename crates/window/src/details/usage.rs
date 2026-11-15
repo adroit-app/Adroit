@@ -14,7 +14,7 @@ use crate::icons::{Icon, IconView};
 /// agent's account shows its usage.
 #[component]
 pub(super) fn AgentUsage(gauges: Vec<Gauge>, agent: Agent, usage_url: Option<String>) -> Element {
-    let account = gauges.iter().any(|g| !g.context);
+    let account = gauges.iter().any(|g| !g.context());
     rsx! {
         if !gauges.is_empty() {
             div { class: "details-usage",
@@ -52,7 +52,7 @@ pub(crate) fn Gauges(gauges: Vec<Gauge>) -> Element {
                 div { class: "usage-gauge-track",
                     div {
                         class: match g.severity {
-                            _ if g.context => "usage-gauge-fill context",
+                            _ if g.context() => "usage-gauge-fill context",
                             Severity::Normal => "usage-gauge-fill",
                             Severity::Warning => "usage-gauge-fill warning",
                             Severity::Critical => "usage-gauge-fill critical",

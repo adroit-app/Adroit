@@ -34,7 +34,6 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
         Msg::KeysRead(file) => crate::config::keys_read(state, file),
-        Msg::UsageChosen(usage) => crate::config::usage_chosen(&mut state.config, usage),
         Msg::PanelChosen(panel) => crate::config::panel_chosen(&mut state.config, panel),
 
         Msg::PanelsKept(layout) => panels::kept(&mut state.chrome.panels, layout),
