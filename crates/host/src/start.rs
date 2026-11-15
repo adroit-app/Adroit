@@ -200,17 +200,14 @@ pub fn cli(args: &[String]) -> i32 {
     };
     let started = (|| {
         let asked = prepared(asked, input, &std::env::current_dir()?)?;
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?
-            .block_on(start_as(
-                std::path::Path::new(&root),
-                &credential,
-                &asked.asked,
-                asked.dir,
-                &asked.prompt,
-            ))
-            .map_err(Failure::Run)
+        crate::cli::block_on(start_as(
+            std::path::Path::new(&root),
+            &credential,
+            &asked.asked,
+            asked.dir,
+            &asked.prompt,
+        ))?
+        .map_err(Failure::Run)
     })();
     match started {
         Ok(name) => {

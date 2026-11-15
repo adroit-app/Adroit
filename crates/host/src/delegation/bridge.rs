@@ -360,13 +360,9 @@ fn hook_cli() -> i32 {
     else {
         return 0;
     };
-    let answer = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let answer = crate::cli::block_on(hook(&event, Socket::new(Path::new(&root), credential)))
         .ok()
-        .and_then(|runtime| {
-            runtime.block_on(hook(&event, Socket::new(Path::new(&root), credential)))
-        });
+        .flatten();
     if let Some(answer) = answer {
         println!("{answer}");
     }
@@ -388,9 +384,7 @@ pub fn cli(args: &[String]) -> i32 {
         eprintln!("adroit: the MCP server runs only in a session Adroit started");
         return 1;
     };
-    let result = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
+    let result = crate::cli::serving_runtime()
         .map_err(Error::storage)
         .and_then(|runtime| {
             runtime.block_on(run(
@@ -402,10 +396,7 @@ pub fn cli(args: &[String]) -> i32 {
         });
     match result {
         Ok(()) => 0,
-        Err(error) => {
-            eprintln!("adroit: {error}");
-            1
-        }
+        Err(error) => crate::cli::failed(error, 1),
     }
 }
 

@@ -100,12 +100,6 @@ pub fn agent_env() -> Vec<(String, String)> {
     env
 }
 
-fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-}
-
 /// How often the daemon counts what runs and reads whether to keep the Mac
 /// awake: well within the minutes idle sleep waits.
 const AWAKE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
@@ -119,15 +113,11 @@ pub fn cli(asked: DaemonCommand) -> i32 {
     ) && let Some(text) = crate::cli::refusal(
         "it would end every session its terminal host holds, this one among them",
     ) {
-        eprintln!("adroit: {text}");
-        return 1;
+        return crate::cli::failed(text, 1);
     }
-    let rt = match runtime() {
+    let rt = match crate::cli::serving_runtime() {
         Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("adroit: {e}");
-            return 1;
-        }
+        Err(e) => return crate::cli::failed(e, 1),
     };
     let done = match asked {
         DaemonCommand::Serve => serve(&rt),

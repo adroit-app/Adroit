@@ -76,11 +76,8 @@ fn record(code: i32) -> Result<(), String> {
     let id = std::env::var("FELIS_SESSION_ID").map_err(|e| e.to_string())?;
     let id = u128::from_str_radix(&id, 16).map_err(|e| e.to_string())?;
     let add = tags::tagged(crate::sessions::EXIT, &code.to_string());
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    crate::cli::block_on(Daemon::new(socket).tag(id, add, Vec::new()))
         .map_err(|e| e.to_string())?
-        .block_on(Daemon::new(socket).tag(id, add, Vec::new()))
         .map_err(|e| e.to_string())
 }
 

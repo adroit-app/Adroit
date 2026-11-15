@@ -197,6 +197,29 @@ pub fn lives_in(caller: Option<&std::ffi::OsStr>, terminal: &std::path::Path) ->
 /// host it runs in.
 pub const TERMINAL_SOCKET_ENV: &str = "FELIS_SOCKET";
 
+/// `work` run to its end on a runtime of this thread alone, as a command
+/// that asks something and ends runs it.
+pub(crate) fn block_on<F: std::future::Future>(work: F) -> std::io::Result<F::Output> {
+    Ok(tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(work))
+}
+
+/// A runtime of several threads, for a command that serves until stopped.
+pub(crate) fn serving_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+}
+
+/// The exit code `code` of a command that failed, with `error` said on
+/// standard error.
+pub(crate) fn failed(error: impl std::fmt::Display, code: i32) -> i32 {
+    eprintln!("adroit: {error}");
+    code
+}
+
 /// Why stopping or restarting a host of the instance whose terminal host
 /// holds the session the command runs in is refused unless forced, with
 /// what it would do to that session as `effect`; `None` when the command
@@ -330,6 +353,16 @@ pub fn settle_instance(given: Option<String>) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn a_command_s_work_runs_to_its_end_on_a_runtime_of_its_own() {
+        let got = block_on(async {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            42
+        })
+        .unwrap();
+        assert_eq!(got, 42);
+    }
 
     fn asked(words: &[&str]) -> Option<Command> {
         let args: Vec<String> = words.iter().map(|w| w.to_string()).collect();

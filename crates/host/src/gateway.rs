@@ -145,23 +145,18 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     let done = (|| -> std::io::Result<i32> {
         adroit_sys::fs::private_dir(&dir)?;
         let files = GatewayFiles::in_dir(&dir);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        use crate::cli::block_on;
         match operation {
             RemoteCommand::Gateway { listen, advertise } => {
-                runtime.block_on(serve(&files, listen, advertise))
+                block_on(serve(&files, listen, advertise))?
             }
-            RemoteCommand::Pair => runtime.block_on(pair(&files)),
+            RemoteCommand::Pair => block_on(pair(&files))?,
             RemoteCommand::Devices => devices(&files),
-            RemoteCommand::Revoke(prefix) => runtime.block_on(revoke(&files, &prefix)),
+            RemoteCommand::Revoke(prefix) => block_on(revoke(&files, &prefix))?,
             _ => unreachable!("not a gateway command"),
         }
     })();
-    done.unwrap_or_else(|error| {
-        eprintln!("adroit: {error}");
-        1
-    })
+    done.unwrap_or_else(|error| crate::cli::failed(error, 1))
 }
 
 async fn serve(

@@ -511,17 +511,14 @@ fn opener() -> Result<Option<String>, String> {
     let (Ok(credential), Ok(root)) = (std::env::var(TOKEN_ENV), std::env::var(ROOT_ENV)) else {
         return Ok(None);
     };
-    let caller: Caller = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())?
-        .block_on(ask_for(
-            std::path::Path::new(&root),
-            &credential,
-            Command::Context,
-            None,
-        ))
-        .map_err(|e| e.to_string())?;
+    let caller: Caller = crate::cli::block_on(ask_for(
+        std::path::Path::new(&root),
+        &credential,
+        Command::Context,
+        None,
+    ))
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     Ok(Some(caller.id.to_string()))
 }
 

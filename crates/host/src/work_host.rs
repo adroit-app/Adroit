@@ -239,11 +239,8 @@ pub async fn ensure(socket: &Path, program: &Path, args: &[String]) -> Result<bo
 pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
     let ran = (|| {
         let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| e.to_string())?;
-        rt.block_on(asked(&socket(), Ask::Run { args, cwd, input }))
+        crate::cli::block_on(asked(&socket(), Ask::Run { args, cwd, input }))
+            .map_err(|e| e.to_string())?
     })();
     match ran {
         Ok(Answer::Ran {
@@ -470,18 +467,11 @@ pub fn cli(asked: HostCommand) -> i32 {
         _ => None,
     };
     if let Some(text) = effect.and_then(crate::cli::refusal) {
-        eprintln!("adroit: {text}");
-        return 1;
+        return crate::cli::failed(text, 1);
     }
-    let rt = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let rt = match crate::cli::serving_runtime() {
         Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("adroit: {e}");
-            return 1;
-        }
+        Err(e) => return crate::cli::failed(e, 1),
     };
     let socket = socket();
     let done = rt.block_on(async {
