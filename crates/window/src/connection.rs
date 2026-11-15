@@ -478,6 +478,8 @@ fn label(request: &adroit_protocol::Request) -> String {
             Ask::KeepDrafts(_) => "Save drafts".into(),
             Ask::ConsumeDraft { .. } => "Finish a sent draft".into(),
             Ask::KeepImage { .. } => "Upload an image".into(),
+            Ask::MakeEntry { path, dir: true } => format!("Make directory: {}", path.display()),
+            Ask::MakeEntry { path, .. } => format!("Make file: {}", path.display()),
             Ask::SaveSettings { .. } | Ask::SaveKeys { .. } => "Save settings".into(),
             Ask::Run { .. } => "Run a command on the work machine".into(),
             _ => "Change the remote work".into(),

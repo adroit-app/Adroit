@@ -49,6 +49,14 @@ pub enum Effect {
     Show { thing: Tab, how: Opening },
     /// Tell the user this in the status line.
     Notice(String),
+    /// Ask the work host of `environment` to make `path` in `worktree`, a
+    /// directory when `dir`, with the directories it passes through.
+    MakeEntry {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        path: PathBuf,
+        dir: bool,
+    },
 
     /// Draw the consoles in these colours.
     Palette(adroit_protocol::Colours),

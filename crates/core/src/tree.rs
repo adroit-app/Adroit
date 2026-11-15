@@ -58,6 +58,9 @@ pub struct TreeView {
     kept_among: u64,
     /// The tab the selection last followed.
     followed: Option<Tab>,
+    /// What was made, selected once it is listed unless the selection has
+    /// moved off the row it was on when it was made.
+    landing: Option<(Option<Item>, Item)>,
     /// The row gone into, whose first row is selected once it is listed,
     /// as a directory's are once the host has read it.
     into: Option<Item>,
@@ -336,6 +339,52 @@ pub(crate) fn go_into(view: &mut TreeView) {
     if let Some(first) = first {
         view.selected = Some(first.clone());
         view.into = None;
+    }
+}
+
+/// `path` was made in `worktree` of `environment`: the directories down to
+/// it open, and it is selected once listed.
+pub(crate) fn made(
+    view: &mut TreeView,
+    environment: &EnvironmentId,
+    worktree: &Path,
+    path: &Path,
+    dir: bool,
+) -> Vec<Effect> {
+    let file = |path: &Path, dir: bool| Item::File {
+        environment: environment.clone(),
+        worktree: worktree.to_path_buf(),
+        path: path.to_path_buf(),
+        dir,
+    };
+    view.folds.set(
+        &Item::Heading(environment.clone(), worktree.to_path_buf(), Heading::Files),
+        true,
+    );
+    for up in path
+        .ancestors()
+        .skip(1)
+        .take_while(|up| up.starts_with(worktree) && *up != worktree)
+    {
+        view.folds.set(&file(up, true), true);
+    }
+    view.landing = Some((view.selected.clone(), file(path, dir)));
+    Vec::new()
+}
+
+/// What was made is selected once it is listed, unless the selection has
+/// moved meanwhile.
+pub(crate) fn land(view: &mut TreeView) {
+    let Some((from, to)) = view.landing.take() else {
+        return;
+    };
+    if view.selected != from {
+        return;
+    }
+    if view.rows.contains(&to) {
+        view.selected = Some(to);
+    } else {
+        view.landing = Some((from, to));
     }
 }
 
@@ -1331,5 +1380,181 @@ mod tests {
         assert_eq!(run.state().tree.environment_at(&here()), here());
         let selected = run.send(Msg::TreeSelect(Some(Item::Environment(there()))));
         assert_eq!(selected.state().tree.environment_at(&here()), there());
+    }
+
+    fn perform(action: Action) -> Msg {
+        Msg::Perform {
+            action,
+            key: None,
+            probe: Box::new(crate::console::Probe::default()),
+        }
+    }
+
+    /// `with_src` with `/r/src` selected, a new entry of `action` being
+    /// named in it.
+    fn naming_in_src(action: Action) -> (Scenario, Item) {
+        let (run, src) = with_src();
+        let run = run
+            .send(Msg::Focus(crate::content::Area::Sidebar))
+            .send(Msg::TreeSelect(Some(src.clone())))
+            .send(perform(action));
+        (run, src)
+    }
+
+    #[test]
+    fn a_new_file_is_named_under_the_directory_selected_which_opens_for_it() {
+        use crate::overlay::naming::Kind;
+        let (run, src) = naming_in_src(Action::FileNew);
+        let naming = run.state().overlays.naming.clone().expect("a name asked");
+        assert_eq!(naming.dir, PathBuf::from("/r/src"));
+        assert_eq!(naming.kind, Kind::File);
+        assert!(run.state().tree.folds.is_open(&src));
+        let (run, _) = naming_in_src(Action::DirectoryNew);
+        let naming = run.state().overlays.naming.clone().expect("a name asked");
+        assert_eq!(naming.kind, Kind::Directory);
+    }
+
+    #[test]
+    fn off_the_files_no_name_is_asked() {
+        let (run, _) = with_src();
+        let run = run
+            .send(Msg::Focus(crate::content::Area::Sidebar))
+            .send(Msg::TreeSelect(Some(Item::Session(here(), "a".into()))))
+            .send(perform(Action::FileNew));
+        assert_eq!(run.state().overlays.naming, None);
+    }
+
+    #[test]
+    fn the_name_typed_asks_the_host_to_make_it() {
+        let (run, _) = naming_in_src(Action::FileNew);
+        let run = run
+            .send(Msg::NamingText("a/b.rs".into()))
+            .send(Msg::NamingEnd { commit: true });
+        assert_eq!(run.state().overlays.naming, None);
+        assert_eq!(
+            run.last_effects(),
+            [Effect::MakeEntry {
+                environment: here(),
+                worktree: "/r".into(),
+                path: "/r/src/a/b.rs".into(),
+                dir: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_name_given_up_or_empty_makes_nothing() {
+        for (text, commit) in [("a.rs", false), ("  ", true)] {
+            let (run, _) = naming_in_src(Action::FileNew);
+            let run = run
+                .send(Msg::NamingText(text.into()))
+                .send(Msg::NamingEnd { commit });
+            assert_eq!(run.state().overlays.naming, None, "{text}");
+            assert!(
+                !run.last_effects()
+                    .iter()
+                    .any(|e| matches!(e, Effect::MakeEntry { .. })),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_reaching_outside_its_directory_is_told_and_makes_nothing() {
+        let (run, _) = naming_in_src(Action::FileNew);
+        let run = run
+            .send(Msg::NamingText("../x".into()))
+            .send(Msg::NamingEnd { commit: true });
+        assert_eq!(run.state().overlays.naming, None);
+        assert!(
+            !run.last_effects()
+                .iter()
+                .any(|e| matches!(e, Effect::MakeEntry { .. }))
+        );
+        assert!(
+            run.state()
+                .chrome
+                .status
+                .line
+                .as_deref()
+                .is_some_and(|t| t.contains("../x"))
+        );
+    }
+
+    #[test]
+    fn the_field_goes_when_its_directory_is_no_longer_listed() {
+        let (run, src) = naming_in_src(Action::FileNew);
+        let run = run.send(Msg::TreeFold {
+            row: Item::Heading(here(), "/r".into(), Heading::Files),
+            open: false,
+        });
+        assert!(!run.state().tree.rows.contains(&src));
+        assert_eq!(run.state().overlays.naming, None);
+    }
+
+    #[test]
+    fn what_is_made_is_selected_once_listed_its_directories_open() {
+        let (run, src) = with_src();
+        let a = Item::File {
+            environment: here(),
+            worktree: "/r".into(),
+            path: "/r/src/a".into(),
+            dir: true,
+        };
+        let b = Item::File {
+            environment: here(),
+            worktree: "/r".into(),
+            path: "/r/src/a/b.rs".into(),
+            dir: false,
+        };
+        let run = run
+            .send(Msg::TreeSelect(Some(src.clone())))
+            .send(Msg::EntryMade {
+                environment: here(),
+                worktree: "/r".into(),
+                path: "/r/src/a/b.rs".into(),
+                dir: false,
+            });
+        assert!(run.state().tree.folds.is_open(&src));
+        assert!(run.state().tree.folds.is_open(&a));
+        assert_eq!(selected(&run), Some(src.clone()));
+        let run = run
+            .event(patch(3).change(TreeChange::Entries {
+                dir: "/r/src".into(),
+                entries: vec![Entry {
+                    path: "/r/src/a".into(),
+                    dir: true,
+                }],
+            }))
+            .event(patch(4).change(TreeChange::Entries {
+                dir: "/r/src/a".into(),
+                entries: vec![Entry {
+                    path: "/r/src/a/b.rs".into(),
+                    dir: false,
+                }],
+            }));
+        assert_eq!(selected(&run), Some(b));
+    }
+
+    #[test]
+    fn what_is_made_is_not_selected_once_the_selection_has_moved_on() {
+        let (run, src) = with_src();
+        let run = run
+            .send(Msg::TreeSelect(Some(src.clone())))
+            .send(Msg::EntryMade {
+                environment: here(),
+                worktree: "/r".into(),
+                path: "/r/src/lib.rs".into(),
+                dir: false,
+            })
+            .send(Msg::TreeSelect(Some(Item::Session(here(), "a".into()))))
+            .event(patch(3).change(TreeChange::Entries {
+                dir: "/r/src".into(),
+                entries: vec![Entry {
+                    path: "/r/src/lib.rs".into(),
+                    dir: false,
+                }],
+            }));
+        assert_eq!(selected(&run), Some(Item::Session(here(), "a".into())));
     }
 }

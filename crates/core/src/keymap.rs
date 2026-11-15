@@ -549,7 +549,7 @@ mod tests {
             Step::Run(Action::SessionNew)
         );
         // A key the details panel leaves alone falls through to the sidebar's.
-        assert_eq!(step(&map, &both, &[], "N"), Step::Nothing);
+        assert_eq!(step(&map, &both, &[], "N"), Step::Run(Action::FileNew));
     }
 
     #[test]
@@ -1028,6 +1028,8 @@ mod tests {
             ("ArrowLeft", Action::FilerOut),
             ("Enter", Action::FilerOpen),
             ("!", Action::FilerHidden),
+            ("N", Action::FileNew),
+            ("K", Action::DirectoryNew),
             // What the filer leaves unbound is the tree's.
             ("s", Action::CursorSplit),
         ] {

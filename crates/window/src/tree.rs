@@ -2,6 +2,7 @@
 //! rows, each read from the tree slice and what the work host listed.
 
 mod filter_field;
+mod naming_field;
 mod panel;
 mod row;
 

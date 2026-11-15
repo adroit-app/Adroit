@@ -778,6 +778,33 @@ impl AppCtx {
                 ));
             }
             Effect::Notice(text) => self.notice(text),
+            Effect::MakeEntry {
+                environment,
+                worktree,
+                path,
+                dir,
+            } => {
+                let app = *self;
+                let made = app.ask_in(
+                    &environment,
+                    Ask::MakeEntry {
+                        path: path.clone(),
+                        dir,
+                    },
+                );
+                spawn(async move {
+                    match made.await {
+                        Answer::Done => app.dispatch(Msg::EntryMade {
+                            environment,
+                            worktree,
+                            path,
+                            dir,
+                        }),
+                        Answer::Failed { text } => app.notice(text),
+                        answer => app.notice(format!("the work host answered {answer:?}")),
+                    }
+                });
+            }
             Effect::ShowSession(environment, id) => {
                 self.dispatch(Msg::ShowSession(environment, id))
             }

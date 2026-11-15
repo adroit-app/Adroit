@@ -64,6 +64,8 @@ changes them ([keys](../keys.md)).
 | `filer.out` |  | close the directory selected when it is open, or else the one it is in, going there | `filer`: `h`, `ArrowLeft` |
 | `filer.open` |  | in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected | `filer`: `Enter` |
 | `filer.hidden` |  | show or hide the files and directories whose names start with `.` | `filer`: `!` |
+| `file.new` |  | in the tree's files, type the name of a file to make in the directory selected, in the one the file selected is in, or at the top of the worktree from its Files heading; a name with `/` makes the directories it passes through too, one ending in `/` makes a directory, and one already there is left as it is | `tree`: `N` |
+| `directory.new` |  | type the name of a directory to make, where `file.new` makes a file | `tree`: `K` |
 | `waiting.next` | Next Waiting | look at the next session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
 | `waiting.prev` | Previous Waiting | look at the previous session waiting on you in the preview, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
 | `session.next` | Next Session | look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
@@ -278,6 +280,8 @@ changes them ([keys](../keys.md)).
 "w" = "session.pick"
 "A" = "workspace.add"
 "!" = "worktrees.toggle"
+"N" = "file.new"
+"K" = "directory.new"
 "}" = "workspace.next"
 "{" = "workspace.prev"
 

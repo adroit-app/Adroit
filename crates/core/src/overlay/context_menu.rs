@@ -5,7 +5,7 @@ use adroit_model::{EnvironmentId, Session};
 
 use crate::actions::{Action, Group};
 use crate::content::Tab;
-use crate::tree::nav::Item;
+use crate::tree::nav::{Heading, Item};
 
 /// What a menu was opened on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +69,7 @@ pub fn entries(
     let copy_name = (Action::CursorCopy, "Copy name");
     let fold = (Action::CursorGo, "Fold or unfold");
     let close = offer(Action::CursorClose);
+    let makes = [Action::FileNew, Action::DirectoryNew].map(offer);
     let close_tab = offer(Action::TabClose);
     let stop_terminal = offer(Action::TerminalStop);
     match target {
@@ -93,6 +94,7 @@ pub fn entries(
             .into_iter()
             .chain([copy_path])
             .chain(here)
+            .chain(makes)
             .chain([close])
             .collect(),
         Target::Row(Item::Worktree(_, _)) => opens
@@ -106,8 +108,13 @@ pub fn entries(
             .chain(here)
             .chain([offer(Action::WorkspaceRemove)])
             .collect(),
-        Target::Row(Item::File { dir: true, .. }) => {
-            [fold, copy_path].into_iter().chain(here).collect()
+        Target::Row(Item::File { dir: true, .. }) => [fold, copy_path]
+            .into_iter()
+            .chain(here)
+            .chain(makes)
+            .collect(),
+        Target::Row(Item::Heading(_, _, Heading::Files)) => {
+            [fold].into_iter().chain(here).chain(makes).collect()
         }
         Target::Row(Item::Across(..) | Item::Heading(..)) => {
             [fold].into_iter().chain(here).collect()
@@ -328,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_opens_where_its_key_says_copies_its_path_and_closes_its_windows() {
+    fn a_file_opens_where_its_key_says_copies_its_path_makes_beside_it_and_closes_its_windows() {
         let file = Item::File {
             environment: here(),
             worktree: "/api".into(),
@@ -344,11 +351,33 @@ mod tests {
                     Action::SessionNew,
                     Action::ShellOpen,
                     Action::NeovimOpen,
+                    Action::FileNew,
+                    Action::DirectoryNew,
                     Action::CursorClose,
                 ],
             ]
             .concat()
         );
+    }
+
+    #[test]
+    fn a_directory_and_the_files_heading_make_files_and_directories_in_them() {
+        let dir = Item::File {
+            environment: here(),
+            worktree: "/api".into(),
+            path: "/api/src".into(),
+            dir: true,
+        };
+        let files = Item::Heading(here(), "/api".into(), crate::tree::nav::Heading::Files);
+        let sessions = Item::Heading(here(), "/api".into(), crate::tree::nav::Heading::Sessions);
+        for row in [dir, files] {
+            let got = actions(Target::Row(row.clone()), None);
+            assert!(
+                got.ends_with(&[Action::FileNew, Action::DirectoryNew]),
+                "{row:?}"
+            );
+        }
+        assert!(!actions(Target::Row(sessions), None).contains(&Action::FileNew));
     }
 
     #[test]

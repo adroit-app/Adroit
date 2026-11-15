@@ -13,6 +13,7 @@ use crate::effect::Effect;
 use crate::layout::Side;
 use crate::msg::Msg;
 use crate::overlay::confirm::Ask;
+use crate::overlay::naming::Kind as NamingKind;
 use crate::overlay::rename::Place as RenamePlace;
 use crate::state::ViewState;
 use crate::tree::nav::{self, Item};
@@ -212,6 +213,17 @@ pub(crate) fn perform(
             effects
         }
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
+        Action::FileNew | Action::DirectoryNew => match cur.filter(|_| on_list) {
+            Some(row) => {
+                let kind = if action == Action::FileNew {
+                    NamingKind::File
+                } else {
+                    NamingKind::Directory
+                };
+                step(state, Msg::NamingStart { row, kind })
+            }
+            None => Vec::new(),
+        },
         Action::SessionRename => {
             let chosen = match cur.as_ref().map(Item::own) {
                 Some(Item::Session(environment, id) | Item::Waiting(environment, id))

@@ -80,6 +80,15 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
                 .map_err(|e| e.to_string())
                 .and_then(|kept| kept)
         }
+        Ask::MakeEntry { path, dir } => {
+            let made = crate::environment::spawn_blocking(move || crate::making::make(&path, dir))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|made| made);
+            // The listing shows what was made without waiting on the disk's watch.
+            watched.read_again();
+            made.map(|()| Answer::Done)
+        }
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveSettingsChecked { text, expected } => save_settings_checked(text, expected),
         Ask::SaveKeys { text } => save_keys(&text),

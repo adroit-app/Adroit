@@ -426,6 +426,26 @@ pub enum Msg {
         place: RenamePlace,
         commit: bool,
     },
+    /// Start typing the name of a new entry of `kind` in the tree's files,
+    /// from the row `row`.
+    NamingStart {
+        row: crate::tree::nav::Item,
+        kind: crate::overlay::naming::Kind,
+    },
+    /// The field naming a new entry now holds `text`.
+    NamingText(String),
+    /// The field naming a new entry left, the name typed kept or given up.
+    NamingEnd {
+        commit: bool,
+    },
+    /// The work host made `path` in `worktree` of `environment`, a directory
+    /// when `dir`.
+    EntryMade {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        path: PathBuf,
+        dir: bool,
+    },
     /// How the sessions' daemon of the environment stands, as the banner
     /// would say it.
     DaemonStanding {

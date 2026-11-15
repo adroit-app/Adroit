@@ -78,6 +78,13 @@ Opening a file shows it in a viewer or in Neovim, by its kind
 A file a Neovim started on it has open is drawn brighter than the other
 files, whether a window shows that Neovim or not.
 
+A new file or directory is named in place, in the directory selected, the
+one the file selected is in, or the worktree from its Files heading, and
+made there on the work machine ([keys](reference/keys.md#actions)). A name
+with `/` makes the directories it passes through too, and cannot reach
+outside the directory it is typed in. What is there already is never
+overwritten. What is made is selected once it is listed.
+
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.
 

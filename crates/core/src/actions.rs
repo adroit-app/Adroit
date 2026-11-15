@@ -67,6 +67,8 @@ pub enum Action {
     FilerOut,
     FilerOpen,
     FilerHidden,
+    FileNew,
+    DirectoryNew,
     WaitingNext,
     WaitingPrev,
     SessionNext,
@@ -328,6 +330,12 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::FilerOut, "filer.out", "close the directory selected when it is open, or else the one it is in, going there").says("Close the directory"),
     S::new(A::FilerOpen, "filer.open", "in the tree, open the file or fold the directory selected as `cursor.go` does; in the picker, start a session in the directory selected").says("Open"),
     S::new(A::FilerHidden, "filer.hidden", "show or hide the files and directories whose names start with `.`").says("Show or hide the hidden"),
+    S::new(A::FileNew, "file.new", "in the tree's files, type the name of a file to make in the directory selected, in the one the file selected is in, or at the top of the worktree from its Files heading; a name with `/` makes the directories it passes through too, one ending in `/` makes a directory, and one already there is left as it is")
+        .icon(Icon::FilePlus)
+        .row("New file…", Start),
+    S::new(A::DirectoryNew, "directory.new", "type the name of a directory to make, where `file.new` makes a file")
+        .icon(Icon::FolderPlus)
+        .row("New directory…", Start),
     S::new(A::WaitingNext, "waiting.next", "look at the next session waiting on you in the preview, with the keys in its console").bar("Next Waiting", Icon::BellDown).repeats(Steps::Waiting),
     S::new(A::WaitingPrev, "waiting.prev", "look at the previous session waiting on you in the preview, with the keys in its console").bar("Previous Waiting", Icon::BellUp).repeats(Steps::Waiting),
     S::new(A::SessionNext, "session.next", "look at the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, in the preview; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown).repeats(Steps::Sessions),
@@ -617,6 +625,8 @@ mod tests {
             FilerOut,
             FilerOpen,
             FilerHidden,
+            FileNew,
+            DirectoryNew,
             WaitingNext,
             WaitingPrev,
             SessionNext,

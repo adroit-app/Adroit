@@ -78,6 +78,7 @@ icons! {
     File => "file",
     FileDiff => "file-diff",
     FilePencil => "file-pencil",
+    FilePlus => "file-plus",
     Filter => "filter",
     Folder => "folder",
     FolderDown => "folder-down",

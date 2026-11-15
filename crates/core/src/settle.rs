@@ -41,6 +41,7 @@ const RULES: &[Rule] = &[
     tree_changes,
     tree_filter_left,
     overlay_rename,
+    overlay_naming,
     details_shown,
     details_told,
     details_usage,
@@ -188,6 +189,7 @@ fn tree_failing(state: &mut ViewState, effects: &mut Vec<Effect>) {
 fn tree_rows(state: &mut ViewState, _: &mut Vec<Effect>) {
     tree::build(&mut state.tree, &state.hosts);
     tree::go_into(&mut state.tree);
+    tree::land(&mut state.tree);
 }
 
 /// A selected row that leaves the rows gives way to another.
@@ -237,6 +239,11 @@ fn tree_filter_left(state: &mut ViewState, effects: &mut Vec<Effect>) {
 /// A name being typed goes when its row or its tab is no longer shown.
 fn overlay_rename(state: &mut ViewState, _: &mut Vec<Effect>) {
     overlay::keep_rename(state);
+}
+
+/// A new entry being named goes when its directory is no longer shown.
+fn overlay_naming(state: &mut ViewState, _: &mut Vec<Effect>) {
+    overlay::keep_naming(state);
 }
 
 /// The details panel reads by the session and the worktree the focused

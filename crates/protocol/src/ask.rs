@@ -50,6 +50,12 @@ pub enum Ask {
     KeepImageFile {
         path: PathBuf,
     },
+    /// Make `path`, a directory when `dir` or else an empty file, with the
+    /// directories it passes through; one already there is left as it is.
+    MakeEntry {
+        path: PathBuf,
+        dir: bool,
+    },
     /// Make the settings those `text` writes in `settings.toml`'s format.
     SaveSettings {
         text: String,

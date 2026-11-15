@@ -263,6 +263,15 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             place,
             commit,
         } => overlay::end_rename(state, &environment, &id, place, commit),
+        Msg::NamingStart { row, kind } => overlay::start_naming(state, &row, kind),
+        Msg::NamingText(text) => overlay::type_naming(state, text),
+        Msg::NamingEnd { commit } => overlay::end_naming(state, commit),
+        Msg::EntryMade {
+            environment,
+            worktree,
+            path,
+            dir,
+        } => tree::made(&mut state.tree, &environment, &worktree, &path, dir),
         Msg::DaemonStanding { environment, note } => {
             overlay::daemon_standing(state, environment, note)
         }

@@ -9,6 +9,7 @@ use adroit_core::tree;
 use dioxus::prelude::*;
 
 use super::filter_field::FilterField;
+use super::naming_field::NamingField;
 use super::row::{RowContext, RowEvents, TreeRow, WaitingRow};
 use crate::bridge::AppCtx;
 use crate::components::{Hint, Keys, ListRow};
@@ -43,6 +44,12 @@ pub(crate) fn TreePanel(
             view.every_worktree,
         )
     };
+    // A new entry's name is typed first among the entries of its directory.
+    let naming = app.overlays.read().naming.clone().map(|naming| {
+        let under = naming.under();
+        let depth = app.tree.read().depth(&under) + 1;
+        (under, naming, depth)
+    });
     let empty = {
         let hosts = app.hosts.read();
         hosts
@@ -78,7 +85,10 @@ pub(crate) fn TreePanel(
                     ListRow { kind: "dim", "No sessions yet" }
                 }
                 for item in rows.into_iter().filter(|i| !matches!(i, Item::Waiting(_, _))) {
-                    TreeRow { key: "{item:?}", item, context, on }
+                    TreeRow { key: "{item:?}", item: item.clone(), context, on }
+                    if let Some((under, naming, depth)) = naming.clone().filter(|(under, ..)| *under == item) {
+                        NamingField { key: "naming-{under:?}", naming, depth }
+                    }
                 }
                 button {
                     r#type: "button",
