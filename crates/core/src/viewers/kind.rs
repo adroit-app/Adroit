@@ -35,6 +35,15 @@ impl FileKind {
     }
 }
 
+/// Whether the file at `path` can be read and written as text in Neovim,
+/// whether or not a viewer shows it: every file without a viewer, and the
+/// viewers' files that are written as text.
+pub fn is_text(path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+    !FileKind::of(path).has_viewer()
+        || matches!(extension(path).as_deref(), Some("html" | "htm" | "svg"))
+}
+
 fn extension(path: &Path) -> Option<String> {
     Some(path.extension()?.to_str()?.to_ascii_lowercase())
 }
@@ -124,6 +133,16 @@ mod tests {
         ] {
             assert_eq!(FileKind::of(name), FileKind::Text, "{name}");
             assert!(!FileKind::of(name).has_viewer());
+        }
+    }
+
+    #[test]
+    fn pages_and_drawings_are_text_as_well_and_the_other_viewers_files_are_not() {
+        for name in ["a.html", "a.HTM", "a.svg", "main.rs", "README.md"] {
+            assert!(is_text(name), "{name}");
+        }
+        for name in ["a.png", "a.mp4", "a.pdf"] {
+            assert!(!is_text(name), "{name}");
         }
     }
 

@@ -193,7 +193,8 @@ including one of a kind Adroit does not know, opens in Neovim.
 A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
 for in the tree. A file already open in a Neovim started on it opens that Neovim
 again. A viewer ends with the windows showing it; it keeps its zoom, page and
-playback while the focus moves between windows.
+playback while the focus moves between windows. A viewer reads the files of
+this computer alone ([remote execution](remote-execution.md)).
 
 A file's kind is decided by its extension alone, whatever its case. The common
 image formats open in the image viewer, the common movie formats in the movie

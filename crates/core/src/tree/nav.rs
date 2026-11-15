@@ -726,6 +726,9 @@ pub enum Opens {
     Edit(PathBuf, PathBuf),
     /// A session not started yet, in the worktree.
     Draft(PathBuf),
+    /// A file of a work machine that only a viewer of this computer would
+    /// show, which cannot read it.
+    Unavailable,
 }
 
 /// Whether `item` has rows under it to fold.
@@ -742,8 +745,10 @@ pub fn unfolds(item: &Item, folds: &Folds) -> bool {
 
 /// What opening `item` shows: a file by its kind, in its viewer or in
 /// Neovim, the one already started on it if there is one; a worktree its
-/// first session, or else a new one.
-pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
+/// first session, or else a new one. A file of an environment not `local`,
+/// which the window's viewers cannot read, opens in Neovim when it is text
+/// and nowhere when it is not.
+pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: bool) -> Opens {
     match item {
         Item::Environment(_)
         | Item::Workspace(_, _)
@@ -758,8 +763,11 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
         } => {
             let at = Some(Place::at(environment, worktree.clone()));
             let editing = editing(terminals, path).next().map(|t| t.id);
-            if crate::viewers::FileKind::of(path).has_viewer() {
+            let viewer = crate::viewers::FileKind::of(path).has_viewer();
+            if viewer && local {
                 Opens::Shows(Tab::Viewer(environment.clone(), path.clone()), at)
+            } else if !crate::viewers::is_text(path) {
+                Opens::Unavailable
             } else if let Some(id) = editing {
                 Opens::Shows(Tab::Terminal(environment.clone(), id), at)
             } else {
@@ -774,7 +782,7 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Opens {
             Tab::Terminal(environment.clone(), *id),
             place_of(tree, item),
         ),
-        Item::Gathered(own) => opens(own, tree, terminals),
+        Item::Gathered(own) => opens(own, tree, terminals, local),
         Item::Worktree(environment, path) => {
             let p = Place::at(environment, path.clone());
             match sessions_in(tree, &p).first() {
@@ -986,7 +994,10 @@ mod tests {
     fn a_gathered_row_opens_and_copies_what_its_own_row_does() {
         let t = tree();
         let row = gathered_session("o");
-        assert_eq!(opens(&row, &t, &[]), opens(&session("o"), &t, &[]));
+        assert_eq!(
+            opens(&row, &t, &[], true),
+            opens(&session("o"), &t, &[], true)
+        );
         assert_eq!(copied(&row, &t, &[]), copied(&session("o"), &t, &[]));
         assert_eq!(stands_for(&row, &[]), stands_for(&session("o"), &[]));
         assert_eq!(place_of(&t, &row), Some(at(OAUTH)));
@@ -1906,11 +1917,11 @@ mod tests {
     fn a_session_s_row_opens_the_session_in_its_worktree() {
         let t = tree();
         assert_eq!(
-            opens(&session("o"), &t, &[]),
+            opens(&session("o"), &t, &[], true),
             Opens::Shows(Tab::Session(here(), "o".into()), Some(at(OAUTH)))
         );
         assert_eq!(
-            opens(&Item::Waiting(here(), "b".into()), &t, &[]),
+            opens(&Item::Waiting(here(), "b".into()), &t, &[], true),
             Opens::Shows(Tab::Session(here(), "b".into()), Some(at("/api")))
         );
     }
@@ -1919,11 +1930,11 @@ mod tests {
     fn a_worktree_s_row_opens_its_first_session_or_else_a_new_one() {
         let t = tree();
         assert_eq!(
-            opens(&worktree(OAUTH), &t, &[]),
+            opens(&worktree(OAUTH), &t, &[], true),
             Opens::Shows(Tab::Session(here(), "o".into()), Some(at(OAUTH)))
         );
         assert_eq!(
-            opens(&worktree("/none"), &t, &[]),
+            opens(&worktree("/none"), &t, &[], true),
             Opens::Draft("/none".into())
         );
     }
@@ -1933,19 +1944,47 @@ mod tests {
         let t = tree();
         let nvim = [editing(9, "/api/a.rs")];
         assert_eq!(
-            opens(&file("/api", "/api/logo.png", false), &t, &nvim),
+            opens(&file("/api", "/api/logo.png", false), &t, &nvim, true),
             Opens::Shows(
                 Tab::Viewer(here(), "/api/logo.png".into()),
                 Some(at("/api"))
             )
         );
         assert_eq!(
-            opens(&file("/api", "/api/a.rs", false), &t, &nvim),
+            opens(&file("/api", "/api/a.rs", false), &t, &nvim, true),
             Opens::Shows(Tab::Terminal(here(), 9), Some(at("/api")))
         );
         assert_eq!(
-            opens(&file("/api", "/api/b.rs", false), &t, &nvim),
+            opens(&file("/api", "/api/b.rs", false), &t, &nvim, true),
             Opens::Edit("/api".into(), "/api/b.rs".into())
+        );
+    }
+
+    #[test]
+    fn a_work_machine_s_file_opens_in_neovim_when_it_is_text_and_nowhere_when_not() {
+        let t = tree();
+        let nvim = [editing(9, "/api/page.html")];
+        assert_eq!(
+            opens(&file("/api", "/api/page.html", false), &t, &nvim, false),
+            Opens::Shows(Tab::Terminal(here(), 9), Some(at("/api")))
+        );
+        assert_eq!(
+            opens(&file("/api", "/api/logo.svg", false), &t, &nvim, false),
+            Opens::Edit("/api".into(), "/api/logo.svg".into())
+        );
+        for path in ["/api/logo.png", "/api/clip.mp4", "/api/paper.pdf"] {
+            assert_eq!(
+                opens(&file("/api", path, false), &t, &nvim, false),
+                Opens::Unavailable,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            opens(&file("/api", "/api/logo.svg", false), &t, &nvim, true),
+            Opens::Shows(
+                Tab::Viewer(here(), "/api/logo.svg".into()),
+                Some(at("/api"))
+            )
         );
     }
 
@@ -1959,7 +1998,7 @@ mod tests {
             dir: true,
         };
         for item in [ws("/api"), sessions_of("/api"), dir] {
-            assert_eq!(opens(&item, &t, &[]), Opens::Fold, "{item:?}");
+            assert_eq!(opens(&item, &t, &[], true), Opens::Fold, "{item:?}");
         }
     }
 

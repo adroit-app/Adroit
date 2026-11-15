@@ -340,7 +340,8 @@ pub(crate) fn open_row(
         view.folds.set(&item, true);
         return Vec::new();
     }
-    let opens = nav::opens(&item, view.narrowed(item.environment()), terminals);
+    let local = state.hosts.is_local(item.environment());
+    let opens = nav::opens(&item, view.narrowed(item.environment()), terminals, local);
     let toggles = unfolds || matches!(opens, nav::Opens::Fold);
     let content = &mut state.content;
     let show = |content: &mut super::ContentView, thing: Tab| match how {
@@ -369,6 +370,9 @@ pub(crate) fn open_row(
             let draft = draft_at(content, item.environment().clone(), worktree.clone());
             show(content, draft);
             content.place = Some(Place::at(item.environment(), worktree));
+        }
+        nav::Opens::Unavailable => {
+            return vec![Effect::Notice(super::REMOTE_PREVIEW.into())];
         }
     }
     if take_keys && !toggles {

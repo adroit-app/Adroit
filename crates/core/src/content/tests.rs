@@ -1047,6 +1047,27 @@ fn a_file_asked_to_be_edited_starts_a_neovim_on_it_in_its_folder() {
 }
 
 #[test]
+fn a_viewer_of_a_work_machine_s_file_is_refused_and_one_of_this_computer_s_opens() {
+    let run = shows_there(listed_with([session("a").cwd("/r")]), [session("b")])
+        .send(Msg::OnWorkMachine(there()))
+        .send(show(session_tab("a")));
+    let refused = run.send(show(Tab::Viewer(there(), "/w/plot.png".into())));
+    assert_eq!(active(&refused), Some(session_tab("a")));
+    assert_eq!(
+        refused.last_effects(),
+        [Effect::Notice(
+            "Remote file previews are unavailable".into()
+        )]
+    );
+    let here_too = shows_there(listed_with([session("a").cwd("/r")]), [session("b")])
+        .send(show(Tab::Viewer(there(), "/w/plot.png".into())));
+    assert_eq!(
+        active(&here_too),
+        Some(Tab::Viewer(there(), "/w/plot.png".into()))
+    );
+}
+
+#[test]
 fn a_file_asked_to_be_edited_in_another_environment_starts_its_neovim_there() {
     let run = shows_there(listed_with([session("a").cwd("/r")]), [session("b")])
         .send(Msg::EditFile(there(), "/c/prompt/nvim/init.lua".into()));

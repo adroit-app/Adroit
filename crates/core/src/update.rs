@@ -29,6 +29,10 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         }
         Msg::EnvironmentOpened { environment, name } => state.hosts.add(environment, name),
         Msg::EnvironmentRemoved(environment) => host::close(state, &environment),
+        Msg::OnWorkMachine(environment) => {
+            state.hosts.on_work_machine(&environment);
+            Vec::new()
+        }
         Msg::WindowFocused(on) => chrome::window_focused(&mut state.chrome, on),
         Msg::Zoom(step) => chrome::step(&mut state.chrome, step),
         Msg::KeysRead(file) => crate::config::keys_read(state, file),
@@ -77,7 +81,10 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
 
         Msg::ContentOpened { kept, scratch } => content::opened(&mut state.content, kept, scratch),
         Msg::Focus(area) => content::focus(&mut state.content, area),
-        Msg::Show { thing, place, how } => content::show(&mut state.content, thing, place, how),
+        Msg::Show { thing, place, how } => {
+            let local = state.hosts.is_local(thing.environment());
+            content::show(&mut state.content, thing, place, how, local)
+        }
         Msg::ShowSession(environment, id) => content::show_session(state, environment, id),
         Msg::Draft { worktree, write } => content::draft(
             &mut state.content,

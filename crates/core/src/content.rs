@@ -326,7 +326,11 @@ pub(crate) fn show(
     thing: Tab,
     place: Option<Place>,
     how: Option<Opening>,
+    local: bool,
 ) -> Vec<Effect> {
+    if matches!(thing, Tab::Viewer(..)) && !local {
+        return vec![Effect::Notice(REMOTE_PREVIEW.into())];
+    }
     if place.is_some() {
         view.place = place;
     }
@@ -336,6 +340,9 @@ pub(crate) fn show(
     }
     Vec::new()
 }
+
+/// What the window says when a viewer is asked for a file of a work machine.
+pub(crate) const REMOTE_PREVIEW: &str = "Remote file previews are unavailable";
 
 /// A new session's draft in `worktree` of `environment`, with the options
 /// chosen for the next one.

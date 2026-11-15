@@ -39,6 +39,9 @@ pub enum Msg {
     /// `environment` is no longer kept, or is archived, so the window no
     /// longer lists it; the environment it was started in stays.
     EnvironmentRemoved(EnvironmentId),
+    /// `environment`, one the window shows, is on a work machine rather than
+    /// this computer, so its files are not on this computer's disk.
+    OnWorkMachine(EnvironmentId),
     /// The window was brought to the front, or sent to the back.
     WindowFocused(bool),
     /// A key asked to zoom.

@@ -183,6 +183,7 @@ pub(crate) fn use_app() -> AppCtx {
         // and a panel kept hidden was not hidden now. The host's first
         // answers are taken in before the window is drawn, so it opens in
         // the configuration's zoom and theme.
+        let remote = links.own().remote_status().is_some();
         let mut effects = pump(
             &mut view,
             &links,
@@ -194,7 +195,9 @@ pub(crate) fn use_app() -> AppCtx {
                     home: home(),
                     environment: environment.clone(),
                 },
-            ],
+            ]
+            .into_iter()
+            .chain(remote.then(|| Msg::OnWorkMachine(environment.clone()))),
         );
         // Where a session started with nothing open runs, as the host
         // answered.
@@ -406,10 +409,14 @@ impl AppCtx {
         ) {
             self.status(Some(format!("cannot write the editor script: {e}")));
         }
+        let remote = link.remote_status().is_some();
         self.dispatch(Msg::EnvironmentOpened {
-            environment: id,
+            environment: id.clone(),
             name: environment.name.clone(),
         });
+        if remote {
+            self.dispatch(Msg::OnWorkMachine(id));
+        }
     }
 
     /// The link to `environment`, the window's own for one it does not show.

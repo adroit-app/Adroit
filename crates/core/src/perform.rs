@@ -311,7 +311,8 @@ pub(crate) fn perform(
                     nav::opens(
                         &item,
                         state.tree.narrowed(item.environment()),
-                        tree::terminals(state.hosts.work(item.environment()))
+                        tree::terminals(state.hosts.work(item.environment())),
+                        state.hosts.is_local(item.environment())
                     ),
                     nav::Opens::Fold
                 ) || nav::unfolds(&item, &state.tree.folds) =>

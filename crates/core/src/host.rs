@@ -36,6 +36,8 @@ pub struct Host {
     pub(crate) watched: Sight,
     /// What the environment is called, once the window is told.
     name: Option<String>,
+    /// The environment is on a work machine, not this computer.
+    remote: bool,
     /// The failure the host last told, said once until its work comes
     /// again: a link that cannot reach its host tells it at every try.
     failed: Option<String>,
@@ -127,6 +129,20 @@ impl Hosts {
             vec![hello(environment)]
         } else {
             Vec::new()
+        }
+    }
+
+    /// Whether `environment`'s files are on this computer's disk, for the
+    /// window's viewers to read: those of any environment the window was not
+    /// told is on a work machine.
+    pub fn is_local(&self, environment: &EnvironmentId) -> bool {
+        !self.get(environment).is_some_and(|h| h.remote)
+    }
+
+    /// `environment`, one the window shows, is on a work machine.
+    pub(crate) fn on_work_machine(&mut self, environment: &EnvironmentId) {
+        if let Some(host) = self.each.get_mut(environment) {
+            host.remote = true;
         }
     }
 
