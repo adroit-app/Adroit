@@ -8,7 +8,7 @@ use super::*;
 
 const CHANGES: usize = 1;
 use crate::actions::Action;
-use crate::layout::Side;
+use crate::chrome::panels::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
 use crate::testing::{
@@ -462,7 +462,7 @@ fn hiding_the_panel_with_the_keys_gives_them_to_the_console() {
 
 #[test]
 fn a_panel_hidden_from_the_start_leaves_the_keys_where_they_are() {
-    let layout = crate::layout::Layout {
+    let layout = crate::chrome::panels::layout::Layout {
         show_sidebar: false,
         ..Default::default()
     };

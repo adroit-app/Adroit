@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-pub use adroit_core::layout::*;
+pub use adroit_core::chrome::panels::layout::*;
 
 use adroit_model::paths::state_dir;
 

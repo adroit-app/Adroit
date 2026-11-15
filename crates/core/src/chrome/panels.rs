@@ -1,8 +1,10 @@
 //! The side panels as the window draws them: their layout, the room they
 //! share with the console, and an edge being dragged.
 
+pub mod layout;
+
+use self::layout::{Layout, SIDE, Side};
 use crate::effect::Effect;
-use crate::layout::{Layout, SIDE, Side};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Panels {
@@ -128,8 +130,8 @@ pub(crate) fn drop(panels: &mut Panels) -> Vec<Effect> {
 
 #[cfg(test)]
 mod tests {
+    use super::layout::{Layout, MIN_SIDE, SIDE, Side};
     use crate::effect::Effect;
-    use crate::layout::{Layout, MIN_SIDE, SIDE, Side};
     use crate::msg::Msg;
     use crate::scenario::Scenario;
 

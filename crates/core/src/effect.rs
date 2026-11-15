@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use adroit_model::{EnvironmentId, Key};
 
 use crate::actions::Action;
+use crate::chrome::panels::layout::Layout;
 use crate::content::{Opening, Tab, TerminalAsk, WindowId};
 use crate::details::Scroll;
-use crate::layout::Layout;
 use crate::prompt::send::{Start, Taken};
 use crate::viewers::ViewerAction;
 

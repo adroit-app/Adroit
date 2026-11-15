@@ -1533,7 +1533,9 @@ mod tests {
         let run = if run.state().details.shown.open {
             run
         } else {
-            run.send(Msg::PanelToggle(crate::layout::Side::Details))
+            run.send(Msg::PanelToggle(
+                crate::chrome::panels::layout::Side::Details,
+            ))
         };
         assert!(run.state().details.shown.open);
         let run = run.send(Msg::TreeSelect(Some(Item::Environment(there()))));
@@ -1554,7 +1556,9 @@ mod tests {
             let run = if run.state().details.shown.open {
                 run
             } else {
-                run.send(Msg::PanelToggle(crate::layout::Side::Details))
+                run.send(Msg::PanelToggle(
+                    crate::chrome::panels::layout::Side::Details,
+                ))
             };
             // On the tab that lists the profiles, as Adroit has it.
             run.send(Msg::TreeSelect(Some(Item::Environment(environment))))
@@ -1571,7 +1575,9 @@ mod tests {
         let within =
             there_heading.send(Msg::TreeSelect(Some(Item::Workspace(there(), "/r".into()))));
         assert!(!agents(&within, there()));
-        let closed = heading(there()).send(Msg::PanelToggle(crate::layout::Side::Details));
+        let closed = heading(there()).send(Msg::PanelToggle(
+            crate::chrome::panels::layout::Side::Details,
+        ));
         assert!(!closed.state().details.shown.open);
         assert!(!agents(&closed, there()));
     }

@@ -8,11 +8,11 @@ use adroit_model::{Agent, EnvironmentId, Key, TerminalSession};
 use adroit_protocol::Event;
 
 use crate::actions::Action;
+use crate::chrome::panels::layout::{Layout, Side};
 use crate::console::Probe;
 use crate::content::{Area, Border, DraftOptions, DropAt, Opening, Tab, WindowId};
 use crate::details::{self, Component};
 use crate::keymap::Context;
-use crate::layout::{Layout, Side};
 use crate::overlay::confirm::Ask;
 use crate::overlay::context_menu::Target;
 use crate::overlay::rename::Place as RenamePlace;

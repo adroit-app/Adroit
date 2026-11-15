@@ -19,8 +19,8 @@ use adroit_model::profile::{AgentProfile, ProfileId};
 use adroit_model::{Agent, EnvironmentId, TerminalProgram, Tree};
 use adroit_protocol::{Seq, WorkSnapshot};
 
+use crate::chrome::panels::layout::Layout;
 use crate::effect::Effect;
-use crate::layout::Layout;
 use crate::tree::Place;
 
 pub(crate) use editing::*;

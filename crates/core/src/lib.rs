@@ -19,7 +19,6 @@ pub mod graph;
 pub mod host;
 pub mod icons;
 pub mod keymap;
-pub mod layout;
 pub mod msg;
 pub mod overlay;
 pub mod palette;
@@ -39,3 +38,6 @@ pub mod tree;
 pub mod update;
 pub mod viewers;
 pub mod zoom;
+
+/// The side panels' widths, still reached here by the details panel.
+pub use chrome::panels::layout;

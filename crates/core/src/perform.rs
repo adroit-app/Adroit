@@ -5,12 +5,12 @@ use adroit_model::Key;
 use adroit_protocol::Request;
 
 use crate::actions::Action;
+use crate::chrome::panels::layout::Side;
 use crate::console::Probe;
 use crate::console::route;
 use crate::content::{self, Area, Axis, Opening, Tab, shows_prompt};
 use crate::details::{self, Scroll};
 use crate::effect::Effect;
-use crate::layout::Side;
 use crate::msg::Msg;
 use crate::overlay::confirm::Ask;
 use crate::overlay::naming::Kind as NamingKind;

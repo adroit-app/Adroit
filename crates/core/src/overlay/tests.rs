@@ -3,10 +3,10 @@ use adroit_model::{Key, Process, Wait};
 
 use super::*;
 use crate::actions::Action;
+use crate::chrome::panels::layout::Side;
 use crate::content::Area;
 use crate::effect::Effect;
 use crate::keymap::Context;
-use crate::layout::Side;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
 use crate::testing::{listing, session, session_tab, there};
