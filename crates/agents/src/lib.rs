@@ -579,7 +579,6 @@ mod tests {
 
     #[test]
     fn a_variable_is_the_launch_s_before_adroit_s_own() {
-
         let mut context = AgentContext::builtin(Agent::Codex);
         assert_eq!(
             context.variable("HOME"),

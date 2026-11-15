@@ -12,7 +12,7 @@ use std::{
 use adroit_model::timeline::{Entry, Timeline};
 use adroit_model::{Agent, ModelCatalog, SessionId, StartupReadiness};
 use adroit_term::{Daemon, tags};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::io::BufReader;
 
 use super::{
@@ -174,13 +174,16 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
                 Some(parent) => context.call(move |store| store.session(parent)).await?,
                 None => None,
             };
-            Ok(json!({
-                "id": caller.id,
-                "code": caller.code,
-                "name": caller.name,
-                "dir": caller.cwd,
-                "opened_by": parent.map(|p| json!({"id": p.id, "code": p.code, "name": p.name, "ended": p.ended})),
-            }))
+            answer(protocol::Caller {
+                id: caller.id,
+                code: caller.code,
+                name: caller.name,
+                dir: caller.cwd,
+                opened_by: parent.map(|p| protocol::Parent {
+                    opener: protocol::Opener::of(&p),
+                    ended: p.ended,
+                }),
+            })
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
         Command::Rename(asked) => rename(context, &caller, asked).await,
@@ -199,27 +202,24 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
                     store.send(caller.id, to, &send.body)
                 })
                 .await?;
-            Ok(json!({"sent": id}))
+            answer(protocol::Sent { sent: id })
         }
         Command::Sessions(filter) => {
             let all = context.call(|store| store.sessions()).await?;
             listed(all, &filter).await
         }
-        Command::Models => Ok(serde_json::to_value(
-            context.models.lock().expect("the models' lock").view(),
-        )
-        .map_err(Error::storage)?),
+        Command::Models => answer(context.models.lock().expect("the models' lock").view()),
         Command::Next => {
             let id = caller.id;
             let next = context.call(move |store| next_message(store, id)).await?;
-            Ok(match next {
-                Some((message, sender)) => json!({
-                    "id": message.id,
-                    "from": message.sender,
-                    "content": envelope(&message, sender.as_ref()),
+            match next {
+                Some((message, sender)) => answer(protocol::Delivery {
+                    id: message.id,
+                    from: message.sender,
+                    content: envelope(&message, sender.as_ref()),
                 }),
-                None => Value::Null,
-            })
+                None => Ok(Value::Null),
+            }
         }
         Command::Delivered { id } => {
             let recipient = caller.id;
@@ -380,7 +380,7 @@ async fn rename(context: &Context, caller: &Session, asked: protocol::Rename) ->
     context
         .call(move |store| store.rename(id, &kept, false))
         .await?;
-    Ok(json!({"name": name}))
+    answer(protocol::Renamed { name })
 }
 
 /// How long a session closing itself runs on once it is answered, for its
@@ -409,7 +409,7 @@ async fn close(context: &Context, caller: &Session) -> Result<Value> {
             );
         }
     });
-    Ok(json!({"closing": true}))
+    answer(protocol::Closing { closing: true })
 }
 
 /// What the caller's agent is told as a prompt arrives or once its
@@ -428,7 +428,7 @@ async fn prompted(context: &Context, caller: &Session, cleared: bool) -> Result<
         (Some(naming), Some(timeline)) => Some(format!("{naming}\n\n{timeline}")),
         (naming, timeline) => naming.or(timeline),
     };
-    Ok(json!({"note": note}))
+    answer(protocol::Note { note })
 }
 
 /// What the caller's agent is told of its session's name: once its
@@ -516,12 +516,12 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
             };
             Error::new(code, failure.message)
         })?;
-    Ok(json!({
-        "id": started.recorded.id,
-        "code": started.recorded.code,
-        "name": started.name,
-        "dir": started.dir,
-    }))
+    answer(protocol::Started {
+        id: started.recorded.id,
+        code: started.recorded.code,
+        name: started.name,
+        dir: started.dir,
+    })
 }
 
 /// The sessions that have not ended, narrowed as `filter` asks.
@@ -553,19 +553,24 @@ async fn listed(all: Vec<Session>, filter: &protocol::Sessions) -> Result<Value>
         let opened_by = session
             .parent
             .and_then(|parent| all.iter().find(|s| s.id == parent))
-            .map(|parent| json!({"id": parent.id, "code": parent.code, "name": parent.name}));
-        out.push(json!({
-            "id": session.id,
-            "code": session.code,
-            "name": session.name,
-            "agent": session.agent,
-            "dir": session.cwd,
-            "repository": repository,
-            "readiness": session.readiness,
-            "opened_by": opened_by,
-        }));
+            .map(protocol::Opener::of);
+        out.push(protocol::Listed {
+            id: session.id,
+            code: session.code.clone(),
+            name: session.name.clone(),
+            agent: session.agent,
+            dir: session.cwd.clone(),
+            repository,
+            readiness: session.readiness,
+            opened_by,
+        });
     }
-    Ok(Value::Array(out))
+    answer(out)
+}
+
+/// `value` as the socket answers it.
+fn answer(value: impl serde::Serialize) -> Result<Value> {
+    serde_json::to_value(value).map_err(Error::storage)
 }
 
 async fn watch_models(context: Context) {
@@ -989,6 +994,7 @@ fn channel_warning_keys(
 mod tests {
     use super::*;
     use crate::testing::{message, record};
+    use serde_json::json;
 
     fn conversation_watch(
         title: &str,

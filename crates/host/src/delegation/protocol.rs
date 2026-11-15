@@ -1,7 +1,7 @@
 //! What a session asks the work host, one JSON line each way.
 use std::path::{Path, PathBuf};
 
-use adroit_model::{Agent, AgentPermissions, MessageId};
+use adroit_model::{Agent, AgentPermissions, MessageId, SessionCode, SessionId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -161,6 +161,100 @@ pub struct Sessions {
     pub dir: Option<PathBuf>,
 }
 
+/// A session that opened another, as the one it opened is told of it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Opener {
+    pub id: SessionId,
+    pub code: SessionCode,
+    pub name: String,
+}
+
+impl Opener {
+    pub(crate) fn of(session: &super::Session) -> Self {
+        Self {
+            id: session.id,
+            code: session.code.clone(),
+            name: session.name.clone(),
+        }
+    }
+}
+
+/// The session that opened the caller, and whether it has ended.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Parent {
+    #[serde(flatten)]
+    pub opener: Opener,
+    pub ended: bool,
+}
+
+/// The answer to [`Command::Context`]: the caller's own session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Caller {
+    pub id: SessionId,
+    pub code: SessionCode,
+    pub name: String,
+    pub dir: PathBuf,
+    pub opened_by: Option<Parent>,
+}
+
+/// The answer to [`Command::StartSession`]: the session started.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Started {
+    pub id: SessionId,
+    pub code: SessionCode,
+    pub name: String,
+    pub dir: PathBuf,
+}
+
+/// One session of the answer to [`Command::Sessions`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Listed {
+    pub id: SessionId,
+    pub code: SessionCode,
+    pub name: String,
+    pub agent: Agent,
+    pub dir: PathBuf,
+    /// The repository it works in, by its common directory.
+    pub repository: Option<PathBuf>,
+    pub readiness: super::Readiness,
+    pub opened_by: Option<Opener>,
+}
+
+/// The answer to [`Command::Send`]: the message sent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sent {
+    pub sent: MessageId,
+}
+
+/// The answer to [`Command::Next`]: a message to hand the caller's agent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Delivery {
+    pub id: MessageId,
+    pub from: SessionId,
+    /// The message as its recipient's agent reads it.
+    pub content: String,
+}
+
+/// The answer to [`Command::Rename`]: the name taken.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Renamed {
+    pub name: String,
+}
+
+/// The answer to [`Command::Close`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Closing {
+    pub closing: bool,
+}
+
+/// The answer to [`Command::Prompted`]: what the caller's agent is told, if
+/// anything.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Note {
+    pub note: Option<String>,
+}
+
 pub(crate) async fn read_frame(reader: &mut (impl AsyncBufRead + Unpin)) -> Result<Vec<u8>> {
     let mut frame = Vec::new();
     loop {
@@ -219,6 +313,22 @@ pub async fn ask(
     response.result
 }
 
+/// [`ask`], its answer read as `T`.
+pub async fn ask_for<T: serde::de::DeserializeOwned>(
+    root: &Path,
+    credential: &str,
+    command: Command,
+    thread: Option<String>,
+) -> Result<T> {
+    let answer = ask(root, credential, command, thread).await?;
+    serde_json::from_value(answer).map_err(|error| {
+        Error::new(
+            Code::Storage,
+            format!("the work host's answer is not understood: {error}"),
+        )
+    })
+}
+
 /// How long a request waits for a work host to listen again, as one being
 /// replaced is stopped and its successor started.
 const REPLACING: std::time::Duration = std::time::Duration::from_secs(10);
@@ -244,6 +354,81 @@ async fn connect(socket: &Path) -> std::io::Result<adroit_sys::local::Stream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn wire(answer: impl Serialize) -> Value {
+        serde_json::to_value(answer).unwrap()
+    }
+
+    fn opener() -> Opener {
+        Opener {
+            id: "6efede4a-8866-4d1a-9431-07c591be83ba".parse().unwrap(),
+            code: "57u7".parse().unwrap(),
+            name: "lead".into(),
+        }
+    }
+
+    #[test]
+    fn each_answer_reads_on_the_wire_as_agents_were_told_it_does() {
+        let id: adroit_model::SessionId = "e0131a25-f7be-40d6-838e-946265fbada4".parse().unwrap();
+        let code: adroit_model::SessionCode = "ku8c".parse().unwrap();
+        assert_eq!(
+            wire(Caller {
+                id,
+                code: code.clone(),
+                name: "review".into(),
+                dir: "/repo".into(),
+                opened_by: Some(Parent {
+                    opener: opener(),
+                    ended: false
+                }),
+            }),
+            json!({"id": id, "code": "ku8c", "name": "review", "dir": "/repo",
+                "opened_by": {"id": opener().id, "code": "57u7", "name": "lead", "ended": false}})
+        );
+        assert_eq!(
+            wire(Started {
+                id,
+                code: code.clone(),
+                name: "review".into(),
+                dir: "/repo".into(),
+            }),
+            json!({"id": id, "code": "ku8c", "name": "review", "dir": "/repo"})
+        );
+        assert_eq!(
+            wire(Listed {
+                id,
+                code,
+                name: "review".into(),
+                agent: Agent::Codex,
+                dir: "/repo".into(),
+                repository: None,
+                readiness: super::super::Readiness::Ready,
+                opened_by: Some(opener()),
+            }),
+            json!({"id": id, "code": "ku8c", "name": "review", "agent": "codex",
+                "dir": "/repo", "repository": null, "readiness": "ready",
+                "opened_by": {"id": opener().id, "code": "57u7", "name": "lead"}})
+        );
+        let message = MessageId::new();
+        assert_eq!(wire(Sent { sent: message }), json!({"sent": message}));
+        assert_eq!(
+            wire(Delivery {
+                id: message,
+                from: id,
+                content: "hi".into()
+            }),
+            json!({"id": message, "from": id, "content": "hi"})
+        );
+        assert_eq!(
+            wire(Renamed {
+                name: "review-2".into()
+            }),
+            json!({"name": "review-2"})
+        );
+        assert_eq!(wire(Closing { closing: true }), json!({"closing": true}));
+        assert_eq!(wire(Note { note: None }), json!({"note": null}));
+    }
 
     #[tokio::test]
     async fn a_frame_written_is_read_back_as_one_line() {

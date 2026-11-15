@@ -507,25 +507,22 @@ fn asked_as(
 /// credential tells the work host; none outside a session Adroit runs.
 fn opener() -> Result<Option<String>, String> {
     use crate::delegation::launch::{ROOT_ENV, TOKEN_ENV};
-    use crate::delegation::protocol::{Command, ask};
+    use crate::delegation::protocol::{Caller, Command, ask_for};
     let (Ok(credential), Ok(root)) = (std::env::var(TOKEN_ENV), std::env::var(ROOT_ENV)) else {
         return Ok(None);
     };
-    let context = tokio::runtime::Builder::new_current_thread()
+    let caller: Caller = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?
-        .block_on(ask(
+        .block_on(ask_for(
             std::path::Path::new(&root),
             &credential,
             Command::Context,
             None,
         ))
         .map_err(|e| e.to_string())?;
-    context["id"]
-        .as_str()
-        .map(|id| Some(id.to_owned()))
-        .ok_or_else(|| "the work host did not say which session this is".into())
+    Ok(Some(caller.id.to_string()))
 }
 
 /// `adroit terminal <args>` as the work host runs it for a command run in

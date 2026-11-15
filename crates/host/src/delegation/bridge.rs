@@ -290,16 +290,14 @@ async fn notifications<W: AsyncWrite + Unpin>(
             .ok()
             .filter(|next| !next.is_null())
         {
-            let id: adroit_model::MessageId =
-                serde_json::from_value(next["id"].clone()).map_err(Error::storage)?;
-            let mut meta = json!({"message_id": id.to_string()});
-            if let Some(from) = next["from"].as_str() {
-                meta["from"] = json!(from);
-            }
+            let next: super::protocol::Delivery =
+                serde_json::from_value(next).map_err(Error::storage)?;
+            let id = next.id;
+            let meta = json!({"message_id": id.to_string(), "from": next.from.to_string()});
             send(
                 &output,
                 json!({"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": {
-                    "content": next["content"], "meta": meta,
+                    "content": next.content, "meta": meta,
                 }}),
             )
             .await?;
@@ -341,7 +339,9 @@ async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
         _ => return None,
     };
     let answer = daemon.ask(Command::Prompted { cleared }, None).await.ok()?;
-    let note = answer["note"].as_str()?;
+    let note = serde_json::from_value::<super::protocol::Note>(answer)
+        .ok()?
+        .note?;
     Some(json!({"hookSpecificOutput": {"hookEventName": name, "additionalContext": note}}))
 }
 
@@ -686,11 +686,9 @@ mod tests {
     async fn a_waiting_message_reaches_claude_code_through_its_channel_and_is_marked_delivered() {
         let daemon = Fake::new();
         let id = adroit_model::MessageId::new();
-        daemon
-            .waiting
-            .lock()
-            .unwrap()
-            .push(json!({"id": id, "from": null, "content": "[adroit] ready"}));
+        daemon.waiting.lock().unwrap().push(
+            json!({"id": id, "from": adroit_model::SessionId::new(), "content": "[adroit] ready"}),
+        );
         let out = exchange(
             daemon.clone(),
             true,
@@ -733,7 +731,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 *away.lock().unwrap() = 2;
                 waiting.lock().unwrap().push(
-                    json!({"id": adroit_model::MessageId::new(), "from": null, "content": "[adroit] back"}),
+                    json!({"id": adroit_model::MessageId::new(), "from": adroit_model::SessionId::new(), "content": "[adroit] back"}),
                 );
             }
         };

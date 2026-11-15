@@ -136,10 +136,11 @@ async fn start_as(
             name: asked.name.clone(),
             background: asked.background,
         });
-    let started = crate::delegation::protocol::ask(root, credential, command, None)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(started["name"].as_str().unwrap_or_default().to_owned())
+    let started: crate::delegation::protocol::Started =
+        crate::delegation::protocol::ask_for(root, credential, command, None)
+            .await
+            .map_err(|error| error.to_string())?;
+    Ok(started.name)
 }
 
 /// `adroit session explain <rest>`: a screen kept in a file read here, since
