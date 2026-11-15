@@ -25,6 +25,7 @@ mod process;
 pub mod profile;
 pub mod repository;
 mod session;
+pub mod steps;
 pub mod subagents;
 mod terminal;
 #[cfg(any(test, feature = "testing"))]

@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use adroit_model::github::Standing as Checked;
 use adroit_model::links::{Kind as LinkKind, Touch};
+use adroit_model::steps::{Outcome, Step};
 use adroit_model::subagents::Standing;
 
-use super::{Entry, Group, ItemState, Source, Tie, shown_agent, shown_link, shown_shot};
+use super::{Entry, Group, ItemState, Source, StepLine, Tie, shown_agent, shown_link, shown_shot};
 use crate::icons::Icon;
 
 /// How a subagent is marked, by how it stands: the class that colours its
@@ -22,11 +23,64 @@ pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
     }
 }
 
+/// How a step of the session's turns is marked: a call by how it ended,
+/// or runs still, and the other steps by what they are.
+pub fn step_glyph(line: &StepLine) -> (&'static str, Icon) {
+    match &line.step {
+        Step::Prompted(_) => ("", Icon::Send),
+        Step::Said(_) => ("", Icon::Message),
+        Step::Answered(_) => ("", Icon::MessageDown),
+        Step::Tool { outcome, .. } => match outcome {
+            None if line.ended => ("state-glyph idle", Icon::PlayerStop),
+            None => ("state-glyph run", Icon::Loader),
+            Some(Outcome::Done) => ("state-glyph done", Icon::Check),
+            Some(Outcome::Failed) => ("state-glyph fail", Icon::AlertTriangle),
+            Some(Outcome::Denied) => ("state-glyph fail", Icon::SquareX),
+        },
+    }
+}
+
+/// A step as its row says it: its first line, the tool it called, and what
+/// it is or how it went.
+fn step_row(line: &StepLine) -> (String, Option<String>, &'static str) {
+    let first = |text: &str| {
+        text.lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    match &line.step {
+        Step::Prompted(text) => (first(text), None, "prompt"),
+        Step::Said(text) => (first(text), None, "said"),
+        Step::Answered(answers) => {
+            let label = match answers.as_slice() {
+                [] => String::new(),
+                [a] => format!("{} → {}", a.question, a.answer),
+                [a, rest @ ..] => format!("{} → {} (+{})", a.question, a.answer, rest.len()),
+            };
+            (label, None, "answered")
+        }
+        Step::Tool { name, outcome, .. } => {
+            let tag = match outcome {
+                None if line.ended => "stopped",
+                None => "running",
+                Some(Outcome::Done) => "done",
+                Some(Outcome::Failed) => "failed",
+                Some(Outcome::Denied) => "denied",
+            };
+            (first(&line.text()), Some(name.clone()), tag)
+        }
+    }
+}
+
 /// An entry as the panel draws it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkRow {
     /// Its place among the entries.
     pub at: usize,
+    /// What tells it apart from the rows beside it.
+    pub key: String,
     pub icon: Icon,
     /// The class that colours its icon; empty for the panel's own colour.
     pub tone: &'static str,
@@ -45,6 +99,7 @@ impl LinkRow {
     fn plain(at: usize, icon: Icon, label: String, tag: String, target: String) -> LinkRow {
         LinkRow {
             at,
+            key: target.clone(),
             icon,
             tone: "",
             label,
@@ -210,6 +265,16 @@ pub fn link_sections(
                 Some(LinkRow {
                     tone,
                     ..LinkRow::plain(at, icon, label, p.tag(), p.url.clone())
+                })
+            }
+            Entry::Step(line) => {
+                let (tone, icon) = step_glyph(line);
+                let (label, badge, tag) = step_row(line);
+                Some(LinkRow {
+                    key: line.key.clone(),
+                    tone,
+                    badge,
+                    ..LinkRow::plain(at, icon, label, tag.to_owned(), line.text())
                 })
             }
             Entry::Link(link) => {
@@ -464,5 +529,85 @@ mod tests {
             agent_glyph(Standing::Stopped),
             ("state-glyph idle", Icon::PlayerStop)
         );
+    }
+
+    fn step_line(step: Step, ended: bool) -> StepLine {
+        StepLine {
+            key: "\0step 1 0".into(),
+            step,
+            ended,
+        }
+    }
+
+    fn call(outcome: Option<Outcome>) -> Step {
+        Step::Tool {
+            name: "Bash".into(),
+            about: "cargo test\ncargo clippy".into(),
+            outcome,
+        }
+    }
+
+    #[test]
+    fn a_call_is_marked_by_how_it_ended_and_one_its_turn_outlived_as_stopped() {
+        let glyph = |outcome, ended| step_glyph(&step_line(call(outcome), ended));
+        assert_eq!(glyph(None, false), ("state-glyph run", Icon::Loader));
+        assert_eq!(glyph(None, true), ("state-glyph idle", Icon::PlayerStop));
+        assert_eq!(
+            glyph(Some(Outcome::Done), true),
+            ("state-glyph done", Icon::Check)
+        );
+        assert_eq!(
+            glyph(Some(Outcome::Failed), true),
+            ("state-glyph fail", Icon::AlertTriangle)
+        );
+        assert_eq!(
+            glyph(Some(Outcome::Denied), true),
+            ("state-glyph fail", Icon::SquareX)
+        );
+    }
+
+    #[test]
+    fn a_step_s_row_says_its_first_line_its_tool_and_how_it_went() {
+        let drawn = |step: Step| {
+            let entries = [
+                Entry::Heading {
+                    group: Group::Activity,
+                    count: 1,
+                    folded: false,
+                },
+                Entry::Step(step_line(step, false)),
+            ];
+            let row =
+                link_sections(&entries, Path::new("/w"), Path::new("/h"), 0)[0].rows[0].clone();
+            (row.label, row.badge, row.tag, row.key)
+        };
+        assert_eq!(
+            drawn(call(Some(Outcome::Done))),
+            (
+                "cargo test".into(),
+                Some("Bash".into()),
+                "done".into(),
+                "\0step 1 0".into()
+            )
+        );
+        assert_eq!(
+            drawn(Step::Prompted("\nStamp the date\nthen stop".into())).0,
+            "Stamp the date"
+        );
+        assert_eq!(
+            drawn(Step::Answered(vec![
+                adroit_model::steps::Answer {
+                    question: "Size?".into(),
+                    answer: "Large".into()
+                },
+                adroit_model::steps::Answer {
+                    question: "Colour?".into(),
+                    answer: "Red".into()
+                },
+            ]))
+            .0,
+            "Size? → Large (+1)"
+        );
+        assert_eq!(drawn(Step::Said("Done.".into())).2, "said");
     }
 }

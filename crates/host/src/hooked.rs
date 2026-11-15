@@ -1,11 +1,13 @@
 //! What the hooks of each session Adroit started told the work host of what
-//! it asks the user, kept in memory while the work host runs.
+//! it asks the user and what it did in its latest turns, kept in memory while
+//! the work host runs.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
-use adroit_agents::claude::hooks::Asks;
+use adroit_agents::claude::hooks::{Asks, Turns};
 use adroit_model::asking::Asking;
+use adroit_model::steps::Turn;
 use adroit_model::{Agent, SessionId};
 use serde_json::Value;
 
@@ -13,6 +15,7 @@ use serde_json::Value;
 #[derive(Debug, Default)]
 struct Heard {
     asks: Asks,
+    turns: Turns,
     waited_ms: Option<u64>,
 }
 
@@ -42,7 +45,16 @@ impl Sessions {
         if agent != Agent::Claude {
             return;
         }
-        self.0.entry(record).or_default().asks.hear(event, now_ms);
+        let heard = self.0.entry(record).or_default();
+        heard.asks.hear(event, now_ms);
+        heard.turns.hear(event, now_ms);
+    }
+
+    fn turns(&self, record: SessionId) -> Vec<Turn> {
+        self.0
+            .get(&record)
+            .map(|heard| heard.turns.turns())
+            .unwrap_or_default()
     }
 
     fn asking(&mut self, record: SessionId, waiting: bool, now_ms: u64) -> Option<Asking> {
@@ -72,6 +84,11 @@ pub(crate) fn hear(record: SessionId, agent: Agent, event: &Value, now_ms: u64) 
 /// at `now_ms`.
 pub(crate) fn asking(record: SessionId, waiting: bool, now_ms: u64) -> Option<Asking> {
     heard().asking(record, waiting, now_ms)
+}
+
+/// What the session `record` did in its latest turns, the latest last.
+pub(crate) fn turns(record: SessionId) -> Vec<Turn> {
+    heard().turns(record)
 }
 
 /// Forgets every session but those `kept`, as the others ended.
@@ -159,5 +176,29 @@ mod tests {
         request(&mut s, running, 1);
         s.keep_only(&[running]);
         assert_eq!(s.asking(ended, true, 2), None);
+        assert!(s.turns(ended).is_empty());
+    }
+
+    #[test]
+    fn the_same_hooks_tell_what_a_session_asks_and_what_its_turn_did() {
+        let mut s = Sessions::default();
+        let record = SessionId::new();
+        s.hear(
+            record,
+            Agent::Claude,
+            &json!({"hook_event_name": "UserPromptSubmit", "prompt": "Stamp it"}),
+            1,
+        );
+        request(&mut s, record, 2);
+        assert!(s.asking(record, true, 3).is_some());
+        assert_eq!(
+            s.turns(record)[0].steps,
+            [adroit_model::steps::Step::Prompted("Stamp it".into())]
+        );
+    }
+
+    #[test]
+    fn a_session_whose_hooks_told_nothing_did_nothing_known() {
+        assert!(Sessions::default().turns(SessionId::new()).is_empty());
     }
 }

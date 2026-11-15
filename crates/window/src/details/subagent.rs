@@ -1,7 +1,8 @@
 //! A subagent of the overview, opened: what it was asked, its latest steps,
 //! and what it reported once it ended.
 
-use adroit_model::subagents::{Agent, Standing, Step};
+use adroit_model::steps::Step;
+use adroit_model::subagents::{Agent, Standing};
 use dioxus::prelude::*;
 
 use crate::components::{Breadcrumbs, Section, StateGlyph};
@@ -23,7 +24,7 @@ fn report(agent: &Agent) -> Option<&str> {
     }
     agent.steps.iter().rev().find_map(|s| match s {
         Step::Said(text) => Some(text.as_str()),
-        Step::Tool { .. } => None,
+        _ => None,
     })
 }
 
@@ -94,17 +95,19 @@ pub fn SubagentView(
                 div { class: "subagent-steps",
                     for (i , step) in steps.iter().enumerate() {
                         match step {
-                            Step::Tool { name, about } => rsx! {
+                            Step::Tool { name, about, .. } => rsx! {
                                 div { key: "{i}", class: "subagent-step", title: "{about}",
                                     span { class: "subagent-step-tool", "{name}" }
                                     span { class: "subagent-step-about", "{about}" }
                                 }
                             },
-                            Step::Said(text) => rsx! {
+                            Step::Said(text) | Step::Prompted(text) => rsx! {
                                 div { key: "{i}", class: "subagent-step",
                                     span { class: "subagent-step-said", "{text}" }
                                 }
                             },
+                            // A subagent is asked no questions of its own.
+                            Step::Answered(_) => rsx! {},
                         }
                     }
                 }
@@ -136,6 +139,7 @@ mod tests {
         Step::Tool {
             name: name.into(),
             about: String::new(),
+            outcome: None,
         }
     }
 

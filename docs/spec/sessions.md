@@ -359,7 +359,10 @@ Adroit starts. The hooks only tell the work host and never answer for you;
 the work host keeps what they told while it runs, and forgets it once the call
 ends, the turn ends, a prompt arrives, or the session no longer waits. Whether
 a session waits is still decided as above. A session started outside Adroit,
-or another agent, says only what it waits for.
+or another agent, says only what it waits for. The same hooks tell what the
+session did in its latest turns, which the details list
+([details](details.md#sheets)); the work host keeps a few turns of each
+session while it runs, and starts without them when it is replaced.
 
 A working session whose screen turns idle with no sign of its own that the
 turn ended, only the sign of work gone, goes on showing as working until the

@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::time::epoch_ms;
 
+use adroit_model::steps::Step;
 pub use adroit_model::subagents::*;
 
 /// The most subagents that ended kept: the latest to end.
@@ -429,6 +430,7 @@ fn tool_step(item: &Value) -> Step {
     Step::Tool {
         name: name.to_string(),
         about: about(input, ABOUT),
+        outcome: None,
     }
 }
 

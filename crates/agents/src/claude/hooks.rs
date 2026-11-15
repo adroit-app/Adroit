@@ -1,11 +1,12 @@
 //! What Claude Code's hooks tell of a session as its turn goes: what it asks
-//! the user now.
+//! the user now, and what it did in its latest turns.
 //!
 //! The events are Claude Code's own and unversioned, so they are read
 //! tolerantly: fields this reader does not know are passed over, and an
 //! event missing what it needs is ignored.
 
 use adroit_model::asking::{Asked, Asking, Choice, Question};
+use adroit_model::steps::{Answer, Outcome, Step, Turn};
 use serde_json::Value;
 
 use super::subagents::{about, clip};
@@ -137,6 +138,210 @@ impl Asks {
     }
 }
 
+/// How many turns of a session are remembered, the one going on among them,
+/// the oldest forgotten first.
+const TURNS: usize = 5;
+
+/// How many steps of a turn are remembered: its prompt, and the latest of
+/// the rest.
+const TURN_STEPS: usize = 64;
+
+/// A turn, with the tool call each of its steps is, when it is one.
+#[derive(Debug, Clone)]
+struct Kept {
+    turn: Turn,
+    calls: Vec<Option<String>>,
+}
+
+/// What one session's hooks have told so far of what it did in its latest
+/// turns.
+#[derive(Debug, Clone, Default)]
+pub struct Turns {
+    kept: Vec<Kept>,
+}
+
+impl Turns {
+    /// The turns remembered, the latest last.
+    pub fn turns(&self) -> Vec<Turn> {
+        self.kept.iter().map(|kept| kept.turn.clone()).collect()
+    }
+
+    /// Take in the hook `event`, heard at `now_ms` since the Unix epoch.
+    pub fn hear(&mut self, event: &Value, now_ms: u64) {
+        let tool = event["tool_name"].as_str();
+        let call = event["tool_use_id"].as_str();
+        let input = &event["tool_input"];
+        match event["hook_event_name"].as_str() {
+            Some("UserPromptSubmit") => {
+                self.end(now_ms);
+                self.begin(now_ms);
+                if let Some(prompt) = text(&event["prompt"]) {
+                    self.push(Step::Prompted(prompt), None, now_ms);
+                }
+            }
+            Some("PreToolUse") => {
+                if let Some(tool) = tool {
+                    let step = Step::Tool {
+                        name: tool.to_owned(),
+                        about: call_about(tool, input),
+                        outcome: None,
+                    };
+                    self.push(step, call, now_ms);
+                }
+            }
+            Some(ended @ ("PostToolUse" | "PostToolUseFailure" | "PermissionDenied")) => {
+                let Some(tool) = tool else {
+                    return;
+                };
+                let outcome = match ended {
+                    "PostToolUse" => Outcome::Done,
+                    "PostToolUseFailure" => Outcome::Failed,
+                    _ => Outcome::Denied,
+                };
+                let step = match answers(input) {
+                    Some(answers) if outcome == Outcome::Done => Step::Answered(answers),
+                    _ => Step::Tool {
+                        name: tool.to_owned(),
+                        about: call_about(tool, input),
+                        outcome: Some(outcome),
+                    },
+                };
+                self.settle(call, step, now_ms);
+            }
+            Some("Stop") => {
+                if let Some(said) = text(&event["last_assistant_message"]) {
+                    self.push(Step::Said(said), None, now_ms);
+                }
+                self.end(now_ms);
+            }
+            Some("SessionStart") if event["source"] == "clear" => self.kept.clear(),
+            _ => {}
+        }
+    }
+
+    fn begin(&mut self, now_ms: u64) {
+        self.kept.push(Kept {
+            turn: Turn {
+                started_ms: now_ms,
+                ended_ms: None,
+                steps: Vec::new(),
+            },
+            calls: Vec::new(),
+        });
+        let over = self.kept.len().saturating_sub(TURNS);
+        self.kept.drain(..over);
+    }
+
+    fn end(&mut self, now_ms: u64) {
+        if let Some(kept) = self.kept.last_mut() {
+            kept.turn.ended_ms.get_or_insert(now_ms);
+        }
+    }
+
+    /// The turn going on, begun at `now_ms` when none is, as a turn heard
+    /// from its middle on, once the work host came up during it.
+    fn current(&mut self, now_ms: u64) -> &mut Kept {
+        if self
+            .kept
+            .last()
+            .is_none_or(|kept| kept.turn.ended_ms.is_some())
+        {
+            self.begin(now_ms);
+        }
+        self.kept.last_mut().expect("a turn was just begun")
+    }
+
+    fn push(&mut self, step: Step, call: Option<&str>, now_ms: u64) {
+        let kept = self.current(now_ms);
+        kept.turn.steps.push(step);
+        kept.calls.push(call.map(str::to_owned));
+        if kept.turn.steps.len() > TURN_STEPS {
+            // The prompt tells what the turn is for, so it outlives the
+            // steps after it.
+            let at = usize::from(matches!(kept.turn.steps[0], Step::Prompted(_)));
+            kept.turn.steps.remove(at);
+            kept.calls.remove(at);
+        }
+    }
+
+    /// The step of `call` replaced by how it ended, or `step` taken in as
+    /// one of its own when the call's beginning was not heard.
+    fn settle(&mut self, call: Option<&str>, step: Step, now_ms: u64) {
+        let found = call.and_then(|call| {
+            self.kept.iter_mut().rev().find_map(|kept| {
+                let at = kept.calls.iter().position(|c| c.as_deref() == Some(call))?;
+                Some(&mut kept.turn.steps[at])
+            })
+        });
+        match found {
+            Some(was) => *was = step,
+            None => self.push(step, call, now_ms),
+        }
+    }
+}
+
+/// What a call to `tool` with `input` acts on, as an approval of it is
+/// told: an answer's first question, a plan's title.
+fn call_about(tool: &str, input: &Value) -> String {
+    match asked(tool, input) {
+        Asked::Tool { about, .. } => about,
+        Asked::Questions { questions } => questions
+            .first()
+            .map(|q| clip(&q.question))
+            .unwrap_or_default(),
+        Asked::Plan { plan } => plan
+            .lines()
+            .map(|l| l.trim_start_matches('#').trim())
+            .find(|l| !l.is_empty())
+            .map(clip)
+            .unwrap_or_default(),
+    }
+}
+
+/// The answers given to the questions `input` asks, in the order asked;
+/// none when it holds no answers.
+fn answers(input: &Value) -> Option<Vec<Answer>> {
+    let given = input["answers"].as_object()?;
+    let answer = |question: &str| {
+        let answer = match &given.get(question)? {
+            Value::String(label) => label.clone(),
+            Value::Array(labels) => labels
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            _ => return None,
+        };
+        Some(Answer {
+            question: clip(question),
+            answer: clip(&answer),
+        })
+    };
+    let asked: Vec<&str> = input["questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|q| q["question"].as_str())
+        .collect();
+    let mut out: Vec<Answer> = asked.iter().filter_map(|q| answer(q)).collect();
+    out.extend(
+        given
+            .keys()
+            .filter(|q| !asked.contains(&q.as_str()))
+            .filter_map(|q| answer(q)),
+    );
+    Some(out)
+}
+
+/// `value`'s text, trimmed and clipped; none when it holds none.
+fn text(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(clip)
+}
+
 /// What the user is asked to let `tool` do with `input`.
 fn asked(tool: &str, input: &Value) -> Asked {
     match tool {
@@ -158,26 +363,27 @@ fn asked(tool: &str, input: &Value) -> Asked {
         }
         _ => {}
     }
-    // What will run, or what it runs on, comes before the agent's own words
-    // of it: the user approves the call, not its description.
-    const RUNS: &[&str] = &[
-        "command",
-        "file_path",
-        "notebook_path",
-        "url",
-        "pattern",
-        "path",
-        "query",
-        "skill",
-        "to",
-        "description",
-        "prompt",
-    ];
     Asked::Tool {
         name: tool.to_owned(),
         about: about(input, RUNS),
     }
 }
+
+// What will run, or what it runs on, comes before the agent's own words of
+// it: the user approves the call, not its description.
+const RUNS: &[&str] = &[
+    "command",
+    "file_path",
+    "notebook_path",
+    "url",
+    "pattern",
+    "path",
+    "query",
+    "skill",
+    "to",
+    "description",
+    "prompt",
+];
 
 fn question(value: &Value) -> Option<Question> {
     let text = |key: &str| value[key].as_str().unwrap_or_default().to_owned();
@@ -467,5 +673,216 @@ mod tests {
         assert_eq!(pre["tool_input"], request["tool_input"]);
         let asks = heard(&[pre, request]);
         assert_eq!(asks.asked.as_ref().unwrap().call.as_deref(), Some("t1"));
+    }
+
+    fn prompt(text: &str) -> Value {
+        json!({"session_id": "e16c", "prompt_id": "49c4", "permission_mode": "default",
+            "hook_event_name": "UserPromptSubmit", "prompt": text})
+    }
+
+    fn stop(said: &str) -> Value {
+        json!({"session_id": "e16c", "hook_event_name": "Stop", "stop_hook_active": false,
+            "last_assistant_message": said, "background_tasks": [], "session_crons": []})
+    }
+
+    fn did(events: &[Value]) -> Vec<Turn> {
+        let mut turns = Turns::default();
+        for (at, event) in events.iter().enumerate() {
+            turns.hear(event, at as u64);
+        }
+        turns.turns()
+    }
+
+    fn tool(name: &str, about: &str, outcome: Option<Outcome>) -> Step {
+        Step::Tool {
+            name: name.into(),
+            about: about.into(),
+            outcome,
+        }
+    }
+
+    #[test]
+    fn a_turn_lists_its_prompt_its_calls_its_answers_and_what_was_said_at_its_end() {
+        let mut answered = colour();
+        answered["answers"] = json!({"Pick a colour": "Red"});
+        let turns = did(&[
+            prompt("Stamp the date"),
+            pre("Bash", bash(), "t1"),
+            request("Bash", bash()),
+            post("PostToolUse", "Bash", bash(), "t1"),
+            pre("AskUserQuestion", colour(), "t2"),
+            request("AskUserQuestion", colour()),
+            post("PostToolUse", "AskUserQuestion", answered, "t2"),
+            stop("Stamped; you picked Red."),
+        ]);
+        assert_eq!(
+            turns,
+            [Turn {
+                started_ms: 0,
+                ended_ms: Some(7),
+                steps: vec![
+                    Step::Prompted("Stamp the date".into()),
+                    tool("Bash", "date > stamp.txt", Some(Outcome::Done)),
+                    Step::Answered(vec![Answer {
+                        question: "Pick a colour".into(),
+                        answer: "Red".into()
+                    }]),
+                    Step::Said("Stamped; you picked Red.".into()),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_call_not_yet_ended_has_no_outcome_and_one_ended_tells_how() {
+        let turns = did(&[
+            prompt("Go"),
+            pre("Bash", bash(), "t1"),
+            pre("Bash", json!({"command": "ls"}), "t2"),
+            pre("Bash", json!({"command": "rm -rf /"}), "t3"),
+            pre("Read", json!({"file_path": "/w/a.rs"}), "t4"),
+            post("PostToolUseFailure", "Bash", bash(), "t1"),
+            post(
+                "PermissionDenied",
+                "Bash",
+                json!({"command": "rm -rf /"}),
+                "t3",
+            ),
+            post("PostToolUse", "Read", json!({"file_path": "/w/a.rs"}), "t4"),
+        ]);
+        assert_eq!(
+            turns[0].steps[1..],
+            [
+                tool("Bash", "date > stamp.txt", Some(Outcome::Failed)),
+                tool("Bash", "ls", None),
+                tool("Bash", "rm -rf /", Some(Outcome::Denied)),
+                tool("Read", "/w/a.rs", Some(Outcome::Done)),
+            ]
+        );
+        assert_eq!(turns[0].ended_ms, None);
+    }
+
+    #[test]
+    fn a_call_whose_beginning_was_not_heard_is_listed_once_it_ends() {
+        let turns = did(&[post("PostToolUse", "Bash", bash(), "t1")]);
+        assert_eq!(
+            turns[0].steps,
+            [tool("Bash", "date > stamp.txt", Some(Outcome::Done))]
+        );
+    }
+
+    #[test]
+    fn a_call_is_about_what_an_approval_of_it_would_be_about() {
+        let turns = did(&[
+            pre("AskUserQuestion", colour(), "t1"),
+            pre(
+                "ExitPlanMode",
+                json!({"plan": "# Stamp\n\nWrite it."}),
+                "t2",
+            ),
+            pre(
+                "Agent",
+                json!({"description": "Explore", "prompt": "List."}),
+                "t3",
+            ),
+        ]);
+        assert_eq!(
+            turns[0].steps,
+            [
+                tool("AskUserQuestion", "Pick a colour", None),
+                tool("ExitPlanMode", "Stamp", None),
+                tool("Agent", "Explore", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn several_answers_are_listed_in_the_order_their_questions_were_asked() {
+        let input = json!({
+            "questions": [{"question": "Size?"}, {"question": "Colours?"}],
+            "answers": {"Colours?": ["Red", "Blue"], "Size?": "Large"}
+        });
+        let turns = did(&[post("PostToolUse", "AskUserQuestion", input, "t1")]);
+        let answer = |question: &str, answer: &str| Answer {
+            question: question.into(),
+            answer: answer.into(),
+        };
+        assert_eq!(
+            turns[0].steps,
+            [Step::Answered(vec![
+                answer("Size?", "Large"),
+                answer("Colours?", "Red, Blue")
+            ])]
+        );
+    }
+
+    #[test]
+    fn each_prompt_begins_a_turn_and_ends_the_one_before() {
+        let turns = did(&[prompt("One"), prompt("Two"), stop("Done.")]);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].ended_ms, Some(1));
+        assert_eq!(turns[1].steps[0], Step::Prompted("Two".into()));
+        assert_eq!(turns[1].ended_ms, Some(2));
+    }
+
+    #[test]
+    fn a_step_after_the_turn_ended_begins_another_without_a_prompt() {
+        let turns = did(&[prompt("One"), stop(""), pre("Bash", bash(), "t1")]);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].steps, [Step::Prompted("One".into())]);
+        assert_eq!(turns[1].started_ms, 2);
+        assert_eq!(turns[1].steps, [tool("Bash", "date > stamp.txt", None)]);
+    }
+
+    #[test]
+    fn only_the_latest_turns_are_remembered() {
+        let prompts: Vec<Value> = (0..TURNS + 2).map(|n| prompt(&n.to_string())).collect();
+        let turns = did(&prompts);
+        assert_eq!(turns.len(), TURNS);
+        assert_eq!(turns[0].steps, [Step::Prompted("2".into())]);
+    }
+
+    #[test]
+    fn a_long_turn_keeps_its_prompt_and_its_latest_steps() {
+        let mut events = vec![prompt("Go")];
+        events.extend(
+            (0..TURN_STEPS + 3)
+                .map(|n| pre("Read", json!({"file_path": n.to_string()}), &n.to_string())),
+        );
+        let turns = did(&events);
+        let steps = &turns[0].steps;
+        assert_eq!(steps.len(), TURN_STEPS);
+        assert_eq!(steps[0], Step::Prompted("Go".into()));
+        assert_eq!(steps[1], tool("Read", "4", None));
+    }
+
+    #[test]
+    fn long_text_of_a_turn_is_clipped() {
+        let turns = did(&[prompt(&"あ".repeat(RESPONSE)), stop(&"い".repeat(RESPONSE))]);
+        for step in &turns[0].steps {
+            let (Step::Prompted(text) | Step::Said(text)) = step else {
+                panic!("{step:?}");
+            };
+            assert!(text.len() < RESPONSE * 2, "{}", text.len());
+        }
+    }
+
+    #[test]
+    fn a_cleared_conversation_forgets_its_turns() {
+        let cleared = json!({"hook_event_name": "SessionStart", "source": "clear"});
+        assert!(did(&[prompt("One"), stop("Done."), cleared]).is_empty());
+    }
+
+    #[test]
+    fn events_that_tell_nothing_done_leave_the_turns_as_they_were() {
+        let turns = did(&[
+            prompt("Go"),
+            request("Bash", bash()),
+            event("MessageDisplay"),
+            event("Notification"),
+            json!({"no": "event"}),
+            json!({"hook_event_name": "PreToolUse"}),
+        ]);
+        assert_eq!(turns[0].steps, [Step::Prompted("Go".into())]);
     }
 }

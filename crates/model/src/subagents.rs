@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::steps::Step;
+
 /// How a subagent stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Standing {
@@ -11,15 +13,6 @@ pub enum Standing {
     Failed,
     /// It was stopped, or its session ended before it finished.
     Stopped,
-}
-
-/// A step a subagent took.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Step {
-    /// A tool it called, and what the call was about.
-    Tool { name: String, about: String },
-    /// What it said, or handed back as its report.
-    Said(String),
 }
 
 /// A subagent a session started through Claude Code's `Agent` tool.

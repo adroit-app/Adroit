@@ -20,10 +20,9 @@ no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
 change, the branch's pull request, the pull requests and issues it brought
-up, the
-timelines of it and the sessions tied to it, what runs for it and About),
-Code (changes and log), Timeline (the timelines of every session of its
-environment), Conversation (prompts,
+up, the timelines of it and the sessions tied to it, what runs for it, what it
+did in its latest turns and About), Code (changes and log), Timeline (the
+timelines of every session of its environment), Conversation (prompts,
 messages, subagents and sessions) and Resources (files, links, artifacts and
 images), over a foot of the conversation's context, the account's limits and
 the machine's load. An environment's has the tabs Overview (its connection,
@@ -62,6 +61,13 @@ window or such a row is described.
   copies that name.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
+- **activity** — what the session did in its latest turns, the latest first,
+  as its agent's hooks told: each prompt it was sent, each tool it called
+  with what the call acts on and whether it still runs, was done, failed or
+  was denied, the questions it asked with the answers chosen, and what it
+  said as its turn ended. Only a Claude Code session Adroit started lists
+  it, and only what was told while the work host ran; copying a step copies
+  all it says.
 - **processes** — its live work processes alone.
 - **about** — the facts that change little: the tokens the whole
   conversation has used, its prompt and tool call counts, the profile and the
