@@ -426,20 +426,25 @@ fn tool_step(item: &Value) -> Step {
         "to",
         "prompt",
     ];
-    let about = ABOUT
+    Step::Tool {
+        name: name.to_string(),
+        about: about(input, ABOUT),
+    }
+}
+
+/// What a call to a tool with `input` is about: the first line of the first
+/// of `fields` it gives, clipped; empty when it gives none.
+pub(crate) fn about(input: &Value, fields: &[&str]) -> String {
+    fields
         .iter()
         .find_map(|k| input[*k].as_str().filter(|s| !s.trim().is_empty()))
         .and_then(|s| s.lines().map(str::trim).find(|l| !l.is_empty()))
         .map(clip)
-        .unwrap_or_default();
-    Step::Tool {
-        name: name.to_string(),
-        about,
-    }
+        .unwrap_or_default()
 }
 
 /// The first [`STEP_TEXT`] bytes of `text`, cut at a character.
-fn clip(text: &str) -> String {
+pub(crate) fn clip(text: &str) -> String {
     if text.len() <= STEP_TEXT {
         return text.to_string();
     }

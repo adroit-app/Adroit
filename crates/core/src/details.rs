@@ -88,10 +88,10 @@ pub fn overview_facts(
     let tone = state_tone(&s.state);
     // What a program says while it works or once it is done tends to be its
     // session's name, which the details already lead with.
-    let note = match (&s.state, &s.status_message) {
+    let note = crate::asking::waiting_on(s).or_else(|| match (&s.state, &s.status_message) {
         (State::Waiting(_) | State::Failed, Some(said)) => Some(said.clone()),
         _ => None,
-    };
+    });
     out.push(Fact {
         label: "State",
         value: state,
@@ -1756,6 +1756,21 @@ mod tests {
         assert_eq!(state(State::Failed), ("failed".to_string(), said));
         assert_eq!(state(State::Working), ("working".to_string(), None));
         assert_eq!(state(State::Done), ("done".to_string(), None));
+    }
+
+    #[test]
+    fn what_a_waiting_session_asks_follows_its_state_before_what_its_program_says() {
+        let s = session("s")
+            .waiting(Wait::Permission)
+            .says("Claude needs your permission")
+            .asking(adroit_model::asking::Asked::Tool {
+                name: "Bash".into(),
+                about: "date > stamp.txt".into(),
+            })
+            .build();
+        let fact =
+            overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0).remove(0);
+        assert_eq!(fact.note.as_deref(), Some("Bash: date > stamp.txt"));
     }
 
     #[test]

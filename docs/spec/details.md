@@ -40,7 +40,9 @@ window or such a row is described.
 
 - **session** — the session's name, its state, the latest model, when it
   started and how long ago it last took input. A session waiting on the user
-  or failed shows, beside its state, what its program said of why. Input
+  shows, beside its state, what it asks, as its agent's hooks told: the tool
+  and what it runs, its question, or its plan. Otherwise one waiting or
+  failed shows what its program said of why. Input
   sent through Adroit includes answers to approvals and choices; its latest
   time stays with the running session when the window closes.
 - **change** — the change the worktree is on: its description's first line

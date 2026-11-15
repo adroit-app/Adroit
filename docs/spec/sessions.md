@@ -352,6 +352,15 @@ that its turn ended, as its screen or its transcript tells, shows it as in the
 background, not done, until that work ends. A session Adroit started shows as starting until its program reports a state or
 its screen supplies one.
 
+What a waiting session asks, the tool it asks to run and what it runs, the
+questions it asks with their options, or the plan it asks to approve, is
+learned from the hooks Adroit's plugin loads into the Claude Code sessions
+Adroit starts. The hooks only tell the work host and never answer for you;
+the work host keeps what they told while it runs, and forgets it once the call
+ends, the turn ends, a prompt arrives, or the session no longer waits. Whether
+a session waits is still decided as above. A session started outside Adroit,
+or another agent, says only what it waits for.
+
 A working session whose screen turns idle with no sign of its own that the
 turn ended, only the sign of work gone, goes on showing as working until the
 screen is read idle once more, so a sign missed for a moment never shows a

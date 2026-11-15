@@ -2,6 +2,7 @@
 //! what adroit's daemon reports of the shells it runs, and what git says
 //! about the directories they run in.
 
+pub mod asking;
 mod clone;
 mod code;
 mod command;

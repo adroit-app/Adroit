@@ -22,6 +22,7 @@ pub mod execution;
 mod explain;
 pub mod gateway;
 mod held;
+mod hooked;
 mod jobs;
 pub mod kept;
 mod making;

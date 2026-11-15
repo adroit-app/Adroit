@@ -57,6 +57,12 @@ impl SessionBuilder {
         self
     }
 
+    /// What its agent's hooks told it asks the user, since the epoch.
+    pub fn asking(mut self, asked: crate::asking::Asked) -> Self {
+        self.0.asking = Some(Box::new(crate::asking::Asking { since_ms: 0, asked }));
+        self
+    }
+
     pub fn working(self) -> Self {
         self.state(State::Working)
     }
