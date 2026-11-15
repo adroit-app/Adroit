@@ -383,8 +383,7 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
         .status
         .as_ref()
         .map(|s| State::reported(&s.state, s.kind.as_deref()));
-    let read =
-        reported.as_ref().is_none_or(sessions::reads_past) && adapter.capabilities().screen_state;
+    let read = reported.as_ref().is_none_or(sessions::reads_past);
     let subagent_running = match reported.as_ref().is_some_and(sessions::ended) {
         true => crate::watch::behind::running(native.id, &c).await,
         false => false,

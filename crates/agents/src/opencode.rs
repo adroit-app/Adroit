@@ -297,9 +297,7 @@ impl AgentAdapter for OpenCode {
         Capabilities {
             command_probe: false,
             usage_limits: false,
-            transcript: true,
             shell_bang: true,
-            screen_state: true,
         }
     }
 

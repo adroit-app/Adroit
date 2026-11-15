@@ -128,9 +128,7 @@ impl AgentAdapter for Pi {
         Capabilities {
             command_probe: true,
             usage_limits: false,
-            transcript: true,
             shell_bang: true,
-            screen_state: true,
         }
     }
 
@@ -467,7 +465,6 @@ mod tests {
         let capabilities = Pi.capabilities();
         assert!(!capabilities.usage_limits);
         assert!(capabilities.shell_bang);
-        assert!(capabilities.transcript);
         assert!(capabilities.command_probe);
         assert_eq!(Pi.usage_url(), None);
         assert_eq!(Pi.rename_command("fix").as_deref(), Some("/name fix"));

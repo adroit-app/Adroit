@@ -384,8 +384,6 @@ fn opencode_offers_no_account_usage_and_runs_shell_lines_typed_after_a_bang() {
     let capabilities = OpenCode.capabilities();
     assert!(!capabilities.usage_limits);
     assert!(capabilities.shell_bang);
-    assert!(capabilities.transcript);
-    assert!(capabilities.screen_state);
     assert_eq!(OpenCode.usage_url(), None);
     assert_eq!(OpenCode.rename_command("fix"), None);
 }

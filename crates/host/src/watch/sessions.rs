@@ -237,9 +237,7 @@ pub async fn read_sessions(
                     learned.push(tag);
                 }
                 let reported = s.status.is_some();
-                let screen = match (!reported || reads_past(&c.state))
-                    && adapter.capabilities().screen_state
-                {
+                let screen = match !reported || reads_past(&c.state) {
                     true => tokio::time::timeout(Duration::from_millis(300), daemon.visible(s.id))
                         .await
                         .ok()

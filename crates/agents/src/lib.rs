@@ -245,9 +245,7 @@ pub enum Learned {
 pub struct Capabilities {
     pub command_probe: bool,
     pub usage_limits: bool,
-    pub transcript: bool,
     pub shell_bang: bool,
-    pub screen_state: bool,
 }
 
 type Listing = std::pin::Pin<
@@ -720,7 +718,6 @@ mod tests {
             ["--no-alt-screen", "--", "read"]
         );
         assert!(a.conversation().is_empty());
-        assert!(a.capabilities().transcript);
         assert!(a.capabilities().command_probe);
         assert!(!a.capabilities().shell_bang);
     }
@@ -765,7 +762,6 @@ mod tests {
             ["--name", "fix", "--session-id", "uuid", "--", "read"]
         );
         assert!(!a.conversation().is_empty());
-        assert!(a.capabilities().transcript);
         assert!(a.capabilities().command_probe);
         assert!(a.capabilities().shell_bang);
     }

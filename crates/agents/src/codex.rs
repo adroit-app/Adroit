@@ -127,9 +127,7 @@ impl AgentAdapter for Codex {
         Capabilities {
             command_probe: true,
             usage_limits: true,
-            transcript: true,
             shell_bang: false,
-            screen_state: true,
         }
     }
     fn usage_url(&self) -> Option<&'static str> {
@@ -472,7 +470,6 @@ mod tests {
     #[test]
     fn codex_details_follow_the_thread_reported_in_its_terminal_title() {
         let id = "01234567-89ab-cdef-0123-456789abcdef";
-        assert!(Codex.capabilities().transcript);
         assert_eq!(
             Codex.conversation_title(&format!("Codex · {id}")),
             Some(id.into())

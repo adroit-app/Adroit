@@ -135,13 +135,10 @@ impl Key {
     }
 }
 
-/// Whether `session`'s agent keeps a transcript the host can read, and the
-/// conversation has told its id yet.
+/// Whether `session`'s conversation has told its id yet, which its
+/// transcript is found by.
 fn has_transcript(session: &Session) -> bool {
-    adroit_agents::adapter(session.agent)
-        .capabilities()
-        .transcript
-        && !session.session_id.is_empty()
+    !session.session_id.is_empty()
 }
 
 /// What `reader` says of its conversation: its links only while the overview,
