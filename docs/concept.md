@@ -61,9 +61,12 @@ multiply what runs past you unread.
 
 ## Principles
 
-- **The agent interface stays as it is.** Adroit shows each agent's own
-  terminal interface unchanged. It never rebuilds an agent's screen from
-  structured output, and an agent behaves in Adroit as it does in a terminal.
+- **The agent interface stays as it is.** A window's console shows each
+  agent's own terminal interface unchanged. It never rebuilds an agent's
+  screen from structured output, and an agent behaves in Adroit as it does in
+  a terminal. What Adroit learns of a session besides — what it asks you, what
+  it does — is shown beside the console, and on a phone, where no terminal
+  fits, in its place.
 - **No agent comes first.** Every agent Adroit supports is run the same way,
   side by side, with the program and the login the user already has for it.
 - **Writing is Neovim.** Prompts are written in an embedded Neovim configured
@@ -97,7 +100,8 @@ multiply what runs past you unread.
 
 ## What it does not do
 
-- It does not rebuild an agent's interface or replace it with a chat view.
+- It does not rebuild an agent's interface in a window or replace its console
+  with a chat view.
 - It does not orchestrate, and it is no frame for one session to run others
   as its workers. Each session plans and does its own work; Adroit keeps no
   plan, task or verdict, shows where the work stands and gives you the

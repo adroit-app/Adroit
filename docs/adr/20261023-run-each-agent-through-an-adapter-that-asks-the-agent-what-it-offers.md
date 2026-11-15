@@ -38,8 +38,9 @@ starts; while no list is known, models are not checked.
 - Read what a conversation did off the console. What scrolled off is gone,
   wrapped text has to be pieced together, and a prompt or tool input never
   appears whole.
-- Install hooks that report to Adroit. It writes into the user's agent
-  settings, and sessions started before Adroit tell nothing.
+- Keep what a conversation did from hooks that report to Adroit. Sessions
+  started outside Adroit tell nothing, and a hook missed while no work host
+  ran leaves a gap no later hook fills.
 - Pass any model and report the failure. The mistake shows only after a
   session has started.
 
