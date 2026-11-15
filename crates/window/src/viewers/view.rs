@@ -17,6 +17,7 @@ use super::markdown::{
 };
 use super::pdf;
 use super::serve::{self, Scope};
+use crate::themes::Document;
 use adroit_core::viewers::FileKind;
 use adroit_core::viewers::{
     Effect, ImageState, MarkdownState, Media, Scroll, ViewerAction, ViewerState, Zoom,
@@ -56,7 +57,7 @@ pub type LeftAt = HashMap<(u64, PathBuf), Left>;
 pub fn Viewer(
     path: PathBuf,
     root: PathBuf,
-    theme: ReadSignal<&'static str>,
+    theme: ReadSignal<Document>,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
     on_link: EventHandler<PathBuf>,
@@ -176,7 +177,7 @@ fn answer(scope: &Scope, kind: FileKind, rel: &str, range: Option<&str>) -> Resp
 fn ViewerOf(
     path: PathBuf,
     root: PathBuf,
-    theme: ReadSignal<&'static str>,
+    theme: ReadSignal<Document>,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
     on_link: EventHandler<PathBuf>,
@@ -314,7 +315,7 @@ fn ViewerOf(
         move || {
             let theme = theme();
             if kind == FileKind::Markdown {
-                document::eval(&frame_script(&media_id, &theme_message(theme)));
+                document::eval(&frame_script(&media_id, &theme_message(&theme)));
             }
         }
     });
@@ -477,7 +478,7 @@ fn ViewerOf(
                 box_id.clone(),
                 s.zoom.factor(),
                 top.get(),
-                Some(theme()),
+                Some(theme.read().scheme),
                 document,
             ),
         },
@@ -502,7 +503,7 @@ struct Followed {
     images: Images,
     /// The frame's element id.
     frame: String,
-    theme: ReadSignal<&'static str>,
+    theme: ReadSignal<Document>,
     /// The frame's document, set once it is first rendered.
     shown: Signal<Option<Result<String, Unshown>>>,
     /// The file was removed after it was shown.
@@ -545,7 +546,7 @@ async fn follow_markdown(mut f: Followed) {
                             if shown {
                                 document::eval(&frame_script(&f.frame, &update_message(&r)));
                             } else {
-                                let doc = markdown_document(&r.html, r.libraries, (f.theme)());
+                                let doc = markdown_document(&r.html, r.libraries, &f.theme.read());
                                 f.shown.set(Some(Ok(doc)));
                             }
                             if let Ok(mut i) = f.images.lock() {

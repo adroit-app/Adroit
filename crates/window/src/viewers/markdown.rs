@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use adroit_core::settings::ThemeKind;
+use crate::themes::Document;
 use arto_frontend::{Highlighting, Libraries};
 use arto_markdown::{ImageResolution, RenderOptions};
 use dioxus::desktop::use_asset_handler;
@@ -142,26 +142,31 @@ const PAGE_STYLE: &str = "html,body{margin:0;padding:0}\
      html[data-adroit-theme^=dark]{color-scheme:dark}\
      .markdown-viewer{color:var(--fgColor-default);min-height:100vh;box-sizing:border-box}";
 
-/// The theme of Arto's that a theme of `kind` is drawn beside.
-pub fn arto_theme(kind: ThemeKind) -> &'static str {
-    match kind {
-        ThemeKind::Light => "light",
-        ThemeKind::Dark => "dark",
-    }
+/// The rule that gives the viewer `theme`'s colours, over those Arto's
+/// stylesheet declares for each of its schemes and those it declares again
+/// on a diagram.
+pub fn theme_rule(theme: &Document) -> String {
+    format!(
+        "html .markdown-viewer.markdown-viewer,html .markdown-viewer .pele.pele{{{}}}",
+        theme.tokens
+    )
 }
 
 /// The document the viewer's frame is given: `fragment` in Arto's viewer,
 /// painted in `theme`, after Arto's stylesheet, its runtime and the bundles
 /// `libraries` names.
-pub fn markdown_document(fragment: &str, libraries: Libraries, theme: &str) -> String {
+pub fn markdown_document(fragment: &str, libraries: Libraries, theme: &Document) -> String {
     let scripts: String = std::iter::once("embed.js")
         .chain(library_names(libraries))
         .map(|name| format!("<script src=\"{}\"></script>", arto_url(name)))
         .collect();
     format!(
-        "<!doctype html><html data-adroit-theme=\"{theme}\"><head><meta charset=\"utf-8\">\
-         <link rel=\"stylesheet\" href=\"{css}\"><style>{PAGE_STYLE}</style>{page}{scripts}<script>{own}</script></head>\
+        "<!doctype html><html data-adroit-theme=\"{scheme}\"><head><meta charset=\"utf-8\">\
+         <link rel=\"stylesheet\" href=\"{css}\"><style>{PAGE_STYLE}</style>\
+         <style id=\"adroit-theme\">{rule}</style>{page}{scripts}<script>{own}</script></head>\
          <body><div class=\"markdown-viewer\"><article class=\"markdown-body\">{fragment}</article></div></body></html>",
+        scheme = theme.scheme,
+        rule = theme_rule(theme),
         css = arto_url("embed.css"),
         page = serve::PAGE_SCRIPT,
         own = DOCUMENT_SCRIPT,
@@ -179,8 +184,8 @@ pub fn update_message(rendered: &Rendered) -> String {
 }
 
 /// The message that paints the frame's document in `theme`.
-pub fn theme_message(theme: &str) -> String {
-    serde_json::json!({ "theme": theme }).to_string()
+pub fn theme_message(theme: &Document) -> String {
+    serde_json::json!({ "theme": theme.scheme, "rule": theme_rule(theme) }).to_string()
 }
 
 /// What tells one state of the file at `path` from the next: its length and
@@ -308,9 +313,16 @@ mod tests {
         Libraries::for_fragment("<p>hi</p>")
     }
 
+    fn dark() -> Document {
+        Document {
+            scheme: "dark",
+            tokens: "--bgColor-default:#123456;".into(),
+        }
+    }
+
     #[test]
     fn the_document_places_the_fragment_in_arto_s_viewer() {
-        let doc = markdown_document("<p>hi</p>", none(), "light");
+        let doc = markdown_document("<p>hi</p>", none(), &dark());
         assert!(doc.contains(
             "<div class=\"markdown-viewer\"><article class=\"markdown-body\"><p>hi</p></article></div>"
         ));
@@ -319,12 +331,12 @@ mod tests {
 
     #[test]
     fn the_runtime_loads_before_the_bundles_the_fragment_needs_and_no_others() {
-        let doc = markdown_document("<p>hi</p>", every(), "light");
+        let doc = markdown_document("<p>hi</p>", every(), &dark());
         let at = |name: &str| doc.find(&format!("{ARTO_PREFIX}/{name}")).unwrap();
         assert!(at("embed.js") < at("mermaid.js"));
         assert!(at("mermaid.js") < at("math.js"));
         assert!(at("math.js") < at("hljs-all.js"));
-        let prose = markdown_document("<p>hi</p>", none(), "light");
+        let prose = markdown_document("<p>hi</p>", none(), &dark());
         for name in ["mermaid.js", "math.js", "hljs-common.js", "hljs-all.js"] {
             assert!(!prose.contains(name), "{name}");
         }
@@ -419,19 +431,36 @@ mod tests {
 
     #[test]
     fn the_document_s_text_takes_the_theme_s_colour_and_fills_the_frame() {
-        let doc = markdown_document("<p>hi</p>", none(), "dark");
+        let doc = markdown_document("<p>hi</p>", none(), &dark());
         assert!(doc.contains(".markdown-viewer{color:var(--fgColor-default)"));
         assert!(doc.contains("html,body{margin:0"));
     }
 
     #[test]
-    fn the_document_is_painted_in_the_theme_of_the_kind_in_force() {
-        assert_eq!(arto_theme(ThemeKind::Light), "light");
-        assert_eq!(arto_theme(ThemeKind::Dark), "dark");
-        let doc = markdown_document("<p>hi</p>", none(), "dark");
+    fn the_document_is_painted_in_the_theme_s_scheme_and_colours() {
+        let theme = dark();
+        let doc = markdown_document("<p>hi</p>", none(), &theme);
         assert!(doc.contains("data-adroit-theme=\"dark\""));
-        let message: serde_json::Value = serde_json::from_str(&theme_message("dark")).unwrap();
+        assert!(doc.contains(&theme_rule(&theme)));
+        assert!(theme_rule(&theme).contains("--bgColor-default:#123456;"));
+        let message: serde_json::Value = serde_json::from_str(&theme_message(&theme)).unwrap();
         assert_eq!(message["theme"], "dark");
+        assert_eq!(message["rule"], theme_rule(&theme));
+    }
+
+    #[test]
+    fn the_theme_s_colours_are_declared_over_every_scheme_arto_declares() {
+        // Arto declares its colours on the viewer by its scheme, and a
+        // diagram's again on the diagram; the theme's must win over each.
+        let rule = theme_rule(&dark());
+        let selectors = &rule[..rule.find('{').unwrap()];
+        assert_eq!(
+            selectors.split(',').collect::<Vec<_>>(),
+            [
+                "html .markdown-viewer.markdown-viewer",
+                "html .markdown-viewer .pele.pele"
+            ]
+        );
     }
 
     #[test]

@@ -213,7 +213,9 @@ Markdown viewer, and `.pdf` in the PDF viewer.
   file, never an address.
 - **Markdown** draws the document as [Arto](https://github.com/arto-app/Arto)
   draws it: diagrams, formulas, the colours of code and GitHub's alerts
-  included, light or dark as the theme in force is. It draws the document
+  included, in the colours of the theme in force: its ground, text and lines
+  are the window's, and its links, alerts and code take the theme's own
+  colours. It draws the document
   again whenever its file changes, at the place it was read; a document
   removed stays as it was last drawn and says it is gone. A link to another
   file opens that file as its row in the tree would, and a link within the

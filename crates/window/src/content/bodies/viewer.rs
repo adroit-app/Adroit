@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 
 use crate::content::WindowId;
 use crate::pictures::{self, Gallery};
+use crate::themes::Document;
 use crate::viewers;
 
 /// A window's viewer, handed the actions sent to this window alone.
@@ -15,7 +16,7 @@ pub(crate) fn ViewerWindow(
     window: WindowId,
     path: PathBuf,
     root: PathBuf,
-    theme: ReadSignal<&'static str>,
+    theme: ReadSignal<Document>,
     left_at: Signal<viewers::LeftAt>,
     commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
     on_close: EventHandler<()>,

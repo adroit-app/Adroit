@@ -35,6 +35,10 @@ document.addEventListener('click',function(e){
 });
 addEventListener('message',function(e){
   if(e.source!==parent)return;var m=e.data;if(!m||m.adroitViewer!==1)return;
+  if(typeof m.rule==='string'){
+    var own=document.getElementById('adroit-theme');
+    if(own)own.textContent=m.rule;
+  }
   if(m.theme)paint(m.theme);
   if(typeof m.markdown==='string')load(m.scripts||[],function(){
     var body=viewer&&viewer.querySelector('.markdown-body');

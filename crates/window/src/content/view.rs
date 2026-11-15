@@ -4,9 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::shell::Ui;
+use crate::themes;
 use adroit_core::completion::Completions;
 use adroit_core::msg::Msg;
-use adroit_core::settings::ThemeKind;
 use adroit_core::tree as tree_view;
 use dioxus::prelude::*;
 
@@ -40,18 +41,11 @@ pub(crate) fn ContentPanel(
     ontabclose: EventHandler<Target>,
 ) -> Element {
     let app = use_context::<AppCtx>();
-    // A document is painted light or dark as the theme in force is.
     // How each document was left in each window, to read on from there.
     let left_at = use_signal(viewers::LeftAt::new);
-    let theme = use_memo(move || {
-        let config = app.config.read();
-        let system = config
-            .files()
-            .configured
-            .as_ref()
-            .map_or(ThemeKind::Light, |c| c.system);
-        viewers::arto_theme(config.settings.kind_in(system))
-    });
+    // A document is painted in the colours of the theme in force.
+    let palette = use_context::<Ui>().hub.palette;
+    let theme = use_memo(move || themes::document(&palette.read()));
     // How large the content's windows are drawn, which a border's drag is
     // measured against.
     let mut drawn = use_signal(|| (0.0f64, 0.0f64));

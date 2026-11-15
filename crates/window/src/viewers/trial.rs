@@ -79,7 +79,7 @@ pub fn launch(path: PathBuf) {
 fn TrialWindow() -> Element {
     let path: PathBuf = use_context();
     let mut command = use_signal(|| None::<Command>);
-    let theme = use_signal(|| "light");
+    let theme = use_signal(|| crate::themes::document(&adroit_term::Palette::default()));
     let mut pending = use_signal(Vec::<String>::new);
     // Tried without a work host, in adroit's own colours.
     let root_style = use_hook(|| {

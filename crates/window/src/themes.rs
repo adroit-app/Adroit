@@ -64,6 +64,89 @@ pub fn window(p: &Palette) -> Window {
     Window { vars, dark }
 }
 
+/// A Markdown document's colours in a theme: Arto's scheme, `light` or
+/// `dark`, and the declarations of Primer's variables, which Arto's
+/// stylesheet takes every colour from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Document {
+    pub scheme: &'static str,
+    pub tokens: String,
+}
+
+/// A document's colours drawn from a palette as the window's are: it lies on
+/// the window's panel in its text, its lines and raised parts are the
+/// window's, and its links, alerts and code take the palette's own colours.
+pub fn document(p: &Palette) -> Document {
+    let w = window(p);
+    let of = |name: &str| {
+        w.vars
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    };
+    let ansi = |i: usize| p.ansi[i].hex();
+    let tint = |i: usize| mix(p.background, p.ansi[i], 0.18).hex();
+    let tokens: Vec<(&str, String)> = vec![
+        ("--bgColor-default", of("--panel")),
+        ("--bgColor-muted", of("--raised")),
+        ("--bgColor-neutral-muted", of("--select")),
+        ("--bgColor-inset", of("--ground")),
+        ("--fgColor-default", of("--text")),
+        ("--fgColor-muted", of("--text-2")),
+        ("--fgColor-accent", ansi(4)),
+        ("--fgColor-success", ansi(2)),
+        ("--fgColor-attention", ansi(3)),
+        ("--fgColor-danger", ansi(1)),
+        ("--fgColor-done", ansi(5)),
+        ("--fgColor-severe", mix(p.ansi[3], p.ansi[1], 0.5).hex()),
+        ("--borderColor-default", of("--line-strong")),
+        ("--borderColor-muted", of("--line")),
+        ("--borderColor-accent-emphasis", ansi(4)),
+        ("--borderColor-success-emphasis", ansi(2)),
+        ("--borderColor-attention-emphasis", ansi(3)),
+        ("--borderColor-danger-emphasis", ansi(1)),
+        ("--borderColor-done-emphasis", ansi(5)),
+        ("--bgColor-accent-muted", tint(4)),
+        ("--bgColor-success-muted", tint(2)),
+        ("--bgColor-attention-muted", tint(3)),
+        ("--bgColor-danger-muted", tint(1)),
+        ("--bgColor-done-muted", tint(5)),
+        ("--prettylights-syntax-comment", of("--text-3")),
+        ("--prettylights-syntax-keyword", ansi(5)),
+        ("--prettylights-syntax-entity", ansi(4)),
+        ("--prettylights-syntax-entityTag", ansi(2)),
+        ("--prettylights-syntax-constant", ansi(6)),
+        ("--prettylights-syntax-string", ansi(2)),
+        ("--prettylights-syntax-stringRegexp", ansi(6)),
+        ("--prettylights-syntax-variable", ansi(3)),
+        ("--prettylights-syntax-storageModifierImport", of("--text")),
+        ("--prettylights-syntax-markup-heading", ansi(4)),
+        ("--prettylights-syntax-markup-list", ansi(3)),
+        ("--prettylights-syntax-markup-bold", of("--text")),
+        ("--prettylights-syntax-markup-italic", of("--text")),
+        ("--prettylights-syntax-markup-inserted-text", ansi(2)),
+        ("--prettylights-syntax-markup-inserted-bg", tint(2)),
+        ("--prettylights-syntax-markup-deleted-text", ansi(1)),
+        ("--prettylights-syntax-markup-deleted-bg", tint(1)),
+        ("--prettylights-syntax-markup-changed-text", ansi(3)),
+        ("--prettylights-syntax-markup-changed-bg", tint(3)),
+        // A diagram lies on the raised block code lies on; its shapes are
+        // filled with the panel and outlined in the quiet text, as a light
+        // theme's lines are too faint to outline them.
+        ("--pele-surface", of("--panel")),
+        ("--pele-border", of("--text-3")),
+        ("--pele-accent", ansi(4)),
+    ];
+    Document {
+        scheme: if w.dark { "dark" } else { "light" },
+        tokens: tokens
+            .into_iter()
+            .map(|(name, value)| format!("{name}:{value};"))
+            .collect(),
+    }
+}
+
 /// `from` moved `amount` of the way to `to`; a negative amount moves away.
 fn mix(from: Rgb, to: Rgb, amount: f64) -> Rgb {
     let at = |a: u8, b: u8| {
@@ -241,5 +324,66 @@ mod tests {
         assert_eq!(css(&w), "--panel:#192330;--text:#cdcecf;color-scheme:dark;");
         let light = Window { dark: false, ..w };
         assert!(css(&light).ends_with("color-scheme:light;"));
+    }
+
+    fn token<'a>(d: &'a Document, name: &str) -> &'a str {
+        let at = d.tokens.find(&format!("{name}:")).unwrap() + name.len() + 1;
+        let rest = &d.tokens[at..];
+        &rest[..rest.find(';').unwrap()]
+    }
+
+    #[test]
+    fn a_document_is_painted_on_the_window_s_panel_in_its_text_and_lines() {
+        for name in ["Nightfox", "Catppuccin Latte"] {
+            let p = preset(name);
+            let (w, d) = (window(&p), document(&p));
+            assert_eq!(token(&d, "--bgColor-default"), var(&w, "--panel"), "{name}");
+            assert_eq!(token(&d, "--fgColor-default"), var(&w, "--text"), "{name}");
+            assert_eq!(token(&d, "--fgColor-muted"), var(&w, "--text-2"), "{name}");
+            assert_eq!(
+                token(&d, "--borderColor-default"),
+                var(&w, "--line-strong"),
+                "{name}"
+            );
+            assert_eq!(token(&d, "--bgColor-muted"), var(&w, "--raised"), "{name}");
+            assert_eq!(d.scheme, if p.is_dark() { "dark" } else { "light" });
+        }
+    }
+
+    #[test]
+    fn links_alerts_and_code_take_the_theme_s_own_colours() {
+        let p = preset("Nightfox");
+        let d = document(&p);
+        for (name, ansi) in [
+            ("--fgColor-accent", 4),
+            ("--fgColor-success", 2),
+            ("--fgColor-attention", 3),
+            ("--fgColor-danger", 1),
+            ("--fgColor-done", 5),
+            ("--prettylights-syntax-keyword", 5),
+            ("--prettylights-syntax-string", 2),
+            ("--prettylights-syntax-entity", 4),
+            ("--prettylights-syntax-constant", 6),
+            ("--prettylights-syntax-variable", 3),
+        ] {
+            assert_eq!(token(&d, name), p.ansi[ansi].hex(), "{name}");
+        }
+        assert_eq!(
+            token(&d, "--prettylights-syntax-comment"),
+            var(&window(&p), "--text-3")
+        );
+    }
+
+    #[test]
+    fn a_diagram_s_shapes_stand_out_from_its_block_in_a_light_theme_as_in_a_dark_one() {
+        for name in ["Nightfox", "Catppuccin Latte"] {
+            let p = preset(name);
+            let (w, d) = (window(&p), document(&p));
+            // The shapes are outlined in the quiet text, not the lines, which
+            // a light theme draws too faint to outline anything.
+            assert_eq!(token(&d, "--pele-border"), var(&w, "--text-3"), "{name}");
+            assert_eq!(token(&d, "--pele-surface"), var(&w, "--panel"), "{name}");
+            assert_eq!(token(&d, "--pele-accent"), p.ansi[4].hex(), "{name}");
+        }
     }
 }

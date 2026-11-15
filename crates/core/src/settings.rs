@@ -690,19 +690,14 @@ impl Settings {
         self
     }
 
-    /// The kind of the theme in force while the system's appearance is
-    /// `system`.
-    pub fn kind_in(&self, system: ThemeKind) -> ThemeKind {
-        match self.appearance {
+    /// The theme in force while the system's appearance is `system`.
+    pub fn theme_in(&self, system: ThemeKind) -> &str {
+        let kind = match self.appearance {
             Appearance::System => system,
             Appearance::Light => ThemeKind::Light,
             Appearance::Dark => ThemeKind::Dark,
-        }
-    }
-
-    /// The theme in force while the system's appearance is `system`.
-    pub fn theme_in(&self, system: ThemeKind) -> &str {
-        match self.kind_in(system) {
+        };
+        match kind {
             ThemeKind::Light => &self.light_theme,
             ThemeKind::Dark => &self.dark_theme,
         }
@@ -1019,12 +1014,6 @@ model = "chosen-model"
                 ..s.clone()
             };
             assert_eq!(s.theme_in(system), theme, "{appearance:?} in {system:?}");
-            let kind = if theme == "Latte" {
-                ThemeKind::Light
-            } else {
-                ThemeKind::Dark
-            };
-            assert_eq!(s.kind_in(system), kind, "{appearance:?} in {system:?}");
         }
         let s = Settings::parse("appearance = \"light\"\n").unwrap();
         assert_eq!(s.appearance, Appearance::Light);
