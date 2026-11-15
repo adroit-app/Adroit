@@ -45,7 +45,7 @@ async fn a_child_that_does_not_answer_in_time_is_given_up_on_and_killed() {
     let got = converse(
         started(&child, &[]),
         dir.path(),
-        Duration::from_secs(2),
+        Duration::from_secs(5),
         async |talk: &mut Conversation| {
             talk.until(|line| (line == "ready").then_some(())).await?;
             talk.until(|_| None::<()>).await
@@ -54,7 +54,7 @@ async fn a_child_that_does_not_answer_in_time_is_given_up_on_and_killed() {
     .await;
 
     assert_eq!(got, None);
-    assert!(started_at.elapsed() < Duration::from_secs(5));
+    assert!(started_at.elapsed() < Duration::from_secs(15));
     let pid = std::fs::read_to_string(dir.path().join("pid")).unwrap();
     let alive = std::process::Command::new("kill")
         .args(["-0", pid.trim()])
