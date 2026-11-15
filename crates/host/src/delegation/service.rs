@@ -195,6 +195,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         }
         Command::StartSession(start) => self::start(context, &caller, start).await,
         Command::Rename(asked) => rename(context, &caller, asked).await,
+        Command::Naming { cleared } => naming(context, &caller, cleared).await,
         Command::Send(send) => {
             let id = context
                 .call(move |store| store.send(caller.id, send.to, &send.body))
@@ -316,6 +317,26 @@ async fn rename(context: &Context, caller: &Session, asked: protocol::Rename) ->
         .call(move |store| store.rename(id, &kept, false))
         .await?;
     Ok(json!({"name": name}))
+}
+
+/// What the caller's agent is told of its session's name: once its
+/// conversation was cleared, that the name is of the work before, even one
+/// a person gave, which a clear hands back to the agent; as each prompt
+/// arrives, to weigh the name against the work. Nothing while renaming is
+/// switched off, or at a prompt while a person's name stands.
+async fn naming(context: &Context, caller: &Session, cleared: bool) -> Result<Value> {
+    if !context.settings()?.rename_sessions {
+        return Ok(json!({"note": null}));
+    }
+    if cleared {
+        if caller.name_given {
+            let id = caller.id;
+            context.call(move |store| store.hand_back_name(id)).await?;
+        }
+        return Ok(json!({"note": super::launch::naming_after_clear(&caller.name)}));
+    }
+    let note = (!caller.name_given).then(|| super::launch::naming_at_prompt(&caller.name));
+    Ok(json!({"note": note}))
 }
 
 async fn start(context: &Context, caller: &Session, start: protocol::Start) -> Result<Value> {
@@ -1049,6 +1070,67 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(refused.code, Code::Invalid);
+    }
+
+    fn note_of(answer: Value) -> Option<String> {
+        answer["note"].as_str().map(String::from)
+    }
+
+    #[tokio::test]
+    async fn after_a_clear_the_agent_is_asked_to_name_its_session_for_the_work_that_follows() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let note = note_of(naming(&context, &caller, true).await.unwrap()).unwrap();
+
+        assert!(note.contains("`review`"), "{note}");
+        assert!(note.contains("cleared"), "{note}");
+        assert!(note.contains("call `rename_session`"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn at_each_prompt_the_agent_keeps_the_name_unless_the_work_turned() {
+        let (_dir, context, caller, _) = conversation_watch("review");
+
+        let note = note_of(naming(&context, &caller, false).await.unwrap()).unwrap();
+
+        assert!(note.contains("`review`"), "{note}");
+        assert!(note.contains("`rename_session`"), "{note}");
+        assert!(note.contains("keep the name"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn a_clear_hands_a_name_the_user_gave_back_to_the_agent() {
+        let (_dir, context, mut caller, _) = conversation_watch("review");
+        context
+            .store
+            .lock()
+            .unwrap()
+            .rename(caller.id, "review", true)
+            .unwrap();
+        caller.name_given = true;
+
+        let note = note_of(naming(&context, &caller, true).await.unwrap()).unwrap();
+
+        assert!(note.contains("call `rename_session`"), "{note}");
+        let kept = context.store.lock().unwrap().known(caller.id).unwrap();
+        assert!(!kept.name_given);
+    }
+
+    #[tokio::test]
+    async fn a_session_whose_name_its_agent_may_not_change_is_not_asked_to_name_it() {
+        let (_dir, mut context, mut caller, _) = conversation_watch("review");
+        caller.name_given = true;
+        assert_eq!(
+            note_of(naming(&context, &caller, false).await.unwrap()),
+            None
+        );
+
+        caller.name_given = false;
+        context.settings = Arc::new(|| Ok(Settings::parse("rename_sessions = false\n").unwrap()));
+        assert_eq!(
+            note_of(naming(&context, &caller, false).await.unwrap()),
+            None
+        );
     }
 
     #[tokio::test]

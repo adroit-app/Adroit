@@ -80,7 +80,7 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "rename_session",
-            "Name your own session anew, as the user sees it in Adroit: a few words saying what it works on, in the language the user writes in. Call it once you have answered the first prompt, and again only when the work turns to something else entirely, never as it moves from step to step. When it is refused, keep the name.",
+            "Name your own session anew, as the user sees it in Adroit: a few words saying what it works on, in the language the user writes in. Call it once you have answered the first prompt, after the conversation is cleared once you have answered the next one, and otherwise only when the work turns to something else entirely, never as it moves from step to step. When it is refused, keep the name.",
             schemars::schema_for!(Rename),
         ),
         json!({
@@ -275,13 +275,58 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
     .await
 }
 
-/// `adroit mcp [--channel]`. Returns the process exit code.
+/// What a Claude Code hook `event` is answered with: what the work host
+/// says of the session's name, as a prompt arrives or once the conversation
+/// was cleared; nothing for any other event, or while the work host cannot
+/// say.
+async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
+    let name = event["hook_event_name"].as_str()?;
+    let cleared = match name {
+        "UserPromptSubmit" => false,
+        "SessionStart" if event["source"] == "clear" => true,
+        _ => return None,
+    };
+    let answer = daemon.ask(Command::Naming { cleared }, None).await.ok()?;
+    let note = answer["note"].as_str()?;
+    Some(json!({"hookSpecificOutput": {"hookEventName": name, "additionalContext": note}}))
+}
+
+/// `adroit mcp hook`: answers the hook event on standard input. It always
+/// succeeds, adding nothing when it cannot answer, as a failing hook would
+/// hold up the user's prompt.
+fn hook_cli() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    let event: Option<Value> = std::io::stdin()
+        .read_to_string(&mut input)
+        .ok()
+        .and_then(|_| serde_json::from_str(&input).ok());
+    let (Some(event), Ok(credential), Ok(root)) =
+        (event, std::env::var(TOKEN_ENV), std::env::var(ROOT_ENV))
+    else {
+        return 0;
+    };
+    let answer = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|runtime| {
+            runtime.block_on(hook(&event, Socket::new(Path::new(&root), credential)))
+        });
+    if let Some(answer) = answer {
+        println!("{answer}");
+    }
+    0
+}
+
+/// `adroit mcp [--channel | hook]`. Returns the process exit code.
 pub fn cli(args: &[String]) -> i32 {
     let channel = match args {
         [] => false,
         [flag] if flag == "--channel" => true,
+        [verb] if verb == "hook" => return hook_cli(),
         _ => {
-            eprintln!("usage: adroit mcp [--channel]");
+            eprintln!("usage: adroit mcp [--channel | hook]");
             return 2;
         }
     };
@@ -351,9 +396,62 @@ mod tests {
                 Command::Context => json!({"opened_by": null}),
                 Command::Next => self.waiting.lock().unwrap().pop().unwrap_or(Value::Null),
                 Command::Send(send) => json!({"sent_to": send.to}),
+                Command::Naming { cleared } => json!({"note": format!("cleared={cleared}")}),
                 _ => Value::Null,
             })
         }
+    }
+
+    fn added(answer: Option<Value>) -> Option<(String, String)> {
+        let output = &answer?["hookSpecificOutput"];
+        Some((
+            output["hookEventName"].as_str()?.to_owned(),
+            output["additionalContext"].as_str()?.to_owned(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn a_prompt_is_given_what_adroit_says_of_the_session_s_name() {
+        let answer = hook(
+            &json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"}),
+            Fake::new(),
+        )
+        .await;
+        assert_eq!(
+            added(answer),
+            Some(("UserPromptSubmit".into(), "cleared=false".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cleared_conversation_is_told_its_session_s_name_is_of_the_work_before() {
+        let answer = hook(
+            &json!({"hook_event_name": "SessionStart", "source": "clear"}),
+            Fake::new(),
+        )
+        .await;
+        assert_eq!(
+            added(answer),
+            Some(("SessionStart".into(), "cleared=true".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_conversation_started_or_resumed_otherwise_is_told_nothing() {
+        for source in ["startup", "resume", "compact"] {
+            let daemon = Fake::new();
+            let event = json!({"hook_event_name": "SessionStart", "source": source});
+            assert_eq!(hook(&event, daemon.clone()).await, None, "{source}");
+            assert!(daemon.asked.lock().unwrap().is_empty(), "{source}");
+        }
+    }
+
+    #[tokio::test]
+    async fn nothing_is_added_while_the_work_host_cannot_be_reached() {
+        let daemon = Fake::new();
+        *daemon.away.lock().unwrap() = 1;
+        let event = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
+        assert_eq!(hook(&event, daemon).await, None);
     }
 
     async fn exchange(daemon: Fake, channel: bool, lines: &[Value], wait: Duration) -> Vec<Value> {

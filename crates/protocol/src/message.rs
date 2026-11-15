@@ -53,6 +53,9 @@ pub enum Request {
         was: String,
         agent: Agent,
     },
+    /// Let the agent of the session `id` name it again, keeping the name it
+    /// has until then.
+    HandBackName { id: String },
     /// The screen of the session `session`, whose prompt goes to `agent`,
     /// was drawn anew in the window's console.
     Redrawn { session: String, agent: Agent },

@@ -266,6 +266,27 @@ fn a_name_typed_and_kept_renames_the_session() {
 }
 
 #[test]
+fn a_name_emptied_and_kept_hands_the_session_s_naming_back_to_its_agent() {
+    let run = window()
+        .send(renaming("a", RenamePlace::Sidebar))
+        .send(typed("a", RenamePlace::Sidebar, "  "))
+        .send(ended("a", RenamePlace::Sidebar, true));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::Host {
+            environment: here(),
+            request: Request::HandBackName { id: "a".into() },
+        }]
+    );
+
+    let cancelled = window()
+        .send(renaming("a", RenamePlace::Tab))
+        .send(typed("a", RenamePlace::Tab, ""))
+        .send(ended("a", RenamePlace::Tab, false));
+    assert!(cancelled.last_effects().is_empty());
+}
+
+#[test]
 fn a_name_given_up_unchanged_or_for_another_field_renames_nothing() {
     // (typed, ended, still renaming)
     let cases = [

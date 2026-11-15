@@ -47,6 +47,7 @@ impl Request {
             Self::Stop { .. }
             | Self::Kill { .. }
             | Self::Rename { .. }
+            | Self::HandBackName { .. }
             | Self::Release { .. }
             | Self::EndTerminal { .. }
             | Self::KeepWorkspace { .. }

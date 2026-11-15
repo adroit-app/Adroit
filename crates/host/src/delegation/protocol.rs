@@ -60,6 +60,11 @@ pub enum Command {
     Models,
     /// Name the caller's own session anew.
     Rename(Rename),
+    /// What the caller's agent is to weigh of its session's name as a prompt
+    /// arrives, or once its conversation was cleared.
+    Naming {
+        cleared: bool,
+    },
     /// The oldest message waiting for the caller, as its agent is to read it.
     Next,
     Delivered {

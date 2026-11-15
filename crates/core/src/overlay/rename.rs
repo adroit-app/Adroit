@@ -73,6 +73,11 @@ impl Rename {
         let name = self.text.trim();
         (!name.is_empty() && name != self.was).then(|| name.to_string())
     }
+
+    /// Whether the name was emptied, which hands naming back to its agent.
+    pub fn emptied(&self) -> bool {
+        self.text.trim().is_empty()
+    }
 }
 
 #[cfg(test)]

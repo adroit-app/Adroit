@@ -15,7 +15,25 @@ pub fn install(program: &Path, dir: &Path) -> std::io::Result<()> {
     std::fs::write(manifest.join("plugin.json"), MANIFEST)?;
     let skill = dir.join("skills").join("start-session");
     std::fs::create_dir_all(&skill)?;
-    std::fs::write(skill.join("SKILL.md"), start_session(program))
+    std::fs::write(skill.join("SKILL.md"), start_session(program))?;
+    let hooks = dir.join("hooks");
+    std::fs::create_dir_all(&hooks)?;
+    std::fs::write(hooks.join("hooks.json"), self::hooks(program))
+}
+
+/// The hooks that ask `program` what to tell Claude of its session's name:
+/// once a conversation is cleared and as each prompt arrives.
+fn hooks(program: &Path) -> String {
+    let asked = serde_json::json!([{
+        "type": "command",
+        "command": format!("{} mcp hook", crate::shell_word(program)),
+        "timeout": 5,
+    }]);
+    let hooks = serde_json::json!({"hooks": {
+        "SessionStart": [{"matcher": "clear", "hooks": asked}],
+        "UserPromptSubmit": [{"hooks": asked}],
+    }});
+    serde_json::to_string_pretty(&hooks).expect("the hooks are JSON")
 }
 
 /// The arguments that load the plugin, written afresh into `dir` for the
@@ -44,6 +62,23 @@ mod tests {
         let skill =
             std::fs::read_to_string(dir.path().join("skills/start-session/SKILL.md")).unwrap();
         assert!(skill.starts_with("---\nname: start-session\n"));
+    }
+
+    #[test]
+    fn the_plugin_asks_adroit_about_the_session_s_name_after_a_clear_and_at_each_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        install(Path::new("/Applications/My Adroit/adroit"), dir.path()).unwrap();
+        let hooks: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("hooks/hooks.json")).unwrap(),
+        )
+        .unwrap();
+        let asked = "'/Applications/My Adroit/adroit' mcp hook";
+        let start = &hooks["hooks"]["SessionStart"][0];
+        assert_eq!(start["matcher"], "clear");
+        assert_eq!(start["hooks"][0]["type"], "command");
+        assert_eq!(start["hooks"][0]["command"], asked);
+        let prompt = &hooks["hooks"]["UserPromptSubmit"][0];
+        assert_eq!(prompt["hooks"][0]["command"], asked);
     }
 
     #[test]

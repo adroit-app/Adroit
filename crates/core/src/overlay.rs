@@ -355,6 +355,10 @@ pub(crate) fn end_rename(
                     },
                 }]
             }
+            None if r.emptied() => vec![Effect::Host {
+                environment: r.environment,
+                request: Request::HandBackName { id: r.id },
+            }],
             None => Vec::new(),
         },
         _ => Vec::new(),

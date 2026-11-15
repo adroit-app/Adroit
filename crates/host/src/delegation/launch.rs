@@ -158,6 +158,24 @@ pub fn naming(name: &str) -> String {
     )
 }
 
+/// What the agent is told once its conversation was cleared, `name` being
+/// its session's: the work the name says has ended with the conversation.
+pub fn naming_after_clear(name: &str) -> String {
+    format!(
+        "The conversation was cleared, so the name `{name}` Adroit shows for this session is of the work before. \
+         Once you have answered the next prompt, call `rename_session` with a few words saying what this session now works on, in the language the user writes in."
+    )
+}
+
+/// What the agent is told as each prompt arrives, `name` being its
+/// session's: a reminder to weigh, not a call to make.
+pub fn naming_at_prompt(name: &str) -> String {
+    format!(
+        "Adroit shows this session as `{name}`. \
+         If that name does not say what the work is — it was made from the first words of a prompt, or this prompt turns the work to something else entirely — call `rename_session` once you have answered it; while the work goes on as the name says, keep the name."
+    )
+}
+
 const SCRATCH: &str = "\
 You run in Adroit's scratch folder, which every scratch session shares, for talk that belongs to no project; keep what you write here small. \
 Once the talk turns to work on a particular project — reading its code, changing it, running it — open a session in that project's directory with `start_session`, `show` set, and a first prompt that carries everything said here that it needs, then tell the user the work goes on there and leave it to that session. \

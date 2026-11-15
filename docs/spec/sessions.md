@@ -362,17 +362,21 @@ again. A window in the background views nothing, so its marks stay.
 
 Double-clicking a session's name in the tree or its tab edits that name
 in place. The rename action from the keyboard or menu opens the same editor.
-Enter or leaving the field accepts the name; Escape cancels. An empty or
-unchanged name leaves the session's name as it was.
+Enter or leaving the field accepts the name; Escape cancels. An unchanged
+name leaves the session's name as it was; an emptied one keeps the name too,
+but lets the session's agent name it again.
 
 A session's agent names its session itself when its name was made for it,
 from the first words of its prompt or by the session that opened it: once it
 has answered the first prompt, it gives a few words saying what the session
 works on, in the language you write in, and it names the session again when
-the work turns to something else. A name you gave, on a first line
-`name: <label>`, with `--name`, or by renaming the session here, is never
-changed by its agent, and neither is any name while `rename_sessions` is off
-([settings](reference/settings.md)). The new name shows in the tree, in the
+the work turns to something else. A Claude Code session is reminded of its
+name with each prompt you send, and after you clear its conversation its agent
+names the session again once it has answered the next prompt. A name you
+gave, on a first line `name: <label>`, with `--name`, or by renaming the
+session here, is not changed by its agent until you empty the name here or
+clear the session's conversation, and no name is while `rename_sessions` is
+off ([settings](reference/settings.md)). The new name shows in the tree, in the
 tab and to other sessions; the agent's own interface keeps the name the
 session started with. A session brought back keeps its name and whether you
 gave it.

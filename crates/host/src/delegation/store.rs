@@ -280,6 +280,29 @@ impl Store {
         Ok(())
     }
 
+    /// Lets the agent of `id` name it again: the name it has is kept, as one
+    /// no person gave.
+    pub fn hand_back_name(&mut self, id: SessionId) -> Result<()> {
+        let changed = self.connection.execute(
+            "UPDATE sessions SET name_given = 0 WHERE id = ?1",
+            params![id.to_string()],
+        )?;
+        if changed == 0 {
+            return Err(Error::new(Code::NotFound, "the session is unknown"));
+        }
+        Ok(())
+    }
+
+    /// [`Store::hand_back_name`] for the session running in `terminal`, if
+    /// one is recorded there.
+    pub fn hand_back_name_of_terminal(&mut self, terminal: u128) -> Result<()> {
+        self.connection.execute(
+            "UPDATE sessions SET name_given = 0 WHERE terminal = ?1 AND ended = 0",
+            params![crate::sessions::hex(terminal)],
+        )?;
+        Ok(())
+    }
+
     pub fn learn_conversation(&mut self, id: SessionId, conversation: &str) -> Result<()> {
         self.update(
             id,
@@ -1201,6 +1224,19 @@ PRAGMA user_version = 1;
         assert_eq!((kept.name.as_str(), kept.name_given), ("fixer", true));
         // A terminal no session is recorded in renames nothing.
         store.rename_terminal(8, "other", true).unwrap();
+    }
+
+    #[test]
+    fn a_name_handed_back_is_kept_as_one_its_agent_may_change() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "fix-tests");
+        store.attach(id, 7, None).unwrap();
+        store.rename_terminal(7, "fixer", true).unwrap();
+
+        store.hand_back_name(id).unwrap();
+
+        let kept = store.known(id).unwrap();
+        assert_eq!((kept.name.as_str(), kept.name_given), ("fixer", false));
     }
 
     #[test]

@@ -312,6 +312,7 @@ impl Host {
             job @ (Request::Stop { .. }
             | Request::Kill { .. }
             | Request::Rename { .. }
+            | Request::HandBackName { .. }
             | Request::Release { .. }
             | Request::EndTerminal { .. }
             | Request::KeepWorkspace { .. }
