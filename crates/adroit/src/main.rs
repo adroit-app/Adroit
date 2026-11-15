@@ -1,4 +1,7 @@
+mod log;
+
 fn main() {
+    log::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "__startup_lease") {
         std::process::exit(adroit_host::startup_lease(&args[1..]));
