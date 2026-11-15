@@ -686,16 +686,13 @@ const KEYS_STARTER: &str = "# Key bindings over the defaults, area by area.\n";
 /// Make `text` the key bindings, read again at once.
 fn save_keys(text: &str) -> Result<Answer, String> {
     let path = crate::paths::keys_path();
-    let failed = |e: std::io::Error| format!("cannot write {}: {e}", path.display());
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(failed)?;
-    }
     let text = if text.trim().is_empty() && !path.exists() {
         KEYS_STARTER
     } else {
         text
     };
-    std::fs::write(&path, text).map_err(failed)?;
+    crate::config::write(&path, text)
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     let _ = settings::CHANGED.send(());
     Ok(Answer::Done)
 }

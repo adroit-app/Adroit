@@ -8,6 +8,23 @@ use adroit_protocol::{ConfigFile, ConfigWork, Configured, FileText, ThemeKind, T
 
 use crate::settings::Settings;
 
+/// Make `text` what the configuration file `path` holds, replaced whole, its
+/// folder made when it is missing. A file the user keeps elsewhere and links
+/// to is written where it is kept, so the link stays, and a file keeps the
+/// mode it has.
+pub(crate) fn write(path: &Path, text: &str) -> std::io::Result<()> {
+    use adroit_sys::fs::MetadataExt;
+    let kept = match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_symlink() => adroit_sys::fs::canonicalize(path)?,
+        _ => path.to_path_buf(),
+    };
+    if let Some(dir) = kept.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mode = std::fs::metadata(&kept).map_or(0o644, |metadata| metadata.mode() & 0o7777);
+    adroit_sys::fs::replace(&kept, text, mode)
+}
+
 /// What `path` holds now.
 pub fn file(path: &Path) -> ConfigFile {
     let text = match std::fs::read_to_string(path) {
@@ -72,6 +89,53 @@ pub fn configured(settings: &Settings, system: ThemeKind, last: Option<&Configur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_configuration_file_is_written_whole_with_its_folder_and_leaves_nothing_beside_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config").join("settings.toml");
+
+        write(&path, "zoom = 1.0\n").unwrap();
+        write(&path, "zoom = 1.25\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "zoom = 1.25\n");
+        let beside: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(beside, ["settings.toml"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_configuration_file_keeps_the_mode_it_has() {
+        use adroit_sys::fs::MetadataExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("keys.toml");
+        write(&path, "").unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
+        adroit_sys::fs::set_mode(&path, 0o600).unwrap();
+
+        write(&path, "[tree]\n").unwrap();
+
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_configuration_file_kept_elsewhere_through_a_link_is_written_where_it_is_kept() {
+        let directory = tempfile::tempdir().unwrap();
+        let kept = directory.path().join("dotfiles").join("settings.toml");
+        std::fs::create_dir(kept.parent().unwrap()).unwrap();
+        std::fs::write(&kept, "zoom = 1.0\n").unwrap();
+        let path = directory.path().join("settings.toml");
+        std::os::unix::fs::symlink(&kept, &path).unwrap();
+
+        write(&path, "zoom = 1.25\n").unwrap();
+
+        assert!(std::fs::symlink_metadata(&path).unwrap().is_symlink());
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "zoom = 1.25\n");
+    }
 
     #[test]
     fn a_file_is_read_missing_or_unreadable_as_it_is_on_disk() {

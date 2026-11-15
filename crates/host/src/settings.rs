@@ -62,11 +62,8 @@ pub fn save(settings: &Settings) -> Result<(), String> {
 fn save_path(settings: &Settings, path: &Path) -> Result<(), String> {
     read_path(path)
         .map_err(|error| format!("{error}. Fix the configuration file before saving settings"))?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
     let text = toml::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    crate::config::write(path, &text).map_err(|e| e.to_string())
 }
 
 pub fn load_error() -> Option<String> {

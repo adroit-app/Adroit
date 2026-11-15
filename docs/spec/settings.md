@@ -14,7 +14,9 @@ console panel's console and prompt with their embedded Neovims, what the
 details panel is made of, the key bindings, accepting connections from
 other computers, and the removed environments. These stay editable while the environment cannot be
 reached. Changes apply to windows using the same settings owner and remain
-for the next run. A stale save is refused rather than overwriting newer work
+for the next run. The settings and key binding files are saved whole, never
+left half written, and one kept elsewhere and linked to is saved where it is
+kept, the link left as it is. A stale save is refused rather than overwriting newer work
 settings.
 
 The appearance, the light theme and the dark theme are chosen once, on this
