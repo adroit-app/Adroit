@@ -745,9 +745,10 @@ pub fn unfolds(item: &Item, folds: &Folds) -> bool {
 
 /// What opening `item` shows: a file by its kind, in its viewer or in
 /// Neovim, the one already started on it if there is one; a worktree its
-/// first session, or else a new one. A file of an environment not `local`,
-/// which the window's viewers cannot read, opens in Neovim when it is text
-/// and nowhere when it is not.
+/// first session, or else a new one. A Markdown document a Neovim is on opens
+/// that Neovim, whose window switches to the viewer. A file of an environment
+/// not `local`, which the window's viewers cannot read, opens in Neovim when
+/// it is text and nowhere when it is not.
 pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: bool) -> Opens {
     match item {
         Item::Environment(_)
@@ -763,8 +764,10 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: boo
         } => {
             let at = Some(Place::at(environment, worktree.clone()));
             let editing = editing(terminals, path).next().map(|t| t.id);
-            let viewer = crate::viewers::FileKind::of(path).has_viewer();
-            if viewer && local {
+            let kind = crate::viewers::FileKind::of(path);
+            if let (Some(id), crate::viewers::FileKind::Markdown) = (editing, kind) {
+                Opens::Shows(Tab::Terminal(environment.clone(), id), at)
+            } else if kind.has_viewer() && local {
                 Opens::Shows(Tab::Viewer(environment.clone(), path.clone()), at)
             } else if !crate::viewers::is_text(path) {
                 Opens::Unavailable
@@ -1957,6 +1960,27 @@ mod tests {
         assert_eq!(
             opens(&file("/api", "/api/b.rs", false), &t, &nvim, true),
             Opens::Edit("/api".into(), "/api/b.rs".into())
+        );
+    }
+
+    #[test]
+    fn a_document_opens_in_its_viewer_unless_a_neovim_on_it_runs() {
+        let t = tree();
+        let nvim = [editing(9, "/api/NOTES.md")];
+        assert_eq!(
+            opens(&file("/api", "/api/README.md", false), &t, &nvim, true),
+            Opens::Shows(
+                Tab::Viewer(here(), "/api/README.md".into()),
+                Some(at("/api"))
+            )
+        );
+        assert_eq!(
+            opens(&file("/api", "/api/NOTES.md", false), &t, &nvim, true),
+            Opens::Shows(Tab::Terminal(here(), 9), Some(at("/api")))
+        );
+        assert_eq!(
+            opens(&file("/api", "/api/README.md", false), &t, &nvim, false),
+            Opens::Edit("/api".into(), "/api/README.md".into())
         );
     }
 

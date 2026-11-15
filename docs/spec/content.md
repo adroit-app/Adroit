@@ -55,7 +55,9 @@ prompt and takes the `viewer` area's keys.
 
 ## Opening
 
-Nothing opened takes the place of what a window shows. Opening something
+Nothing opened takes the place of what a window shows, but for the preview
+and a document switched between its viewer and its Neovim
+([viewers](#viewers)). Opening something
 moves the focus to a window of any tab already showing it, and turns that tab
 into an ordinary one when it is the preview; when no window shows it, it opens
 in a new tab after the one shown.
@@ -77,7 +79,8 @@ on, and the tree still reaches them. A viewer ends with the last window
 showing it. A Neovim started on a file is asked to quit, as `:qa` would
 quit it, once no window of the instance shows it any longer; closing Adroit's window
 itself leaves it running. One holding an unsaved change refuses and runs on,
-and opening the file's row shows it again. A session not started yet that no window shows any longer is
+and opening the file's row shows it again. A Neovim a window switched to its
+document's viewer counts as shown while that window shows the viewer. A session not started yet that no window shows any longer is
 given up.
 
 A terminal that ends or a session that ends closes every window that shows
@@ -186,19 +189,21 @@ an unreachable host exits with status 1.
 
 ## Viewers
 
-A file that means nothing as text is shown by a viewer of its kind, drawn by
-the window itself: images, movies, HTML pages and PDFs. Every other file,
-including one of a kind Adroit does not know, opens in Neovim.
+A file that is read rather than edited is shown by a viewer of its kind,
+drawn by the window itself: images, movies, HTML pages, Markdown documents and
+PDFs. Every other file, including one of a kind Adroit does not know, opens in
+Neovim.
 
 A file is opened or looked at from the tree as any row is: in its viewer, or in a Neovim started on it in its worktree, which the file's row stands
 for in the tree. A file already open in a Neovim started on it opens that Neovim
-again. A viewer ends with the windows showing it; it keeps its zoom, page and
+again, a Markdown document included. A viewer ends with the windows showing it; it keeps its zoom, page and
 playback while the focus moves between windows. A viewer reads the files of
 this computer alone ([remote execution](remote-execution.md)).
 
 A file's kind is decided by its extension alone, whatever its case. The common
 image formats open in the image viewer, the common movie formats in the movie
-viewer, `.html` and `.htm` in the HTML viewer, and `.pdf` in the PDF viewer.
+viewer, `.html` and `.htm` in the HTML viewer, `.md` and `.markdown` in the
+Markdown viewer, and `.pdf` in the PDF viewer.
 
 - **Image** draws the picture whole within the window, and zooms in and out
   from there; zooming back to the fit shows it whole again.
@@ -206,21 +211,40 @@ viewer, `.html` and `.htm` in the HTML viewer, and `.pdf` in the PDF viewer.
   seconds at a time. The time played and the movie's length are shown.
 - **HTML** draws the page as a browser would, scripts included. It shows a
   file, never an address.
+- **Markdown** draws the document as [Arto](https://github.com/arto-app/Arto)
+  draws it: diagrams, formulas, the colours of code and GitHub's alerts
+  included, light or dark as the theme in force is. It draws the document
+  again whenever its file changes, at the place it was read; a document
+  removed stays as it was last drawn and says it is gone. A link to another
+  file opens that file as its row in the tree would, and a link within the
+  document scrolls to its place. It zooms like an image.
 - **PDF** shows one page at a time, turned by keys, and zooms like an image.
   The page shown and the page count are shown.
 
 In every viewer the content scrolls by lines, by half the window, and to its
 top and bottom, and the file's path can be copied.
 
-A viewer only reads its file, and reads nothing else, with one exception: an
+A Markdown document's window switches to a Neovim on the document, and back,
+in place ([actions](reference/keys.md#actions)). The Neovim switched to is the
+one the window switched away from, or else any Neovim on the document, or else
+one started for it in its worktree, which takes the keys. The Neovim switched
+away from runs on, hidden, while the window shows the document, so switching
+back finds it as it was; the document is drawn again from what it saved. A
+document read in a window comes back at its zoom and its place when the window
+switches back to it.
+
+A viewer only reads its file, and reads nothing else, with two exceptions: an
 HTML page also reads the files under its own directory, which it links to by
-relative paths. A page cannot reach files outside that directory, nor the
-window it is drawn in, nor Adroit.
+relative paths, and a Markdown document reads the images it shows from under
+its worktree, or its own folder outside one. Neither reaches the window it is
+drawn in, nor Adroit. Images a Markdown document takes from an address load
+from there.
 
 A viewer's keys are actions of the `viewer` area, bound in the keys file like
 any other ([actions](reference/keys.md#actions)). They reach the viewer of the
-focused window alone. Keys pressed while an HTML page has the focus reach the
-viewer as well, except those typed into the page's own fields.
+focused window alone. Keys pressed while an HTML page or a Markdown document
+has the focus reach the viewer as well, except those typed into the page's
+own fields.
 
 ## Images in the console
 

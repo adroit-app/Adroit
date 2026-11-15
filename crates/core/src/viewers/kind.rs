@@ -33,7 +33,7 @@ impl FileKind {
 
     /// Whether a viewer of the window shows the file, rather than Neovim.
     pub fn has_viewer(self) -> bool {
-        !matches!(self, FileKind::Text | FileKind::Markdown)
+        self != FileKind::Text
     }
 }
 
@@ -135,15 +135,13 @@ mod tests {
     }
 
     #[test]
-    fn markdown_documents_are_their_kind_and_text_as_well() {
+    fn markdown_documents_open_in_their_viewer_and_are_text_as_well() {
         for name in ["README.md", "notes.MARKDOWN", "docs/a.Md"] {
             assert_eq!(FileKind::of(name), FileKind::Markdown, "{name}");
+            assert!(FileKind::of(name).has_viewer(), "{name}");
             assert!(is_text(name), "{name}");
         }
         assert_eq!(FileKind::of("page.mdx"), FileKind::Text);
-        // The tree opens them in Neovim until a window can switch a document
-        // between its viewer and its Neovim.
-        assert!(!FileKind::Markdown.has_viewer());
     }
 
     #[test]
