@@ -25,7 +25,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
             environment.clone(),
             hosts.name(&environment),
             tree::crumbs(&showing, work),
-            view.waiting.len(),
+            view.waiting().len(),
             hosts
                 .each()
                 .map(|(_, host)| tree::working(host.work.as_ref()))

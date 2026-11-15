@@ -39,8 +39,8 @@ pub(crate) fn TreePanel(
     let (rows, waiting, every) = {
         let view = app.tree.read();
         (
-            view.rows.clone(),
-            view.narrowed_waiting.clone(),
+            view.rows().to_vec(),
+            view.narrowed_waiting().to_vec(),
             view.every_worktree,
         )
     };

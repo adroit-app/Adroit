@@ -323,7 +323,7 @@ pub(crate) fn show_session(
     let p = Place::at(&environment, p);
     let tab = Tab::Session(environment, id);
     if let Some(row) = nav::row_of(
-        &state.tree.rows,
+        state.tree.rows(),
         tree::listed(work),
         tab.environment(),
         Some(&tab),

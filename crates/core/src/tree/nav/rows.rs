@@ -5,20 +5,18 @@ use std::path::{Path, PathBuf};
 
 use adroit_model::files::Entry;
 use adroit_model::github::{Listing, Repository};
-use adroit_model::{
-    EnvironmentId, InboxItem, TerminalProgram, TerminalSession, Tree, WorktreeNode,
-};
+use adroit_model::{EnvironmentId, TerminalProgram, TerminalSession, Tree, WorktreeNode};
 
 use super::{Folds, Heading, Item};
 
-/// Every item the tree of `environment` shows, top to bottom, the sessions
-/// waiting on the user last. Children of a folded node are left out, `read`
-/// lists a directory's entries once it is open, and `github` holds what is
-/// open on GitHub of each repository on it, by its root.
+/// Every item the tree of `environment` shows, top to bottom. Children of a
+/// folded node are left out, `read` lists a directory's entries once it is
+/// open, and `github` holds what is open on GitHub of each repository on it,
+/// by its root. The sessions waiting on the user are not among them: the
+/// tree view lists those of every environment after all the rest.
 pub fn items(
     environment: &EnvironmentId,
     tree: &Tree,
-    inbox: &[InboxItem],
     folds: &Folds,
     read: &dyn Fn(&Path) -> Vec<Entry>,
     github: &BTreeMap<PathBuf, Repository>,
@@ -63,11 +61,6 @@ pub fn items(
             }
         }
     }
-    out.extend(
-        inbox
-            .iter()
-            .map(|i| Item::Waiting(environment.clone(), i.session.id.clone())),
-    );
     out
 }
 

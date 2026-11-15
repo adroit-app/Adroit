@@ -38,28 +38,11 @@ pub struct TreeView {
     pub every_worktree: bool,
     /// Whether the files whose names start with `.` are listed.
     pub show_hidden: bool,
-    /// Each environment's tree narrowed to what the filter holds.
-    narrowed: BTreeMap<EnvironmentId, Tree>,
-    /// The sessions waiting on the user, of every environment's whole tree.
-    pub waiting: Vec<(EnvironmentId, InboxItem)>,
-    /// The sessions waiting on the user that the filter keeps.
-    pub narrowed_waiting: Vec<(EnvironmentId, InboxItem)>,
     /// The sessions finished that the user has seen since.
     pub completions: Completions,
     /// When the window saw each session's state last change.
     pub changes: Changes,
-    /// Every row, top to bottom, the sessions waiting on the user last.
-    pub rows: Vec<Item>,
-    /// The worktrees whose files the rows list, by their environment.
-    marked: BTreeSet<(EnvironmentId, PathBuf)>,
-    /// The directories whose entries the rows list, by their environment.
-    listed: BTreeSet<(EnvironmentId, PathBuf)>,
-    /// The listings on GitHub the rows hold open, by their environment.
-    github: BTreeSet<(EnvironmentId, PathBuf, Listing)>,
-    /// What the rows were last built from.
-    built_from: Option<BuiltFrom>,
-    /// Counts the times the rows were built anew.
-    built: u64,
+    built: Built,
     /// The rows the selection was last kept among.
     kept_among: u64,
     /// The tab the selection last followed.
@@ -73,6 +56,31 @@ pub struct TreeView {
     /// The error the status line was last told the sessions cannot be
     /// listed for.
     failing: Option<String>,
+}
+
+/// What [`build`] makes of the trees the hosts listed and of what the user
+/// set. Only `build` writes it, so it is never out of step with what it was
+/// built from.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Built {
+    /// Each environment's tree narrowed to what the filter holds.
+    narrowed: BTreeMap<EnvironmentId, Tree>,
+    /// The sessions waiting on the user, of every environment's whole tree.
+    waiting: Vec<(EnvironmentId, InboxItem)>,
+    /// The sessions waiting on the user that the filter keeps.
+    narrowed_waiting: Vec<(EnvironmentId, InboxItem)>,
+    /// Every row, top to bottom, the sessions waiting on the user last.
+    rows: Vec<Item>,
+    /// The worktrees whose files the rows list, by their environment.
+    marked: BTreeSet<(EnvironmentId, PathBuf)>,
+    /// The directories whose entries the rows list, by their environment.
+    listed: BTreeSet<(EnvironmentId, PathBuf)>,
+    /// The listings on GitHub the rows hold open, by their environment.
+    github: BTreeSet<(EnvironmentId, PathBuf, Listing)>,
+    /// What the rows were last built from.
+    from: Option<BuiltFrom>,
+    /// Counts the times the rows were built anew.
+    times: u64,
 }
 
 /// What the rows are built from: each environment by the patch its work is
@@ -101,7 +109,22 @@ impl TreeView {
     /// an environment the rows hold nothing of.
     pub fn narrowed(&self, environment: &EnvironmentId) -> &Tree {
         static NONE: std::sync::LazyLock<Tree> = std::sync::LazyLock::new(Tree::default);
-        self.narrowed.get(environment).unwrap_or(&NONE)
+        self.built.narrowed.get(environment).unwrap_or(&NONE)
+    }
+
+    /// Every row, top to bottom, the sessions waiting on the user last.
+    pub fn rows(&self) -> &[Item] {
+        &self.built.rows
+    }
+
+    /// The sessions waiting on the user, of every environment's whole tree.
+    pub fn waiting(&self) -> &[(EnvironmentId, InboxItem)] {
+        &self.built.waiting
+    }
+
+    /// The sessions waiting on the user that the filter keeps.
+    pub fn narrowed_waiting(&self) -> &[(EnvironmentId, InboxItem)] {
+        &self.built.narrowed_waiting
     }
 
     /// How deep `item` sits among the rows: an environment's heading and the
@@ -118,7 +141,8 @@ impl TreeView {
     /// How many sessions of `environment` wait on the user, whatever the
     /// filter keeps.
     pub fn waiting_in(&self, environment: &EnvironmentId) -> usize {
-        self.waiting
+        self.built
+            .waiting
             .iter()
             .filter(|(e, _)| e == environment)
             .count()
@@ -135,7 +159,7 @@ impl TreeView {
 
     /// The row `item` sits under among the rows.
     pub fn parent(&self, item: &Item) -> Option<Item> {
-        nav::parent(&self.rows, |i| self.depth(i), item)
+        nav::parent(&self.built.rows, |i| self.depth(i), item)
     }
 }
 
@@ -229,7 +253,7 @@ pub(crate) fn every_worktree(view: &mut TreeView, hosts: &crate::host::Hosts) ->
 }
 
 pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
-    let rows = &view.rows;
+    let rows = &view.built.rows;
     let current = view.selected.as_ref();
     let next = match key {
         Key::Down => nav::step(rows, current, 1),
@@ -288,21 +312,21 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
         view.folds.clone(),
         view.show_hidden,
     );
-    if view.built_from.as_ref() == Some(&from) {
+    if view.built.from.as_ref() == Some(&from) {
         return;
     }
-    view.built_from = Some(from);
-    view.narrowed.clear();
-    view.waiting.clear();
-    view.narrowed_waiting.clear();
+    view.built.from = Some(from);
+    view.built.narrowed.clear();
+    view.built.waiting.clear();
+    view.built.narrowed_waiting.clear();
     let asked = RefCell::new(BTreeSet::new());
     let mut rows = Vec::new();
     for (environment, host) in hosts.each() {
         let facts = facts(host.work.as_ref());
         let narrowed = nav::narrowed(facts.tree(), &view.filter);
         let of = |tree: &Tree| inbox(tree).into_iter().map(|i| (environment.clone(), i));
-        view.waiting.extend(of(facts.tree()));
-        view.narrowed_waiting.extend(of(&narrowed));
+        view.built.waiting.extend(of(facts.tree()));
+        view.built.narrowed_waiting.extend(of(&narrowed));
         let heading = Item::Environment(environment.clone());
         let open = view.folds.is_open(&heading);
         rows.push(heading);
@@ -320,20 +344,20 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
             rows.extend(nav::items(
                 environment,
                 &narrowed,
-                &[],
                 &view.folds,
                 &read as &dyn Fn(&Path) -> Vec<Entry>,
                 &facts.github,
             ));
         }
-        view.narrowed.insert(environment.clone(), narrowed);
+        view.built.narrowed.insert(environment.clone(), narrowed);
     }
     rows.extend(
-        view.narrowed_waiting
+        view.built
+            .narrowed_waiting
             .iter()
             .map(|(environment, i)| Item::Waiting(environment.clone(), i.session.id.clone())),
     );
-    view.marked = rows
+    view.built.marked = rows
         .iter()
         .filter_map(|row| match row {
             Item::Heading(environment, path, Heading::Files) if view.folds.is_open(row) => {
@@ -342,8 +366,8 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
             _ => None,
         })
         .collect();
-    view.listed = asked.into_inner();
-    view.github = rows
+    view.built.listed = asked.into_inner();
+    view.built.github = rows
         .iter()
         .filter_map(|row| match row {
             Item::GitHub(environment, root, listing) if view.folds.is_open(row) => {
@@ -352,9 +376,9 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
             _ => None,
         })
         .collect();
-    if view.rows != rows {
-        view.rows = rows;
-        view.built += 1;
+    if view.built.rows != rows {
+        view.built.rows = rows;
+        view.built.times += 1;
     }
 }
 
@@ -368,7 +392,7 @@ pub(crate) fn go_into(view: &mut TreeView) {
         view.into = None;
         return;
     }
-    let rows = &view.rows;
+    let rows = &view.built.rows;
     let first = rows
         .iter()
         .position(|r| *r == row)
@@ -419,7 +443,7 @@ pub(crate) fn land(view: &mut TreeView) {
     if view.selected != from {
         return;
     }
-    if view.rows.contains(&to) {
+    if view.built.rows.contains(&to) {
         view.selected = Some(to);
     } else {
         view.landing = Some((from, to));
@@ -431,15 +455,15 @@ pub(crate) fn land(view: &mut TreeView) {
 /// Only rows built anew are looked at: a row selected ahead of being
 /// listed, as a session just started is, stays selected until it is.
 pub(crate) fn keep_selection(view: &mut TreeView, showing: &Showing, work: Option<&WorkSnapshot>) {
-    if view.kept_among == view.built {
+    if view.kept_among == view.built.times {
         return;
     }
-    view.kept_among = view.built;
+    view.kept_among = view.built.times;
     let Some(place) = showing.place.clone() else {
         return;
     };
     let row = nav::row_kept(
-        &view.rows,
+        &view.built.rows,
         listed(work),
         view.selected.as_ref(),
         showing.tab.as_ref(),
@@ -468,7 +492,7 @@ pub(crate) fn follow_switch(view: &mut TreeView, showing: &Showing, work: Option
         return;
     };
     let row = nav::row_after_switch(
-        &view.rows,
+        &view.built.rows,
         tree,
         view.selected.as_ref(),
         before.as_ref(),
@@ -536,9 +560,10 @@ pub(crate) fn sight(view: &TreeView, environment: &EnvironmentId) -> TreeSight {
     };
     TreeSight {
         every_worktree: view.every_worktree,
-        marked: of(&view.marked),
-        listed: of(&view.listed),
+        marked: of(&view.built.marked),
+        listed: of(&view.built.listed),
         github: view
+            .built
             .github
             .iter()
             .filter(|(e, ..)| e == environment)
@@ -632,7 +657,7 @@ mod tests {
     use crate::testing::{self, listing, patch, session, session_tab, shell, show_in};
 
     fn rows(run: &Scenario) -> Vec<Item> {
-        run.state().tree.rows.clone()
+        run.state().tree.rows().to_vec()
     }
 
     fn selected(run: &Scenario) -> Option<Item> {
@@ -721,7 +746,7 @@ mod tests {
         assert!(got.contains(&Item::Workspace(here(), "/r".into())));
         assert!(got.contains(&Item::Gathered(Box::new(Item::Session(here(), "a".into())))));
         assert_eq!(got.last(), Some(&Item::Waiting(here(), "b".into())));
-        assert_eq!(run.state().tree.waiting.len(), 1);
+        assert_eq!(run.state().tree.waiting().len(), 1);
     }
 
     #[test]
@@ -745,8 +770,8 @@ mod tests {
         let got = rows(&run);
         assert!(got.contains(&Item::Session(here(), "apple".into())));
         assert!(!got.contains(&Item::Session(here(), "berry".into())));
-        assert!(run.state().tree.narrowed_waiting.is_empty());
-        assert_eq!(run.state().tree.waiting.len(), 1);
+        assert!(run.state().tree.narrowed_waiting().is_empty());
+        assert_eq!(run.state().tree.waiting().len(), 1);
     }
 
     #[test]
@@ -1396,7 +1421,7 @@ mod tests {
         let waiting: Vec<_> = run
             .state()
             .tree
-            .waiting
+            .waiting()
             .iter()
             .map(|(environment, it)| (environment.clone(), it.session.id.clone()))
             .collect();
@@ -1665,7 +1690,7 @@ mod tests {
             row: Item::Heading(here(), "/r".into(), Heading::Files),
             open: false,
         });
-        assert!(!run.state().tree.rows.contains(&src));
+        assert!(!run.state().tree.rows().contains(&src));
         assert_eq!(run.state().overlays.naming, None);
     }
 

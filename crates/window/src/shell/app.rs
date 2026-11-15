@@ -105,7 +105,7 @@ fn use_scroll_into_view(app: AppCtx) {
     // and rows unfolded above it push it down.
     let selected = use_memo(move || {
         let tree = app.tree.read();
-        (tree.selected.clone(), tree.rows.clone())
+        (tree.selected.clone(), tree.rows().to_vec())
     });
     use_effect(move || {
         let _ = selected();

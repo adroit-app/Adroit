@@ -232,7 +232,7 @@ fn closing_a_shell_s_row_selects_the_row_above_and_ends_the_shell() {
     // Ending a session on a shell's row ends that shell, not the session shown.
     for action in [Action::TerminalStop, Action::SessionStop] {
         let run = showing(Area::Sidebar).send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))));
-        let above = nav::row_above(&run.state().tree.rows, &Item::Terminal(here(), 7));
+        let above = nav::row_above(run.state().tree.rows(), &Item::Terminal(here(), 7));
         let run = run.send(perform(action.clone(), None, Probe::default()));
         assert_eq!(run.state().tree.selected, above, "{action:?}");
         assert_eq!(run.state().overlays.confirm, None, "{action:?}");

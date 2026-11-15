@@ -397,14 +397,14 @@ pub(crate) fn keep_rename(state: &mut ViewState) {
     };
     let shown = match r.place {
         RenamePlace::Sidebar => state.chrome.panels.layout.show_sidebar
-            && state.tree.rows.iter().any(
+            && state.tree.rows().iter().any(
                 |item| matches!(item.own(), Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
             ),
         RenamePlace::Heading => {
             state.chrome.panels.layout.show_sidebar
                 && state
                     .tree
-                    .rows
+                    .rows()
                     .contains(&Item::Environment(r.environment.clone()))
         }
         RenamePlace::Tab => state
@@ -463,7 +463,7 @@ pub(crate) fn keep_naming(state: &mut ViewState) {
         return;
     };
     let shown =
-        state.chrome.panels.layout.show_sidebar && state.tree.rows.contains(&naming.under());
+        state.chrome.panels.layout.show_sidebar && state.tree.rows().contains(&naming.under());
     if !shown {
         state.overlays.naming = None;
     }

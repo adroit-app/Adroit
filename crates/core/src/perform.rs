@@ -232,7 +232,7 @@ pub(crate) fn perform(
                 environment: environment.clone(),
                 id: *id,
             };
-            let above = nav::row_above(&state.tree.rows, row);
+            let above = nav::row_above(state.tree.rows(), row);
             let mut effects = step(state, Msg::TreeSelect(above));
             effects.push(end);
             effects
@@ -410,7 +410,7 @@ pub(crate) fn perform(
                 _ => None,
             };
             let forward = action == Action::WaitingNext;
-            let Some((environment, id)) = nav::next_waiting(&state.tree.waiting, current, forward)
+            let Some((environment, id)) = nav::next_waiting(state.tree.waiting(), current, forward)
             else {
                 return Vec::new();
             };
