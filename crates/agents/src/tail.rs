@@ -83,10 +83,54 @@ impl Tail {
     }
 }
 
+impl Tail {
+    /// Read on in the file at `path`, as [`Tail::read`] does; with no file
+    /// to read, the tail starts over.
+    pub(crate) fn read_at(&mut self, path: Option<&Path>) -> Tailed {
+        match path {
+            Some(path) => self.read(path),
+            None => {
+                *self = Tail::default();
+                Tailed::Missing
+            }
+        }
+    }
+}
+
+/// What reads a transcript as it grows.
+pub(crate) trait Follow {
+    /// Forget what was read: the file went, or began anew.
+    fn restart(&mut self);
+    /// Take in one line of it.
+    fn take(&mut self, value: &Value);
+}
+
+impl Tailed {
+    /// Hand what this read found to `reader`: start it over when the file
+    /// went or began anew, then give it each line written since.
+    pub(crate) fn feed(self, reader: &mut impl Follow) {
+        match self {
+            Tailed::Missing => reader.restart(),
+            Tailed::Unreadable => {}
+            Tailed::Lines {
+                restarted, values, ..
+            } => {
+                if restarted {
+                    reader.restart();
+                }
+                for value in &values {
+                    reader.take(value);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::append;
+
     use serde_json::json;
 
     fn lines(restarted: bool, ended: bool, values: &[Value]) -> Tailed {
@@ -95,6 +139,44 @@ mod tests {
             ended,
             values: values.to_vec(),
         }
+    }
+
+    #[derive(Default)]
+    struct Reader {
+        taken: Vec<Value>,
+        restarts: usize,
+    }
+
+    impl Follow for Reader {
+        fn restart(&mut self) {
+            self.restarts += 1;
+            self.taken.clear();
+        }
+        fn take(&mut self, value: &Value) {
+            self.taken.push(value.clone());
+        }
+    }
+
+    #[test]
+    fn a_reader_takes_each_new_line_and_starts_over_when_the_file_goes_or_begins_anew() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.jsonl");
+        let (mut tail, mut reader) = (Tail::default(), Reader::default());
+        append(&path, "{\"a\":1}\n");
+        tail.read(&path).feed(&mut reader);
+        append(&path, "{\"b\":2}\n");
+        tail.read(&path).feed(&mut reader);
+        assert_eq!(reader.taken, [json!({"a": 1}), json!({"b": 2})]);
+        assert_eq!(reader.restarts, 0);
+
+        std::fs::write(&path, "{\"c\":3}\n").unwrap();
+        tail.read(&path).feed(&mut reader);
+        assert_eq!(reader.taken, [json!({"c": 3})]);
+        assert_eq!(reader.restarts, 1);
+
+        tail.read_at(None).feed(&mut reader);
+        assert!(reader.taken.is_empty());
+        assert!(!tail.opened());
     }
 
     #[test]

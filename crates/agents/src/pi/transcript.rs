@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::ConversationReader;
 use crate::links::{Collector, Links, file_call};
-use crate::tail::{Tail, Tailed};
+use crate::tail::{Follow, Tail};
 use crate::time::timestamp_ms;
 
 /// The tools whose calls name no link of the conversation's own: what they
@@ -42,43 +42,68 @@ impl Transcript {
         }
     }
 
-    fn restart(&mut self) {
-        self.found.clear();
-        self.calls.clear();
-        self.stats = ConversationStats::default();
-    }
-
     fn refresh(&mut self) {
         if !self.path.as_ref().is_some_and(|p| p.is_file()) {
             self.path = super::sessions::find(&self.root, &self.id);
         }
-        let read = match &self.path {
-            Some(path) => self.tail.read(path),
-            None => {
-                self.tail = Tail::default();
-                Tailed::Missing
-            }
-        };
-        match read {
-            Tailed::Missing => self.restart(),
-            Tailed::Unreadable => {}
-            Tailed::Lines {
-                restarted, values, ..
-            } => {
-                if restarted {
-                    self.restart();
-                }
-                for entry in values {
-                    self.take(&entry);
-                }
-            }
-        }
+        self.tail.read_at(self.path.as_deref()).feed(self);
     }
 
     // The shared collector owns address recognition, ordering and file
     // labels: Pi's messages are put to it in the shape it reads.
     fn feed(&mut self, timestamp: &Value, role: &str, content: Value) {
         self.found.said(role, timestamp, content, &|p| p.is_file());
+    }
+
+    /// The call `part` as the collector reads one: Pi's file tools as the
+    /// ones it knows, by the file's whole path; none for a search.
+    fn call(&mut self, part: &Value) -> Option<Value> {
+        self.stats.tool_calls += 1;
+        let name = part["name"].as_str()?;
+        let id = part["id"].as_str()?;
+        if SEARCHING.contains(&name) {
+            return None;
+        }
+        let arguments = &part["arguments"];
+        let call = file_call(id, name, arguments["path"].as_str())
+            .unwrap_or_else(|| json!({"type":"tool_use", "id":id, "name":name, "input":arguments}));
+        self.calls.insert(id.into());
+        Some(call)
+    }
+
+    fn count(&mut self, message: &Value) {
+        if let Some(model) = message["model"].as_str().filter(|m| !m.is_empty()) {
+            self.stats.model = Some(model.into());
+        }
+        let usage = &message["usage"];
+        if usage.is_object() {
+            let n = |key: &str| usage[key].as_u64().unwrap_or(0);
+            let tokens = self.stats.tokens.get_or_insert_with(Tokens::default);
+            tokens.input += n("input") + n("cacheRead") + n("cacheWrite");
+            tokens.output += n("output");
+            tokens.cached += n("cacheRead");
+        }
+    }
+}
+
+/// The text parts of `content`.
+fn texts(content: &Value) -> Value {
+    json!(
+        content
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|part| part["type"] == "text")
+            .map(|part| json!({"type":"text", "text":part["text"]}))
+            .collect::<Vec<_>>()
+    )
+}
+
+impl Follow for Transcript {
+    fn restart(&mut self) {
+        self.found.clear();
+        self.calls.clear();
+        self.stats = ConversationStats::default();
     }
 
     fn take(&mut self, entry: &Value) {
@@ -128,49 +153,6 @@ impl Transcript {
             _ => {}
         }
     }
-
-    /// The call `part` as the collector reads one: Pi's file tools as the
-    /// ones it knows, by the file's whole path; none for a search.
-    fn call(&mut self, part: &Value) -> Option<Value> {
-        self.stats.tool_calls += 1;
-        let name = part["name"].as_str()?;
-        let id = part["id"].as_str()?;
-        if SEARCHING.contains(&name) {
-            return None;
-        }
-        let arguments = &part["arguments"];
-        let call = file_call(id, name, arguments["path"].as_str())
-            .unwrap_or_else(|| json!({"type":"tool_use", "id":id, "name":name, "input":arguments}));
-        self.calls.insert(id.into());
-        Some(call)
-    }
-
-    fn count(&mut self, message: &Value) {
-        if let Some(model) = message["model"].as_str().filter(|m| !m.is_empty()) {
-            self.stats.model = Some(model.into());
-        }
-        let usage = &message["usage"];
-        if usage.is_object() {
-            let n = |key: &str| usage[key].as_u64().unwrap_or(0);
-            let tokens = self.stats.tokens.get_or_insert_with(Tokens::default);
-            tokens.input += n("input") + n("cacheRead") + n("cacheWrite");
-            tokens.output += n("output");
-            tokens.cached += n("cacheRead");
-        }
-    }
-}
-
-/// The text parts of `content`.
-fn texts(content: &Value) -> Value {
-    json!(
-        content
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|part| part["type"] == "text")
-            .map(|part| json!({"type":"text", "text":part["text"]}))
-            .collect::<Vec<_>>()
-    )
 }
 
 impl ConversationReader for Transcript {

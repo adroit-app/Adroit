@@ -7,7 +7,7 @@ use crate::links::{Collector, Links};
 use serde_json::{Value, json};
 
 use crate::ConversationReader;
-use crate::tail::{Tail, Tailed};
+use crate::tail::{Follow, Tail};
 
 pub(super) fn thread_id(id: &str) -> bool {
     id.len() == 36
@@ -80,32 +80,13 @@ impl Transcript {
         reader
     }
 
-    fn restart(&mut self) {
-        self.found.clear();
-        self.results.clear();
-        self.metrics = super::metrics::Collector::default();
-    }
-
     fn refresh(&mut self) {
         if !self.path.is_file()
             && let Some((root, id)) = &self.locate
         {
             self.path = find(root, id).unwrap_or_default();
         }
-        match self.tail.read(&self.path) {
-            Tailed::Missing => self.restart(),
-            Tailed::Unreadable => {}
-            Tailed::Lines {
-                restarted, values, ..
-            } => {
-                if restarted {
-                    self.restart();
-                }
-                for value in values {
-                    self.take(&value);
-                }
-            }
-        }
+        self.tail.read(&self.path).feed(self);
     }
 
     // The shared collector owns address recognition, ordering and file labels.
@@ -127,6 +108,38 @@ impl Transcript {
             json!([{"type":"tool_use",
             "name":if edited {"Edit"} else {"Read"}, "input":{"file_path":path}}]),
         );
+    }
+}
+
+fn local_path(path: &str) -> String {
+    let Some(path) = path.strip_prefix("file://") else {
+        return path.into();
+    };
+    let mut bytes = Vec::new();
+    let mut rest = path.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        if first == b'%'
+            && rest.len() >= 3
+            && let (Some(a), Some(b)) = (
+                (rest[1] as char).to_digit(16),
+                (rest[2] as char).to_digit(16),
+            )
+        {
+            bytes.push((a * 16 + b) as u8);
+            rest = &rest[3..];
+        } else {
+            bytes.push(first);
+            rest = tail;
+        }
+    }
+    String::from_utf8(bytes).unwrap_or_else(|_| path.into())
+}
+
+impl Follow for Transcript {
+    fn restart(&mut self) {
+        self.found.clear();
+        self.results.clear();
+        self.metrics = super::metrics::Collector::default();
     }
 
     fn take(&mut self, record: &Value) {
@@ -275,30 +288,6 @@ impl Transcript {
             _ => {}
         }
     }
-}
-
-fn local_path(path: &str) -> String {
-    let Some(path) = path.strip_prefix("file://") else {
-        return path.into();
-    };
-    let mut bytes = Vec::new();
-    let mut rest = path.as_bytes();
-    while let Some((&first, tail)) = rest.split_first() {
-        if first == b'%'
-            && rest.len() >= 3
-            && let (Some(a), Some(b)) = (
-                (rest[1] as char).to_digit(16),
-                (rest[2] as char).to_digit(16),
-            )
-        {
-            bytes.push((a * 16 + b) as u8);
-            rest = &rest[3..];
-        } else {
-            bytes.push(first);
-            rest = tail;
-        }
-    }
-    String::from_utf8(bytes).unwrap_or_else(|_| path.into())
 }
 
 impl ConversationReader for Transcript {
