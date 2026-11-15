@@ -209,13 +209,23 @@ pub(crate) fn use_app() -> AppCtx {
             [Msg::ContentOpened { kept, scratch }],
         ));
         // This computer's bindings and meters, over whatever the hosts read.
-        let chosen = crate::client_settings::chosen().map(|p| Msg::UsageChosen(p.usage));
+        let chosen = crate::client_settings::chosen()
+            .map(|p| [Msg::UsageChosen(p.usage), Msg::PanelChosen(p.panel)])
+            .into_iter()
+            .flatten();
         effects.extend(pump(
             &mut view,
             &links,
             &mut events,
             std::iter::once(Msg::KeysRead(crate::client_keys::read())).chain(chosen),
         ));
+        // The window's state starts out with what it shows as already asked,
+        // while the host starts out reading nothing: ask it once, since what
+        // is shown may not change again before the machine's meters are due.
+        effects.push(Effect::Host {
+            environment: environment.clone(),
+            request: adroit_protocol::Request::Watch(Box::new(view.hosts.own().watched().clone())),
+        });
         crate::client_settings::apply(&mut view.config.settings);
         view.chrome.zoom = view.config.settings.zoom;
         let app = AppCtx {
@@ -548,6 +558,9 @@ impl AppCtx {
         if let Some(preferences) = &chosen {
             if self.view.read().config.usage() != Some(preferences.usage) {
                 self.dispatch(Msg::UsageChosen(preferences.usage));
+            }
+            if self.view.read().config.settings.panel != preferences.panel {
+                self.dispatch(Msg::PanelChosen(preferences.panel.clone()));
             }
             self.write_appearance(preferences);
         }

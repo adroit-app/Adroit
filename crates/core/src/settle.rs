@@ -402,9 +402,11 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
         tree: {
             let mut tree = tree::sight(&state.tree, environment);
             if shown
-                && let Some(root) = details::pulls_wanted(&state.details, state.hosts.work(environment))
+                && let Some(root) =
+                    details::pulls_wanted(&state.details, state.hosts.work(environment))
             {
-                tree.github.insert((root, adroit_model::github::Listing::Pulls));
+                tree.github
+                    .insert((root, adroit_model::github::Listing::Pulls));
             }
             tree
         },

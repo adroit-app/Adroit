@@ -48,6 +48,7 @@ h2 { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 0 0 4px; p
 .settings-hint { color: var(--text-3); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
 .settings-mono { font-family: var(--mono); font-size: 12px; }
 .settings-row-control { flex: none; display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.settings-buttons { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 select, input, button, textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--ground);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 8px; outline: none; }
 input[type=number] { width: 72px; }

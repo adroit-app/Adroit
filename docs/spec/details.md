@@ -157,6 +157,12 @@ components = [
 
 A component placed where it cannot tell anything, an icon Adroit does not
 have, or a subject with no tab, is refused as any setting out of form is.
+
+The Settings window arranges it too, under All environments in Details
+panel: for each of the three, its tabs, named and given an icon, each with
+its components, then the foot, each added, moved and taken out there, and
+Adroit's arrangement put back. How a component shows where it is placed is
+written in the file.
 A work process is one the session started; the agent and its supporting
 runtimes are excluded from both the list and kill targets, while work
 processes launched through those runtimes remain available. Processes that

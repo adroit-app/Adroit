@@ -43,6 +43,13 @@ pub struct Host {
     failed: Option<String>,
 }
 
+impl Host {
+    /// What the host was last asked to keep read.
+    pub fn watched(&self) -> &Sight {
+        &self.watched
+    }
+}
+
 /// The host of each environment the window shows, held apart: the same
 /// session id in two of them is two sessions.
 #[derive(Debug, Clone, PartialEq)]

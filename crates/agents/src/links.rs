@@ -501,19 +501,27 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn what_was_said_to_the_session_is_kept_newest_first_without_what_adroit_or_its_agent_put_there() {
+    fn what_was_said_to_the_session_is_kept_newest_first_without_what_adroit_or_its_agent_put_there()
+     {
         let got = read(
             &[
                 user(json!("fix the login")),
                 said("Done."),
-                user(json!([{"type": "text", "text": "now <system-reminder>x</system-reminder>add a test"}])),
+                user(
+                    json!([{"type": "text", "text": "now <system-reminder>x</system-reminder>add a test"}]),
+                ),
                 result("t1", json!("tool output")),
-                json!({"type": "user", "isMeta": true, "message": {"content": "Caveat: meta"}}).to_string(),
+                json!({"type": "user", "isMeta": true, "message": {"content": "Caveat: meta"}})
+                    .to_string(),
                 user(json!("<command-name>/clear</command-name>")),
             ],
             &[],
         );
-        let texts: Vec<(u64, &str)> = got.prompts.iter().map(|p| (p.turn, p.text.as_str())).collect();
+        let texts: Vec<(u64, &str)> = got
+            .prompts
+            .iter()
+            .map(|p| (p.turn, p.text.as_str()))
+            .collect();
         assert_eq!(texts, [(2, "now add a test"), (1, "fix the login")]);
     }
 

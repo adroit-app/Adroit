@@ -31,6 +31,7 @@ use crate::zoom::LEVELS;
 
 mod about;
 mod agents;
+mod details;
 mod environment;
 mod neovim;
 mod profiles;
@@ -110,6 +111,7 @@ pub fn close_in_front() -> bool {
 enum Pane {
     Environment,
     Window,
+    Details,
     General,
     Appearance,
     Console,
@@ -135,8 +137,9 @@ impl Pane {
     /// The panes of this computer, for every environment, in the order the
     /// sidebar lists them below the environment's; About is set apart below
     /// them.
-    const EVERY_ENVIRONMENT: [Pane; 7] = [
+    const EVERY_ENVIRONMENT: [Pane; 8] = [
         Pane::Window,
+        Pane::Details,
         Pane::Console,
         Pane::Prompt,
         Pane::Appearance,
@@ -170,6 +173,7 @@ impl Pane {
             Pane::Serving => "Accept connections",
             Pane::Removed => "Removed environments",
             Pane::Window => "Window",
+            Pane::Details => "Details panel",
             Pane::General => "General",
             Pane::Appearance => "Appearance",
             Pane::Console => "Console",
@@ -193,6 +197,7 @@ impl Pane {
             Pane::Serving => Icon::UsersGroup,
             Pane::Removed => Icon::SquareMinus,
             Pane::Window => Icon::AdjustmentsHorizontal,
+            Pane::Details => Icon::LayoutSidebarRight,
             Pane::General => Icon::AdjustmentsHorizontal,
             Pane::Appearance => Icon::SunMoon,
             Pane::Console => Icon::Terminal,
@@ -371,6 +376,7 @@ fn SettingsWindow(agents: AgentsWork) -> Element {
                     fieldset { class: "settings-fields", disabled: remote().is_some_and(|s| !s.writable) && !pane().available_offline(),
                     match pane() {
                         Pane::Window => rsx! { WindowPane { now: now(), change } },
+                        Pane::Details => rsx! { details::DetailsPane { now: now(), change } },
                         Pane::General => rsx! { General { now: now(), change } },
                         Pane::Appearance => rsx! { AppearancePane { now: now(), change } },
                         Pane::Console => rsx! { ConsolePane { now: now(), change } },
@@ -504,7 +510,7 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
             }
         }
         SettingGroup { title: "Details panel",
-            SettingRow { label: "Changes in Log", hint: "How many changes the Log sheet lists.",
+            SettingRow { label: "Changes in Log", hint: "How many changes the log lists.",
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.log_commits}",
@@ -518,14 +524,14 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                     onchange: set_number::<usize>(change, |s, n| s.details.diff_lines = n),
                 }
             }
-            SettingRow { label: "Links shown", hint: "How many links of each kind the overview shows before a row that shows them all.",
+            SettingRow { label: "Links shown", hint: "How many rows of each list the details show before a row that shows them all.",
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.links_shown}",
                     onchange: set_number::<usize>(change, |s, n| s.details.links_shown = n),
                 }
             }
-            SettingRow { label: "Links kept", hint: "How many links of each kind the overview shows, the newest.",
+            SettingRow { label: "Links kept", hint: "How many links of each kind the details keep, the newest.",
                 NumberField {
                     min: "1", max: "1000",
                     value: "{now.details.links_kept}",

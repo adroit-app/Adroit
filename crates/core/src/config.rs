@@ -26,6 +26,8 @@ pub struct Config {
     keys_error: Option<String>,
     /// The machine's resources this computer shows, once it said.
     usage: Option<UsageSettings>,
+    /// What this computer makes the details panel of, once it said.
+    panel: Option<crate::details::DetailsLayout>,
     /// The files as they were last taken in.
     taken: ConfigWork,
 }
@@ -89,6 +91,9 @@ pub(crate) fn take_in(state: &mut ViewState) -> Vec<Effect> {
                     if let Some(usage) = config.usage {
                         config.settings.usage = usage;
                     }
+                    if let Some(panel) = &config.panel {
+                        config.settings.panel = panel.clone();
+                    }
                 }
                 Err(error) => config.settings_error = Some(error),
             }
@@ -128,6 +133,17 @@ pub(crate) fn keys_read(state: &mut ViewState, file: ConfigFile) -> Vec<Effect> 
     config.keys = Some(file);
     let last = std::mem::replace(&mut config.keys_error, now.clone());
     status_line::failing(&mut state.chrome.status, last.as_deref(), now.as_deref())
+}
+
+/// This computer makes the details panel of `panel`, over what any host's
+/// settings say.
+pub(crate) fn panel_chosen(
+    config: &mut Config,
+    panel: crate::details::DetailsLayout,
+) -> Vec<Effect> {
+    config.settings.panel = panel.clone();
+    config.panel = Some(panel);
+    Vec::new()
 }
 
 /// This computer shows `usage` of the machine, over what any host's settings
@@ -344,6 +360,28 @@ mod tests {
             run.state().chrome.keymap,
             Keymap::with_user(client).unwrap()
         );
+    }
+
+    #[test]
+    fn what_this_computer_makes_the_details_panel_of_stays_over_the_host_s_settings() {
+        let mut mine = crate::details::DetailsLayout::default();
+        mine.set(
+            crate::details::Subject::Github,
+            crate::details::Surface {
+                foot: Vec::new(),
+                ..crate::details::Surface::github()
+            },
+        );
+        let run = Scenario::new()
+            .send(home())
+            .event(configured(""))
+            .send(Msg::PanelChosen(mine.clone()))
+            .tell(ConfigChange::Settings {
+                file: settings_file("zoom = 1.25\n"),
+            });
+        assert_eq!(run.state().config.settings.zoom, 1.25);
+        assert_eq!(run.state().config.settings.panel, mine);
+        assert_eq!(run.state().details.shown.layout, mine);
     }
 
     #[test]

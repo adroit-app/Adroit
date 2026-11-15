@@ -2584,7 +2584,10 @@ pub(crate) mod tests {
             at_ms: None,
         };
         let links = Links {
-            prompts: vec![prompt(2, "add a test\nfor the login"), prompt(1, "fix the login")],
+            prompts: vec![
+                prompt(2, "add a test\nfor the login"),
+                prompt(1, "fix the login"),
+            ],
             ..Default::default()
         };
         let run = Scenario::new()
@@ -2610,7 +2613,9 @@ pub(crate) mod tests {
             opened_prompt(&opened.state().details, work).map(|p| p.turn),
             Some(2)
         );
-        let back = opened.send(Msg::DetailsBack).send(Msg::DetailsKey(Key::Down));
+        let back = opened
+            .send(Msg::DetailsBack)
+            .send(Msg::DetailsKey(Key::Down));
         let copied = back.send(Msg::DetailsKey(Key::Copy));
         assert!(copied.effects().iter().any(|e| matches!(
             e,

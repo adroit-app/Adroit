@@ -172,6 +172,15 @@ impl Component {
         }
     }
 
+    /// Every component that can describe `subject`, as the Settings window
+    /// offers them.
+    pub fn placeable(subject: Subject) -> impl Iterator<Item = Component> {
+        Component::ALL
+            .iter()
+            .copied()
+            .filter(move |c| c.describes(subject))
+    }
+
     /// Whether it lists rows under a heading that folds.
     pub fn folds(self) -> bool {
         matches!(
@@ -412,6 +421,57 @@ impl Surface {
             .chain(self.foot.iter())
     }
 
+    /// The components of `slot`: a tab's, by its place, or the foot's.
+    pub fn components_mut(&mut self, slot: Slot) -> Option<&mut Vec<Placed>> {
+        match slot {
+            Slot::Tab(at) => self.tabs.get_mut(at).map(|t| &mut t.components),
+            Slot::Foot => Some(&mut self.foot),
+        }
+    }
+
+    /// A tab named `title`, holding nothing yet, added after the others.
+    pub fn add_tab(&mut self, title: &str) {
+        self.tabs.push(DetailsTab {
+            title: title.into(),
+            icon: None,
+            components: Vec::new(),
+        });
+    }
+
+    /// The tab at `at` taken out, unless it is the only one.
+    pub fn remove_tab(&mut self, at: usize) {
+        if self.tabs.len() > 1 && at < self.tabs.len() {
+            self.tabs.remove(at);
+        }
+    }
+
+    /// The tab at `at` moved `delta` places along, stopping at either end.
+    pub fn move_tab(&mut self, at: usize, delta: isize) {
+        shift(&mut self.tabs, at, delta);
+    }
+
+    /// `component` placed last in `slot`.
+    pub fn add(&mut self, slot: Slot, component: Component) {
+        if let Some(list) = self.components_mut(slot) {
+            list.push(Placed::new(component));
+        }
+    }
+
+    /// What `slot` places at `at` taken out.
+    pub fn remove(&mut self, slot: Slot, at: usize) {
+        if let Some(list) = self.components_mut(slot).filter(|l| at < l.len()) {
+            list.remove(at);
+        }
+    }
+
+    /// What `slot` places at `at` moved `delta` places along, stopping at
+    /// either end.
+    pub fn shift(&mut self, slot: Slot, at: usize, delta: isize) {
+        if let Some(list) = self.components_mut(slot) {
+            shift(list, at, delta);
+        }
+    }
+
     /// Why it cannot describe `subject`, if it cannot.
     fn check(&self, subject: Subject, table: &str) -> Result<(), String> {
         if self.tabs.is_empty() {
@@ -433,6 +493,27 @@ impl Surface {
             ));
         }
         Ok(())
+    }
+}
+
+/// Where a component is placed: in a tab, by its place, or in the foot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Tab(usize),
+    Foot,
+}
+
+/// The item at `at` of `list` moved `delta` places along, stopping at either
+/// end.
+fn shift<T>(list: &mut [T], at: usize, delta: isize) {
+    if at >= list.len() {
+        return;
+    }
+    let to = at.saturating_add_signed(delta).min(list.len() - 1);
+    if to < at {
+        list[to..=at].rotate_right(1);
+    } else {
+        list[at..=to].rotate_left(1);
     }
 }
 
@@ -654,5 +735,68 @@ components = ["timeline"]
             surface.check(subject, "shipped").unwrap();
             assert!(surface.tabs.iter().all(|t| t.icon().is_some()));
         }
+    }
+
+    #[test]
+    fn a_tab_or_a_component_moves_stopping_at_either_end() {
+        let mut s = Surface::session();
+        s.move_tab(0, 1);
+        assert_eq!(s.tabs[1].title, "Overview");
+        s.move_tab(1, -9);
+        assert_eq!(s.tabs[0].title, "Overview");
+        s.move_tab(5, 3);
+        assert_eq!(s.tabs[5].title, "Timeline");
+        let names = |s: &Surface| -> Vec<&str> {
+            s.tabs[0]
+                .components
+                .iter()
+                .map(|p| p.component.name())
+                .collect()
+        };
+        s.shift(Slot::Tab(0), 4, -2);
+        assert_eq!(
+            names(&s),
+            ["session", "change", "about", "progress", "running"]
+        );
+        s.shift(Slot::Tab(0), 0, 9);
+        assert_eq!(
+            names(&s),
+            ["change", "about", "progress", "running", "session"]
+        );
+    }
+
+    #[test]
+    fn tabs_and_components_are_added_and_taken_out_but_the_last_tab_stays() {
+        let mut s = Surface::github();
+        s.add_tab("Mine");
+        s.add(Slot::Tab(1), Component::Machine);
+        s.add(Slot::Foot, Component::Profiles);
+        assert_eq!(s.tabs[1].components, [Placed::new(Component::Machine)]);
+        assert_eq!(s.foot, [Placed::new(Component::Profiles)]);
+        s.remove(Slot::Foot, 0);
+        s.remove(Slot::Foot, 3);
+        assert!(s.foot.is_empty());
+        s.remove_tab(0);
+        s.remove_tab(0);
+        assert_eq!(s.tabs.len(), 1);
+        assert_eq!(s.tabs[0].title, "Mine");
+    }
+
+    #[test]
+    fn the_components_offered_for_a_subject_are_those_that_can_describe_it() {
+        let offered: Vec<Component> = Component::placeable(Subject::Github).collect();
+        assert_eq!(
+            offered,
+            [
+                Component::Machine,
+                Component::Environment,
+                Component::Profiles,
+                Component::Github
+            ]
+        );
+        assert_eq!(
+            Component::placeable(Subject::Session).count(),
+            Component::ALL.len()
+        );
     }
 }

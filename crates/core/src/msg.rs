@@ -50,6 +50,8 @@ pub enum Msg {
     KeysRead(adroit_protocol::ConfigFile),
     /// The machine's resources this computer shows, for every environment.
     UsageChosen(crate::settings::UsageSettings),
+    /// What this computer makes the details panel of, for every environment.
+    PanelChosen(crate::details::DetailsLayout),
 
     // The side panels.
     /// The layout kept from the last run was read.
