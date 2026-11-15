@@ -27,6 +27,28 @@ pub struct Hello {
     pub terminal: Option<crate::RemoteEndpoint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutation_epoch: Option<u64>,
+    /// What the host takes beyond the versions it speaks, so a window asks
+    /// for it only of a host that says so, and never leaves an older host's
+    /// silence pending.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub offers: Vec<String>,
+}
+
+/// That the host types a reply into a session for what the session asks.
+pub const ANSWER_ASKING: &str = "answer_asking";
+
+/// What this build's work host offers beyond its versions.
+pub const OFFERED: &[&str] = &[ANSWER_ASKING];
+
+impl crate::Ask {
+    /// What a host must offer to be asked this, none for what every host of
+    /// a version takes.
+    pub fn offer(&self) -> Option<&'static str> {
+        match self {
+            Self::AnswerAsking { .. } => Some(ANSWER_ASKING),
+            _ => None,
+        }
+    }
 }
 
 /// What a window does with the work host listening.
@@ -80,7 +102,63 @@ mod tests {
             endpoint: None,
             terminal: None,
             mutation_epoch: None,
+            offers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_hello_says_what_its_host_offers_beyond_its_versions() {
+        let offering = Hello {
+            offers: vec![ANSWER_ASKING.into()],
+            ..hello(&[Version(1)], "0.3.0")
+        };
+        assert_eq!(
+            crate::encode(&offering),
+            "{\"speaks\":[1],\"build\":\"0.3.0\",\"offers\":[\"answer_asking\"]}\n"
+        );
+        assert_eq!(
+            crate::decode::<Hello>(&crate::encode(&offering)).unwrap(),
+            offering
+        );
+    }
+
+    #[test]
+    fn a_hello_that_says_nothing_of_offers_offers_nothing() {
+        let said: Hello = crate::decode("{\"speaks\":[1],\"build\":\"0.2.0\"}").unwrap();
+        assert!(said.offers.is_empty());
+    }
+
+    #[test]
+    fn a_build_that_knows_no_offers_still_reads_a_hello_that_names_them() {
+        #[derive(Debug, Deserialize)]
+        struct Earlier {
+            speaks: Vec<Version>,
+            build: String,
+        }
+        let said: Earlier = crate::decode(
+            "{\"speaks\":[1],\"build\":\"0.3.0\",\"offers\":[\"answer_asking\",\"later\"]}",
+        )
+        .unwrap();
+        assert_eq!(
+            (said.speaks, said.build.as_str()),
+            (vec![Version(1)], "0.3.0")
+        );
+    }
+
+    #[test]
+    fn answering_a_session_is_asked_only_of_a_host_that_offers_it() {
+        use adroit_model::asking::{Asked, Asking, Reply};
+        let answer = crate::Ask::AnswerAsking {
+            session: "1".into(),
+            asking: Asking {
+                since_ms: 7,
+                asked: Asked::Plan { plan: "Go".into() },
+            },
+            reply: Reply::Allow,
+        };
+        assert_eq!(answer.offer(), Some(ANSWER_ASKING));
+        assert_eq!(crate::Ask::TerminalHost.offer(), None);
+        assert!(OFFERED.contains(&ANSWER_ASKING));
     }
 
     #[test]

@@ -359,7 +359,20 @@ Adroit starts. The hooks only tell the work host and never answer for you;
 the work host keeps what they told while it runs, and forgets it once the call
 ends, the turn ends, a prompt arrives, or the session no longer waits. Whether
 a session waits is still decided as above. A session started outside Adroit,
-or another agent, says only what it waits for. The same hooks tell what the
+or another agent, says only what it waits for.
+
+A client that does not draw the session's terminal may answer what it asks,
+through the work protocol ([asks](work-protocol.md#answering-a-session)):
+allow or deny a tool once, approve a plan, or choose one option of a single
+question. The work host types the keys for that answer
+into the session's terminal, as you would at its console, and only while the
+session still asks exactly what was answered and its screen, read by its
+[screen rules](screen-rules.md#answers), shows that very dialog; otherwise it
+refuses with the reason and types nothing. The dialog stays on every console
+until it is answered, and the first answer, at a console or from a client,
+is the one the agent gets. Several questions at once, a question taking
+several options, and answers the agent's dialog offers beyond these are
+answered at a console, and so is a plan sent back to keep planning. The same hooks tell what the
 session did in its latest turns, which the details list
 ([details](details.md#sheets)); the work host keeps a few turns of each
 session while it runs, and starts without them when it is replaced.

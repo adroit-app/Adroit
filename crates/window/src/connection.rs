@@ -495,6 +495,7 @@ fn label(request: &adroit_protocol::Request) -> String {
         Request::Ask { ask, .. } => match ask.as_ref() {
             Ask::StartSession(start) => format!("Start session: {}", start.name),
             Ask::SubmitPrompt { .. } => "Send prompt".into(),
+            Ask::AnswerAsking { .. } => "Answer a session".into(),
             Ask::StartTerminal(start) => format!("Open terminal: {}", start.name),
             Ask::KeepDrafts(_) => "Save drafts".into(),
             Ask::ConsumeDraft { .. } => "Finish a sent draft".into(),

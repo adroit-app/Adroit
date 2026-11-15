@@ -166,6 +166,22 @@ mod tests {
                 number: 3,
             }),
         });
+        round_trips(Request::Ask {
+            asked: 14,
+            ask: Box::new(crate::Ask::AnswerAsking {
+                session: "0a".into(),
+                asking: adroit_model::asking::Asking {
+                    since_ms: 1_700_000_000_000,
+                    asked: adroit_model::asking::Asked::Tool {
+                        name: "Bash".into(),
+                        about: "date > stamp.txt".into(),
+                    },
+                },
+                reply: adroit_model::asking::Reply::Choose {
+                    label: "Red".into(),
+                },
+            }),
+        });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,

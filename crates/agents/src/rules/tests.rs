@@ -284,6 +284,63 @@ fn with(extra: &str, rules: &str) -> String {
 
 const CATCH_ALL: &str = "[[rules]]\nid = \"none\"\ndefault = true\n";
 
+/// An `[answers]` table reading dialogs in `region` with options `option`.
+fn answers(region: &str, option: &str) -> String {
+    format!(
+        "[answers]\nin = \"{region}\"\noption = '{option}'\ntool = {{ allow = \"Yes\", deny = \"No\" }}\nplan = {{ allow = \"Go\", deny = \"Stay\" }}\n"
+    )
+}
+
+#[test]
+fn a_dialog_holding_the_keys_is_read_where_the_answers_say_with_its_options() {
+    let text = with(
+        &format!(
+            "[regions]\nr = {{ tail = 3 }}\n{}",
+            answers("r", r"^\s*(?P<key>\d+)\. (?P<label>.+)$")
+        ),
+        "[[rules]]\nid = \"open\"\ndialog = true\nwhen = { has = \"x\" }\n[[rules]]\nid = \"none\"\n",
+    );
+    let rules = Rules::parse("codex", &text).unwrap();
+    let shown = rules.shown(&screen("x\nAsk?\n 1. Yes\n 2. No")).unwrap();
+    assert_eq!(shown.rows, ["Ask?", " 1. Yes", " 2. No"]);
+    assert_eq!(
+        shown.options,
+        [
+            Offered {
+                key: "1".into(),
+                label: "Yes".into()
+            },
+            Offered {
+                key: "2".into(),
+                label: "No".into()
+            },
+        ]
+    );
+    assert_eq!(rules.shown(&screen("Ask?\n 1. Yes\n 2. No")), None);
+    assert_eq!(rules.answers().map(|a| a.plan.allow.as_str()), Some("Go"));
+}
+
+#[test]
+fn a_region_chosen_by_its_first_line_starts_at_the_first_row_that_is_it() {
+    let text = with(
+        "[regions]\ntop = { first = \"x\" }\nbelow = { after = \"top\" }",
+        "[[rules]]\nid = \"below\"\nwhen = { in = \"below\", has = \"x\" }\n[[rules]]\nid = \"none\"\n",
+    );
+    let rules = Rules::parse("codex", &text).unwrap();
+    assert_eq!(
+        rules.judge(&screen("a\nx\nb\nx")).matched.rule,
+        "codex.below"
+    );
+    assert_eq!(rules.judge(&screen("a\nb\nx")).matched.rule, "codex.none");
+}
+
+#[test]
+fn a_set_without_answers_reads_no_dialog_asking() {
+    let rules = Rules::parse("codex", &with("", CATCH_ALL)).unwrap();
+    assert!(rules.answers().is_none());
+    assert_eq!(rules.shown(&screen("x")), None);
+}
+
 #[test]
 fn rules_that_cannot_be_read_are_refused_saying_why() {
     for (text, why) in [
@@ -352,6 +409,27 @@ fn rules_that_cannot_be_read_are_refused_saying_why() {
             "startup rule a",
         ),
         (with("", &format!("{CATCH_ALL}{CATCH_ALL}")), "twice"),
+        (
+            with(&answers("r", r"^(?P<key>\d)\. (?P<label>.+)$"), CATCH_ALL),
+            "answers: there is no region r",
+        ),
+        (
+            with(
+                &format!(
+                    "[regions]\nr = {{ tail = 3 }}\n{}",
+                    answers("r", r"^(\d)\. (.+)$")
+                ),
+                CATCH_ALL,
+            ),
+            "capture a key and a label",
+        ),
+        (
+            with(
+                &format!("[regions]\nr = {{ tail = 3 }}\n{}", answers("r", "(")),
+                CATCH_ALL,
+            ),
+            "answers' option is no pattern",
+        ),
     ] {
         let error = Rules::parse("codex", &text).expect_err(&text).to_string();
         assert!(error.contains(why), "{text:?}: {error}");

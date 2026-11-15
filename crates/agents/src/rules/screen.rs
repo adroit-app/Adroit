@@ -4,23 +4,50 @@
 use std::ops::Range;
 
 use super::compile::{Gate, Region, Rule, Select};
-use super::{Matched, Reading, Rules, StartupReading};
+use super::{Answers, Matched, Offered, Reading, Rules, Shown, StartupReading};
 
 impl Rules {
     /// How `screen` shows the agent to stand, by the first rule that holds.
     pub fn judge<S: AsRef<str>>(&self, screen: &[S]) -> Reading {
         let screen = Screen::new(self, screen);
         let (rule, matched) = self.first(&self.state, &screen);
-        let dialog = rule.always_dialog
-            || rule
-                .dialog
-                .as_ref()
-                .is_some_and(|gate| screen.holds(gate, &mut Vec::new()));
         Reading {
             state: rule.state.clone(),
-            dialog,
+            dialog: screen.dialog(rule),
             matched,
         }
+    }
+
+    /// How the set reads a dialog asking the user; none when it reads none.
+    pub fn answers(&self) -> Option<&Answers> {
+        self.answers.as_ref()
+    }
+
+    /// The dialog `screen` shows holding the keys, read where the set's
+    /// `[answers]` say it asks; none when no dialog holds the keys, the
+    /// region is found nowhere, or the set reads no dialog so.
+    pub fn shown<S: AsRef<str>>(&self, screen: &[S]) -> Option<Shown> {
+        let answers = self.answers.as_ref()?;
+        let screen = Screen::new(self, screen);
+        let (rule, _) = self.first(&self.state, &screen);
+        if !screen.dialog(rule) {
+            return None;
+        }
+        let rows: Vec<String> = screen.regions[answers.within]
+            .clone()?
+            .map(|at| screen.row(at).to_string())
+            .collect();
+        let options = rows
+            .iter()
+            .filter_map(|row| {
+                let found = answers.option.captures(row)?;
+                Some(Offered {
+                    key: found.name("key")?.as_str().to_owned(),
+                    label: found.name("label")?.as_str().to_owned(),
+                })
+            })
+            .collect();
+        Some(Shown { rows, options })
     }
 
     /// How far `screen` shows a session just started to be: by the startup
@@ -89,6 +116,15 @@ impl<'a, S: AsRef<str>> Screen<'a, S> {
         self.rows[at].as_ref()
     }
 
+    /// Whether a dialog holds the keys while `rule` decides.
+    fn dialog(&self, rule: &Rule) -> bool {
+        rule.always_dialog
+            || rule
+                .dialog
+                .as_ref()
+                .is_some_and(|gate| self.holds(gate, &mut Vec::new()))
+    }
+
     fn is(&self, line: usize, at: usize) -> bool {
         let line = &self.rules.lines[line];
         line.regex.is_match(self.row(at))
@@ -108,6 +144,10 @@ impl<'a, S: AsRef<str>> Screen<'a, S> {
         };
         let clamp = |at: usize| at.clamp(base.start, base.end);
         Some(match region.select {
+            Select::First(line) => base
+                .clone()
+                .find(|&at| self.is(line, at))
+                .map(|at| at..at + 1)?,
             Select::Last(line) => self.last(line, &base).map(|at| at..at + 1)?,
             Select::Since(line) => match self.last(line, &base) {
                 Some(at) => at + 1..base.end,

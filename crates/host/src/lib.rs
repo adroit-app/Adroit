@@ -3,6 +3,7 @@
 //! delegation between sessions, the commands that ask it, and what is kept
 //! on disk from one run to the next.
 
+mod answering;
 mod appearance;
 mod asks;
 pub mod awake;

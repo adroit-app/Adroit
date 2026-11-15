@@ -13,8 +13,9 @@ rule = '^(?:─{20,}|─{19,} (?:[^─]* )?─+)\s*$'
 # The first line of the input box: `❯`, or `!` in bash mode.
 prompt = '^[❯>!]'
 input_top = { regex = '^(?:─{20,}|─{19,} (?:[^─]* )?─+)\s*$', next = "prompt" }
-# Every dialog lets Escape leave it: "Esc to cancel", "esc to clear" and the like.
-key_hint = '(?i)esc to '
+# Every dialog lets Escape leave it: "Esc to cancel", "esc to clear" and the
+# like; the plan's approval alone says only "ctrl+g to edit" with it.
+key_hint = '(?i)esc to |ctrl\+g to edit'
 # A glyph, then a word with an ellipsis and how long it has been at it, as
 # in `✻ Running… (3s · esc to interrupt)`.
 spinner = '^[^\p{Alphabetic}\p{N}\s] .*… \(\d'
@@ -30,6 +31,8 @@ no = '(?i)no'
 
 [regions]
 lowest_rule = { last = "rule" }
+first_rule = { first = "rule" }
+below_first_rule = { after = "first_rule" }
 above_lowest_rule = { before = "lowest_rule" }
 input = { within = "above_lowest_rule", last = "input_top" }
 above_input = { before = "input" }
@@ -99,3 +102,14 @@ when = { holds = "dialog" }
 [[startup]]
 id = "nothing_yet"
 default = true
+
+# A dialog asking the user, a tool's approval, the agent's question or its
+# plan, takes the place of the input box from a rule across the screen down,
+# with rules of its own between its parts and each option numbered as in
+# `❯ 1. Yes`; typing its number chooses it at once. The plan's dialog offers
+# no option that keeps planning without telling Claude what to change.
+[answers]
+in = "below_first_rule"
+option = '^\s*(?:❯\s*)?(?P<key>\d+)\.\s+(?P<label>.*\S)\s*$'
+tool = { allow = "Yes", deny = "No" }
+plan = { allow = "Yes, manually approve edits" }

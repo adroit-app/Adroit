@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use adroit_model::{StartupReadiness, State};
 use regex::{Regex, RegexBuilder};
 
-use super::spec::{DialogSpec, File, GateSpec, LineSpec, RegionSpec, RuleSpec};
-use super::{Rules, RulesError, refuse};
+use super::spec::{AnswersSpec, DialogSpec, File, GateSpec, LineSpec, RegionSpec, RuleSpec};
+use super::{Answers, Rules, RulesError, refuse};
 
 /// The most rules a list may hold, so that judging every read stays cheap.
 pub(crate) const MAX_RULES: usize = 64;
@@ -28,6 +28,7 @@ pub(super) struct Line {
 
 #[derive(Debug)]
 pub(super) enum Select {
+    First(usize),
     Last(usize),
     Since(usize),
     After(usize),
@@ -167,6 +168,7 @@ impl Rules {
         }
         let state = rules(&file.rules, &names, false)?;
         let startup = rules(&file.startup, &names, true)?;
+        let answers = file.answers.map(|spec| answers(spec, &names)).transpose()?;
         Ok(Self {
             agent: file.agent,
             lines,
@@ -175,6 +177,7 @@ impl Rules {
             conditions,
             state,
             startup,
+            answers,
         })
     }
 }
@@ -197,8 +200,38 @@ fn line(name: &str, spec: &LineSpec, names: &Names) -> Result<Line, RulesError> 
     Ok(Line { regex, next })
 }
 
+fn answers(spec: AnswersSpec, names: &Names) -> Result<Answers, RulesError> {
+    if spec.option.chars().count() > MAX_PATTERN {
+        return refuse(format!(
+            "answers' option is written with more than {MAX_PATTERN} characters"
+        ));
+    }
+    let option = match RegexBuilder::new(&spec.option)
+        .size_limit(MAX_COMPILED)
+        .build()
+    {
+        Ok(regex) => regex,
+        Err(e) => return refuse(format!("answers' option is no pattern: {e}")),
+    };
+    let named: Vec<&str> = option.capture_names().flatten().collect();
+    if !named.contains(&"key") || !named.contains(&"label") {
+        return refuse("answers' option must capture a key and a label");
+    }
+    Ok(Answers {
+        within: names
+            .region(&spec.within)
+            .map_err(|RulesError(why)| RulesError(format!("answers: {why}")))?,
+        option,
+        tool: spec.tool,
+        plan: spec.plan,
+    })
+}
+
 fn region(name: &str, spec: &RegionSpec, names: &Names) -> Result<Region, RulesError> {
     let chosen = [
+        spec.first
+            .as_ref()
+            .map(|l| names.line(l).map(Select::First)),
         spec.last.as_ref().map(|l| names.line(l).map(Select::Last)),
         spec.since
             .as_ref()
@@ -219,7 +252,7 @@ fn region(name: &str, spec: &RegionSpec, names: &Names) -> Result<Region, RulesE
     let mut chosen = chosen.into_iter().flatten();
     let (Some(select), None) = (chosen.next(), chosen.next()) else {
         return refuse(format!(
-            "region {name} must choose its rows by exactly one of last, since, after, before, from, head, tail and tail_non_empty"
+            "region {name} must choose its rows by exactly one of first, last, since, after, before, from, head, tail and tail_non_empty"
         ));
     };
     Ok(Region {

@@ -43,6 +43,18 @@ pub struct Choice {
     pub description: String,
 }
 
+/// How the user answers what a session asks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Reply {
+    /// Let the tool run once, or approve the plan.
+    Allow,
+    /// Refuse the tool, or keep planning.
+    Deny,
+    /// Choose the option labelled so, for the one question asked.
+    Choose { label: String },
+}
+
 /// What a peer sent of what a session asks, or none when this build cannot
 /// read it, as for a kind added later: the session is read all the same.
 pub fn lenient<'de, D: Deserializer<'de>>(
@@ -93,6 +105,21 @@ mod tests {
         let read: Session =
             serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
         assert_eq!(read, session);
+    }
+
+    #[test]
+    fn a_reply_is_written_by_its_type() {
+        assert_eq!(
+            serde_json::to_value(Reply::Choose {
+                label: "Red".into()
+            })
+            .unwrap(),
+            serde_json::json!({"type": "choose", "label": "Red"})
+        );
+        assert_eq!(
+            serde_json::to_value(Reply::Allow).unwrap(),
+            serde_json::json!({"type": "allow"})
+        );
     }
 
     #[test]

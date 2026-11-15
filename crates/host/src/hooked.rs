@@ -63,6 +63,20 @@ impl Sessions {
             .and_then(|heard| heard.seen(waiting, now_ms))
     }
 
+    fn asks(&self, record: SessionId) -> Option<&Asking> {
+        self.0.get(&record).and_then(|heard| heard.asks.asking())
+    }
+
+    /// Forget `asking` once it was answered, unless the session already
+    /// asks something else.
+    fn answered(&mut self, record: SessionId, asking: &Asking) {
+        if let Some(heard) = self.0.get_mut(&record)
+            && heard.asks.asking() == Some(asking)
+        {
+            heard.asks.clear();
+        }
+    }
+
     fn keep_only(&mut self, kept: &[SessionId]) {
         self.0.retain(|record, _| kept.contains(record));
     }
@@ -84,6 +98,17 @@ pub(crate) fn hear(record: SessionId, agent: Agent, event: &Value, now_ms: u64) 
 /// at `now_ms`.
 pub(crate) fn asking(record: SessionId, waiting: bool, now_ms: u64) -> Option<Asking> {
     heard().asking(record, waiting, now_ms)
+}
+
+/// What the session `record` asks the user as its hooks last told, judged by
+/// no screen.
+pub(crate) fn asks(record: SessionId) -> Option<Asking> {
+    heard().asks(record).cloned()
+}
+
+/// Forget that the session `record` asks `asking`, now that it was answered.
+pub(crate) fn answered(record: SessionId, asking: &Asking) {
+    heard().answered(record, asking);
 }
 
 /// What the session `record` did in its latest turns, the latest last.
@@ -195,6 +220,27 @@ mod tests {
             s.turns(record)[0].steps,
             [adroit_model::steps::Step::Prompted("Stamp it".into())]
         );
+    }
+
+    #[test]
+    fn a_question_answered_is_asked_no_more() {
+        let mut s = Sessions::default();
+        let record = SessionId::new();
+        request(&mut s, record, 10);
+        let asked = s.asks(record).cloned().unwrap();
+        s.answered(record, &asked);
+        assert_eq!(s.asks(record), None);
+    }
+
+    #[test]
+    fn answering_a_question_asked_before_leaves_the_one_asked_since() {
+        let mut s = Sessions::default();
+        let record = SessionId::new();
+        request(&mut s, record, 10);
+        let before = s.asks(record).cloned().unwrap();
+        request(&mut s, record, 20);
+        s.answered(record, &before);
+        assert_eq!(s.asks(record).map(|a| a.since_ms), Some(20));
     }
 
     #[test]

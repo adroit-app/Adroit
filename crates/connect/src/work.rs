@@ -289,6 +289,7 @@ mod tests {
                         endpoint: Some(server_info.work.clone()),
                         terminal: Some(server_info.terminal.clone()),
                         mutation_epoch: Some(1),
+                        offers: Vec::new(),
                     })
                     .as_bytes(),
                 )
@@ -350,6 +351,7 @@ mod tests {
                             endpoint: Some(server_info.work.clone()),
                             terminal: Some(server_info.terminal.clone()),
                             mutation_epoch: Some(1),
+                            offers: Vec::new(),
                         })
                         .as_bytes(),
                     )
@@ -477,6 +479,7 @@ mod tests {
                             endpoint: Some(server_info.work.clone()),
                             terminal: Some(server_info.terminal.clone()),
                             mutation_epoch: Some(1),
+                            offers: Vec::new(),
                         })
                         .as_bytes(),
                     )

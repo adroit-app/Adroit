@@ -4,7 +4,9 @@ When an agent's program reports no status, Adroit reads how the session
 stands from its screen ([how a session stands](sessions.md#how-a-session-stands)):
 its state, whether a dialog of the agent's own holds the keys
 ([keys](keys.md)), and, while it starts, whether it is ready or asks
-something first. It reads the screen by a set of rules for that agent.
+something first; and, before it answers what a session asks, whether the
+screen shows that dialog and which keys choose the answer. It reads the
+screen by a set of rules for that agent.
 
 Adroit carries a set for every agent it starts. Its own sets, in Adroit's
 source under `crates/agents/rules/`, are a starting point for one of yours.
@@ -77,6 +79,7 @@ nowhere. It chooses its rows by exactly one of:
 
 | Key | Rows |
 | --- | --- |
+| `first = "<line>"` | the first row that is that line; nowhere when no row is |
 | `last = "<line>"` | the last row that is that line; nowhere when no row is |
 | `since = "<line>"` | the rows after the last row that is that line, or all the rows when no row is |
 | `after = "<region>"` | the rows after that region; nowhere when it is |
@@ -128,6 +131,35 @@ starts by rules of their own, `[[startup]]`, tried the same way in place of
 without `startup` tells that nothing is shown yet.
 
 `id`s are unique within each list.
+
+### Answers
+
+`[answers]` tells how a dialog asking the user is read, so that what a
+session asks can be answered by typing into its terminal
+([how a session stands](sessions.md#how-a-session-stands)). A set without it
+leaves every such dialog to be answered at a console.
+
+```toml
+[answers]
+in = "below_first_rule"
+option = '^\s*(?:❯\s*)?(?P<key>\d+)\.\s+(?P<label>.*\S)\s*$'
+tool = { allow = "Yes", deny = "No" }
+plan = { allow = "Yes, manually approve edits" }
+```
+
+| Key | Means |
+| --- | --- |
+| `in` | the region the dialog is read in, while a rule that decides says a dialog holds the keys |
+| `option` | a pattern a row of an option matches, capturing `key`, what is typed to choose it, and `label`, what the option says |
+| `tool` | `allow`, the label of the option that lets a tool run once, and `deny`, of the one that refuses it |
+| `plan` | `allow`, the label of the option that approves a plan, and `deny`, of the one that keeps planning |
+
+Without `deny`, that answer is given only at a console.
+
+An answer is typed only when the region shows what is asked, and an option
+labelled exactly as the answer needs: for a tool, its labels and what
+the call runs; for a plan, its labels; for a question, the
+question and each of its options.
 
 ### Limits
 
