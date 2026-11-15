@@ -362,6 +362,16 @@ pub(crate) fn open_row(
     take_keys: bool,
 ) -> Vec<Effect> {
     let work = state.hosts.work(item.environment());
+    if let Item::GitHubItem(environment, root, listing, number) = &item {
+        state.tree.selected = Some(item.clone());
+        return tree::github_page(work, root, *listing, *number)
+            .map(|target| Effect::Open {
+                environment: environment.clone(),
+                target,
+            })
+            .into_iter()
+            .collect();
+    }
     let terminals = tree::terminals(work);
     let view = &mut state.tree;
     view.selected = Some(item.clone());

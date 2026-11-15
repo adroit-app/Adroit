@@ -678,8 +678,9 @@ fn left(work: &Work, sights: &[&Sight]) -> Vec<Change> {
 fn common(change: &Change) -> bool {
     matches!(
         change,
-        Change::Tree(TreeChange::Listed { .. } | TreeChange::Failing { .. })
-            | Change::Details(DetailsChange::Usage { .. } | DetailsChange::System { .. })
+        Change::Tree(
+            TreeChange::Listed { .. } | TreeChange::Failing { .. } | TreeChange::GitHub { .. }
+        ) | Change::Details(DetailsChange::Usage { .. } | DetailsChange::System { .. })
             | Change::Config(_)
     )
 }
@@ -689,7 +690,9 @@ fn common(change: &Change) -> bool {
 fn in_sight(change: &Change, sight: &Sight) -> bool {
     match change {
         Change::Details(change) => details_in_sight(change, sight),
-        Change::Tree(TreeChange::Listed { .. } | TreeChange::Failing { .. }) => true,
+        Change::Tree(
+            TreeChange::Listed { .. } | TreeChange::Failing { .. } | TreeChange::GitHub { .. },
+        ) => true,
         Change::Tree(TreeChange::Marks { worktree, .. } | TreeChange::MarksLeft { worktree }) => {
             sight.tree.marked.contains(worktree)
         }

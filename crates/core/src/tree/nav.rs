@@ -1,7 +1,7 @@
 //! The tree as one column of items: the workspaces, each worktree's headings
 //! and what they hold, then the sessions waiting on the user.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use adroit_model::{
@@ -10,6 +10,7 @@ use adroit_model::{
 
 use crate::content::Tab;
 use adroit_model::files::Entry;
+use adroit_model::github::{Listing, Repository};
 
 /// A row of the tree, by the environment it belongs to and its own identity
 /// there.
@@ -42,6 +43,12 @@ pub enum Item {
         path: PathBuf,
         dir: bool,
     },
+    /// What is open on GitHub of a repository, by its root.
+    GitHub(EnvironmentId, PathBuf, Listing),
+    /// A pull request or an issue open on GitHub, by its number.
+    GitHubItem(EnvironmentId, PathBuf, Listing, u64),
+    /// Why what is open on GitHub could not be read.
+    GitHubFailed(EnvironmentId, PathBuf, Listing),
 }
 
 /// What a worktree's heading holds.
@@ -75,7 +82,10 @@ impl Item {
             | Item::Heading(environment, ..)
             | Item::Session(environment, _)
             | Item::Terminal(environment, _)
-            | Item::File { environment, .. } => environment,
+            | Item::File { environment, .. }
+            | Item::GitHub(environment, ..)
+            | Item::GitHubItem(environment, ..)
+            | Item::GitHubFailed(environment, ..) => environment,
             Item::Gathered(own) => own.environment(),
         }
     }
@@ -96,6 +106,7 @@ impl Item {
             Item::Worktree(_, path) => format!("wt:{}", path.display()),
             Item::Across(_, root, heading) => format!("across-{heading:?}:{}", root.display()),
             Item::Heading(_, path, heading) => format!("{heading:?}:{}", path.display()),
+            Item::GitHub(_, root, listing) => format!("github-{listing:?}:{}", root.display()),
             Item::File {
                 worktree,
                 path,
@@ -108,12 +119,16 @@ impl Item {
     }
 
     /// Whether the node shows the rows under it before it is unfolded: a
-    /// worktree's files are read only once asked for, and a worktree of a
-    /// repository would repeat the rows its repository's headings list.
+    /// worktree's files and what is open on GitHub are read only once asked
+    /// for, and a worktree of a repository would repeat the rows its
+    /// repository's headings list.
     fn starts_open(&self) -> bool {
         !matches!(
             self,
-            Item::Worktree(..) | Item::Heading(_, _, Heading::Files) | Item::File { .. }
+            Item::Worktree(..)
+                | Item::Heading(_, _, Heading::Files)
+                | Item::File { .. }
+                | Item::GitHub(..)
         )
     }
 }
@@ -149,14 +164,16 @@ impl Folds {
 }
 
 /// Every item the tree of `environment` shows, top to bottom, the sessions
-/// waiting on the user last. Children of a folded node are left out, and
-/// `read` lists a directory's entries once it is open.
+/// waiting on the user last. Children of a folded node are left out, `read`
+/// lists a directory's entries once it is open, and `github` holds what is
+/// open on GitHub of each repository on it, by its root.
 pub fn items(
     environment: &EnvironmentId,
     tree: &Tree,
     inbox: &[InboxItem],
     folds: &Folds,
     read: &dyn Fn(&Path) -> Vec<Entry>,
+    github: &BTreeMap<PathBuf, Repository>,
 ) -> Vec<Item> {
     let mut out = Vec::new();
     for ws in &tree.workspaces {
@@ -169,6 +186,9 @@ pub fn items(
         if ws.flat() {
             for w in &ws.worktrees {
                 out.extend(headed(environment, w, folds, read));
+            }
+            if ws.git {
+                out.extend(on_github(environment, &ws.root, github, folds));
             }
             continue;
         }
@@ -185,6 +205,7 @@ pub fn items(
                 );
             }
         }
+        out.extend(on_github(environment, &ws.root, github, folds));
         for w in &ws.worktrees {
             let ti = Item::Worktree(environment.clone(), w.worktree.path.clone());
             let t_open = folds.is_open(&ti);
@@ -199,6 +220,40 @@ pub fn items(
             .iter()
             .map(|i| Item::Waiting(environment.clone(), i.session.id.clone())),
     );
+    out
+}
+
+/// The headings of what is open on GitHub of the repository at `root`, each
+/// followed by its rows while it is open: what was last read, or why it
+/// could not be. None for a repository not on GitHub.
+fn on_github(
+    environment: &EnvironmentId,
+    root: &Path,
+    github: &BTreeMap<PathBuf, Repository>,
+    folds: &Folds,
+) -> Vec<Item> {
+    let Some(repository) = github.get(root) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for listing in Listing::ALL {
+        let heading = Item::GitHub(environment.clone(), root.to_path_buf(), listing);
+        let open = folds.is_open(&heading);
+        out.push(heading);
+        if !open {
+            continue;
+        }
+        let root = root.to_path_buf();
+        match repository.read(listing) {
+            None => {}
+            Some(Ok(items)) => {
+                out.extend(items.iter().map(|i| {
+                    Item::GitHubItem(environment.clone(), root.clone(), listing, i.number)
+                }))
+            }
+            Some(Err(_)) => out.push(Item::GitHubFailed(environment.clone(), root, listing)),
+        }
+    }
     out
 }
 
@@ -289,7 +344,8 @@ pub fn depth(tree: &Tree, item: &Item) -> usize {
     };
     match item {
         Item::Environment(_) | Item::Workspace(_, _) | Item::Waiting(_, _) => 0,
-        Item::Worktree(_, _) | Item::Across(..) => 1,
+        Item::Worktree(_, _) | Item::Across(..) | Item::GitHub(..) => 1,
+        Item::GitHubItem(..) | Item::GitHubFailed(..) => 2,
         Item::Gathered(_) => 2,
         Item::Heading(_, path, _) => heading_at(path),
         Item::Session(_, id) => tree
@@ -699,7 +755,11 @@ pub fn place_of(tree: &Tree, item: &Item) -> Option<Place> {
         Item::Environment(_) => None,
         // Not the root itself: a bare repository, a submodule or a separate
         // git directory is named by its git directory.
-        Item::Workspace(_, root) | Item::Across(_, root, _) => {
+        Item::Workspace(_, root)
+        | Item::Across(_, root, _)
+        | Item::GitHub(_, root, _)
+        | Item::GitHubItem(_, root, ..)
+        | Item::GitHubFailed(_, root, _) => {
             let ws = tree.workspaces.iter().find(|ws| &ws.root == root)?;
             let main = ws.worktrees.iter().find(|w| w.worktree.is_main());
             main.or(ws.worktrees.first()).map(|w| at(&w.worktree.path))
@@ -755,6 +815,9 @@ pub fn opens(item: &Item, tree: &Tree, terminals: &[TerminalSession], local: boo
         | Item::Workspace(_, _)
         | Item::Across(..)
         | Item::Heading(..)
+        | Item::GitHub(..)
+        | Item::GitHubItem(..)
+        | Item::GitHubFailed(..)
         | Item::File { dir: true, .. } => Opens::Fold,
         Item::File {
             environment,
@@ -860,7 +923,12 @@ pub fn copied(item: &Item, tree: &Tree, terminals: &[TerminalSession]) -> Option
             .find(|t| t.id == *id)
             .map(|t| Copied::Name(t.name.clone())),
         Item::Gathered(own) => copied(own, tree, terminals),
-        Item::Environment(_) | Item::Across(..) | Item::Heading(..) => None,
+        Item::Environment(_)
+        | Item::Across(..)
+        | Item::Heading(..)
+        | Item::GitHub(..)
+        | Item::GitHubItem(..)
+        | Item::GitHubFailed(..) => None,
     }
 }
 
@@ -1020,7 +1088,14 @@ mod tests {
 
     /// The rows of `tree` with no file anywhere.
     fn rows(tree: &Tree, inbox: &[InboxItem], folds: &Folds) -> Vec<Item> {
-        items(&here(), tree, inbox, folds, &|_| Vec::new())
+        items(
+            &here(),
+            tree,
+            inbox,
+            folds,
+            &|_| Vec::new(),
+            &BTreeMap::new(),
+        )
     }
 
     fn file(worktree: &str, path: &str, dir: bool) -> Item {
@@ -1046,14 +1121,133 @@ mod tests {
         }
     }
 
+    fn on_github(root: &str, listing: Listing) -> Item {
+        Item::GitHub(here(), root.into(), listing)
+    }
+
+    /// `/api` and `/web` on GitHub, `api`'s pull requests read and its
+    /// issues failed, `web` not read yet.
+    fn github() -> BTreeMap<PathBuf, Repository> {
+        let item = |number: u64| adroit_model::github::Item {
+            number,
+            title: format!("#{number}"),
+            url: format!("https://github.com/o/api/pull/{number}"),
+            author: "me".into(),
+            draft: false,
+        };
+        let mut api = Repository::new("o/api");
+        api.pulls = Some(Ok(vec![item(2), item(1)]));
+        api.issues = Some(Err("gh is not logged in".into()));
+        BTreeMap::from([
+            ("/api".into(), api),
+            ("/web".into(), Repository::new("o/web")),
+        ])
+    }
+
+    #[test]
+    fn a_repository_on_github_lists_its_listings_folded_after_what_runs_before_its_worktrees() {
+        let t = tree();
+        let got = items(
+            &here(),
+            &t,
+            &[],
+            &Folds::default(),
+            &|_| Vec::new(),
+            &github(),
+        );
+        let at = got
+            .iter()
+            .position(|i| *i == on_github("/api", Listing::Pulls))
+            .unwrap();
+        assert_eq!(got[at - 1], across("/api", Heading::Terminals));
+        assert_eq!(
+            got[at + 1..at + 3],
+            [on_github("/api", Listing::Issues), worktree("/api")]
+        );
+        assert_eq!(depth(&t, &on_github("/api", Listing::Pulls)), 1);
+    }
+
+    #[test]
+    fn a_flat_repository_lists_its_listings_after_its_checkout_s_headings() {
+        let t = tree();
+        let got = items(
+            &here(),
+            &t,
+            &[],
+            &Folds::default(),
+            &|_| Vec::new(),
+            &github(),
+        );
+        let at = got
+            .iter()
+            .position(|i| *i == on_github("/web", Listing::Pulls))
+            .unwrap();
+        assert_eq!(got[at - 1], shells_of("/web"));
+        assert_eq!(depth(&t, &on_github("/web", Listing::Pulls)), 1);
+    }
+
+    #[test]
+    fn a_repository_not_on_github_lists_no_listing() {
+        let t = tree();
+        let got = rows(&t, &[], &Folds::default());
+        assert!(!got.iter().any(|i| matches!(i, Item::GitHub(..))));
+    }
+
+    #[test]
+    fn an_unfolded_listing_holds_what_was_read_or_one_row_saying_why_it_was_not() {
+        let t = tree();
+        let mut folds = Folds::default();
+        for item in [
+            on_github("/api", Listing::Pulls),
+            on_github("/api", Listing::Issues),
+            on_github("/web", Listing::Pulls),
+        ] {
+            folds.set(&item, true);
+        }
+        let got = items(&here(), &t, &[], &folds, &|_| Vec::new(), &github());
+        let api = got
+            .iter()
+            .position(|i| *i == on_github("/api", Listing::Pulls))
+            .unwrap();
+        let pull = |n| Item::GitHubItem(here(), "/api".into(), Listing::Pulls, n);
+        assert_eq!(
+            got[api + 1..api + 5],
+            [
+                pull(2),
+                pull(1),
+                on_github("/api", Listing::Issues),
+                Item::GitHubFailed(here(), "/api".into(), Listing::Issues),
+            ]
+        );
+        assert_eq!(depth(&t, &pull(2)), 2);
+        let web = got
+            .iter()
+            .position(|i| *i == on_github("/web", Listing::Pulls))
+            .unwrap();
+        assert_eq!(
+            got[web + 1],
+            on_github("/web", Listing::Issues),
+            "not read yet"
+        );
+        assert_eq!(place_of(&t, &pull(2)), Some(at("/api")));
+        assert!(!holds(&pull(2)));
+    }
+
     #[test]
     fn a_worktree_s_files_are_listed_once_its_files_heading_is_unfolded() {
         let t = tree();
-        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
+        let folded = items(
+            &here(),
+            &t,
+            &[],
+            &Folds::default(),
+            &read_web,
+            &BTreeMap::new(),
+        );
         assert!(!folded.iter().any(|i| matches!(i, Item::File { .. })));
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&here(), &t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web, &BTreeMap::new());
         let at = open.iter().position(|i| *i == files_of("/web")).unwrap();
         assert_eq!(
             open[at + 1..at + 3],
@@ -1071,7 +1265,7 @@ mod tests {
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
         folds.toggle(&file("/web", "/web/src", true));
-        let open = items(&here(), &t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web, &BTreeMap::new());
         let at = open
             .iter()
             .position(|i| *i == file("/web", "/web/src", true))
@@ -1088,7 +1282,7 @@ mod tests {
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
         folds.toggle(&file("/web", "/web/src", true));
-        let list = items(&here(), &t, &[], &folds, &read_web);
+        let list = items(&here(), &t, &[], &folds, &read_web, &BTreeMap::new());
         let main = file("/web", "/web/src/main.rs", false);
         assert_eq!(
             parent(&list, |i| depth(&t, i), &main),
@@ -1317,14 +1511,21 @@ mod tests {
     fn a_viewer_selects_its_file_s_row_or_while_folded_away_the_files_heading() {
         let t = tree();
         let viewer = Tab::Viewer(here(), "/web/README.md".into());
-        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
+        let folded = items(
+            &here(),
+            &t,
+            &[],
+            &Folds::default(),
+            &read_web,
+            &BTreeMap::new(),
+        );
         assert_eq!(
             row_of(&folded, &t, &here(), Some(&viewer), &at("/web")),
             Some(files_of("/web"))
         );
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&here(), &t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web, &BTreeMap::new());
         assert_eq!(
             row_of(&open, &t, &here(), Some(&viewer), &at("/web")),
             Some(file("/web", "/web/README.md", false))
@@ -1798,14 +1999,21 @@ mod tests {
             ..editing(9, "/web/README.md")
         }]);
         let nvim = Tab::Terminal(here(), 9);
-        let folded = items(&here(), &t, &[], &Folds::default(), &read_web);
+        let folded = items(
+            &here(),
+            &t,
+            &[],
+            &Folds::default(),
+            &read_web,
+            &BTreeMap::new(),
+        );
         assert_eq!(
             row_of(&folded, &t, &here(), Some(&nvim), &at("/web")),
             Some(files_of("/web"))
         );
         let mut folds = Folds::default();
         folds.toggle(&files_of("/web"));
-        let open = items(&here(), &t, &[], &folds, &read_web);
+        let open = items(&here(), &t, &[], &folds, &read_web, &BTreeMap::new());
         assert_eq!(
             row_of(&open, &t, &here(), Some(&nvim), &at("/web")),
             Some(file("/web", "/web/README.md", false))

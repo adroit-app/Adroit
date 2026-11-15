@@ -652,15 +652,20 @@ fn marks(worktree: &str) -> TreeChange {
 }
 
 #[test]
-fn the_sessions_reach_the_window_whatever_it_shows_and_the_files_only_while_listed() {
+fn the_sessions_and_github_reach_the_window_whatever_it_shows_and_the_files_only_while_listed() {
     let mut host = Host::default();
     host.on(sees(&["/w"], &["/w"]));
     let failing = TreeChange::Failing {
         error: Some("no daemon".into()),
     };
+    let github = TreeChange::GitHub {
+        repository: "/v".into(),
+        github: Some(Box::new(adroit_model::github::Repository::new("o/v"))),
+    };
     // (read, what the window is sent)
     let cases = [
         (vec![failing.clone()], vec![failing]),
+        (vec![github.clone()], vec![github]),
         (
             vec![entries("/w"), marks("/w")],
             vec![entries("/w"), marks("/w")],

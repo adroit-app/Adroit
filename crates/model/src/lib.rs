@@ -9,6 +9,7 @@ pub mod config;
 pub mod daemon;
 mod environment;
 pub mod files;
+pub mod github;
 mod inbox;
 mod interrupted;
 mod key;

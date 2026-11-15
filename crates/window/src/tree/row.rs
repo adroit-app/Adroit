@@ -8,6 +8,7 @@ use adroit_core::msg::Msg;
 use adroit_core::overlay::context_menu::Target;
 use adroit_core::settings::Settings;
 use adroit_core::tree;
+use adroit_model::github::Listing;
 use adroit_model::{EnvironmentId, InboxItem, TerminalSession, Tree};
 use dioxus::prelude::*;
 
@@ -50,6 +51,14 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
             "A directory of the worktree. l goes into it, h folds it or the one it is in, Enter folds or unfolds it"
         }
         Item::File { .. } => "A file of the worktree",
+        Item::GitHub(..) => {
+            "What is open on GitHub of the repository, as gh sees it there. Enter folds it"
+        }
+        Item::GitHubItem(_, _, Listing::Pulls, _) => {
+            "A pull request open on GitHub. Enter opens it in the browser"
+        }
+        Item::GitHubItem(..) => "An issue open on GitHub. Enter opens it in the browser",
+        Item::GitHubFailed(..) => "Why gh could not say what is open on GitHub",
     }
 }
 
@@ -312,6 +321,40 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 terminal.and_then(|s| context.completions.read().terminal_state(s).map(glyph));
             ("", name, String::new(), state)
         }
+        Item::GitHub(_, root, listing) => {
+            let count = tree::github(work, root)
+                .and_then(|r| r.read(*listing))
+                .and_then(|read| read.as_ref().ok())
+                .map(Vec::len)
+                .filter(|n| *n > 0)
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            ("group", listing.name().to_string(), count, None)
+        }
+        Item::GitHubItem(_, root, listing, number) => {
+            let found = tree::github(work, root).and_then(|r| r.item(*listing, *number));
+            (
+                if found.is_some_and(|i| i.draft) {
+                    "dim"
+                } else {
+                    ""
+                },
+                found.map_or_else(
+                    || format!("#{number}"),
+                    |i| format!("#{number} {}", i.title),
+                ),
+                found.map(|i| i.author.clone()).unwrap_or_default(),
+                None,
+            )
+        }
+        Item::GitHubFailed(_, root, listing) => {
+            let why = tree::github(work, root)
+                .and_then(|r| r.read(*listing))
+                .and_then(|read| read.as_ref().err())
+                .cloned()
+                .unwrap_or_default();
+            ("dim", why, String::new(), None)
+        }
         Item::Environment(_) | Item::File { .. } | Item::Waiting(_, _) | Item::Gathered(_) => {
             ("", String::new(), String::new(), None)
         }
@@ -343,8 +386,8 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Workspace(_, _) if !open => Some(Icon::Folder),
         Item::Workspace(_, _) => Some(Icon::FolderOpen),
         Item::Worktree(_, _) => Some(Icon::GitBranch),
-        Item::Across(..) | Item::Heading(..) if open => Some(Icon::ChevronDown),
-        Item::Across(..) | Item::Heading(..) => Some(Icon::ChevronRight),
+        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) if open => Some(Icon::ChevronDown),
+        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) => Some(Icon::ChevronRight),
         _ => None,
     };
     // What the console shows stands out wherever the selection is.

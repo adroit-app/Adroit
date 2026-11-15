@@ -21,6 +21,7 @@ mod context;
 mod conversation;
 mod dialog;
 mod entries;
+mod github;
 mod history;
 pub(crate) mod hold;
 mod marks;
@@ -305,6 +306,7 @@ pub fn start(watched: Watched) {
     crate::environment::spawn(commands::watch(watched.clone()));
     crate::environment::spawn(place::watch(watched.clone()));
     crate::environment::spawn(entries::watch(watched.clone()));
+    crate::environment::spawn(github::watch(watched.clone()));
     crate::environment::spawn(repository::watch(watched.clone()));
     crate::environment::spawn(conversation::watch(watched.clone()));
     crate::environment::spawn(context::watch(watched.clone()));

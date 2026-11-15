@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use adroit_model::files::Entry;
+use adroit_model::github::{Listing, Repository};
 use adroit_model::{EnvironmentId, InboxItem, State, TerminalSession, Tree, inbox};
 use adroit_protocol::{Request, Seq, TreeSight, TreeWork, WorkSnapshot};
 
@@ -50,6 +51,8 @@ pub struct TreeView {
     marked: BTreeSet<(EnvironmentId, PathBuf)>,
     /// The directories whose entries the rows list, by their environment.
     listed: BTreeSet<(EnvironmentId, PathBuf)>,
+    /// The listings on GitHub the rows hold open, by their environment.
+    github: BTreeSet<(EnvironmentId, PathBuf, Listing)>,
     /// What the rows were last built from.
     built_from: Option<BuiltFrom>,
     /// Counts the times the rows were built anew.
@@ -163,6 +166,24 @@ pub fn terminals(work: Option<&WorkSnapshot>) -> &[TerminalSession] {
 /// last listed.
 pub fn interrupted(work: Option<&WorkSnapshot>) -> &[adroit_model::Interrupted] {
     facts(work).interrupted()
+}
+
+/// The repository at `root` as last read of GitHub, if it is on GitHub.
+pub fn github<'a>(work: Option<&'a WorkSnapshot>, root: &Path) -> Option<&'a Repository> {
+    facts(work).github.get(root)
+}
+
+/// The page on GitHub of the item numbered `number` of `listing` in the
+/// repository at `root`, as last read.
+pub fn github_page(
+    work: Option<&WorkSnapshot>,
+    root: &Path,
+    listing: Listing,
+    number: u64,
+) -> Option<String> {
+    github(work, root)?
+        .item(listing, number)
+        .map(|i| i.url.clone())
 }
 
 pub(crate) fn select(view: &mut TreeView, row: Option<Item>) -> Vec<Effect> {
@@ -295,6 +316,7 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
                 &[],
                 &view.folds,
                 &read as &dyn Fn(&Path) -> Vec<Entry>,
+                &facts.github,
             ));
         }
         view.narrowed.insert(environment.clone(), narrowed);
@@ -314,6 +336,15 @@ pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
         })
         .collect();
     view.listed = asked.into_inner();
+    view.github = rows
+        .iter()
+        .filter_map(|row| match row {
+            Item::GitHub(environment, root, listing) if view.folds.is_open(row) => {
+                Some((environment.clone(), root.clone(), *listing))
+            }
+            _ => None,
+        })
+        .collect();
     if view.rows != rows {
         view.rows = rows;
         view.built += 1;
@@ -500,6 +531,12 @@ pub(crate) fn sight(view: &TreeView, environment: &EnvironmentId) -> TreeSight {
         every_worktree: view.every_worktree,
         marked: of(&view.marked),
         listed: of(&view.listed),
+        github: view
+            .github
+            .iter()
+            .filter(|(e, ..)| e == environment)
+            .map(|(_, root, listing)| (root.clone(), *listing))
+            .collect(),
     }
 }
 
@@ -988,6 +1025,66 @@ mod tests {
             sights(&folded).last().cloned().unwrap(),
             TreeSight::default()
         );
+    }
+
+    /// `/r` on GitHub as `o/r`, with pull request 7 read.
+    fn on_github() -> TreeChange {
+        let mut repository = Repository::new("o/r");
+        repository.pulls = Some(Ok(vec![adroit_model::github::Item {
+            number: 7,
+            title: "Fix it".into(),
+            url: "https://github.com/o/r/pull/7".into(),
+            author: "me".into(),
+            draft: false,
+        }]));
+        TreeChange::GitHub {
+            repository: "/r".into(),
+            github: Some(Box::new(repository)),
+        }
+    }
+
+    #[test]
+    fn the_host_keeps_read_the_listings_on_github_the_rows_hold_open() {
+        let pulls = Item::GitHub(here(), "/r".into(), Listing::Pulls);
+        let run = Scenario::new()
+            .event(listing([session("a").cwd("/r")]))
+            .event(patch(2).change(on_github()));
+        assert!(rows(&run).contains(&pulls));
+        assert!(sights(&run).last().is_none_or(|s| s.github.is_empty()));
+        let opened = run.send(Msg::TreeFold {
+            row: pulls.clone(),
+            open: true,
+        });
+        assert_eq!(
+            sights(&opened).last().unwrap().github,
+            BTreeSet::from([("/r".into(), Listing::Pulls)])
+        );
+        let folded = opened.send(Msg::TreeFold {
+            row: pulls,
+            open: false,
+        });
+        assert!(sights(&folded).last().unwrap().github.is_empty());
+    }
+
+    #[test]
+    fn opening_a_pull_request_or_an_issue_opens_its_page_on_github() {
+        let pull = Item::GitHubItem(here(), "/r".into(), Listing::Pulls, 7);
+        let run = Scenario::new()
+            .event(listing([session("a").cwd("/r")]))
+            .event(patch(2).change(on_github()))
+            .send(Msg::OpenRow {
+                item: pull.clone(),
+                how: None,
+                take_keys: true,
+            });
+        assert_eq!(
+            run.last_effects(),
+            [Effect::Open {
+                environment: here(),
+                target: "https://github.com/o/r/pull/7".into(),
+            }]
+        );
+        assert_eq!(selected(&run), Some(pull));
     }
 
     #[test]

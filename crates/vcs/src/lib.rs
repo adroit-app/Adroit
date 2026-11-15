@@ -8,6 +8,7 @@ use tokio::process::Command;
 mod discover;
 pub mod ghq;
 pub mod git;
+pub mod github;
 pub mod jj;
 mod view;
 pub mod worktree;

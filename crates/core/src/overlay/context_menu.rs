@@ -115,9 +115,14 @@ pub fn entries(
         Target::Row(Item::Heading(_, _, Heading::Files)) => {
             [fold].into_iter().chain(here).chain(makes).collect()
         }
-        Target::Row(Item::Across(..) | Item::Heading(..)) => {
+        Target::Row(Item::Across(..) | Item::Heading(..) | Item::GitHub(..)) => {
             [fold].into_iter().chain(here).collect()
         }
+        Target::Row(Item::GitHubItem(..)) => [(Action::CursorGo, "Open on GitHub")]
+            .into_iter()
+            .chain(here)
+            .collect(),
+        Target::Row(Item::GitHubFailed(..)) => here.into_iter().collect(),
         Target::Row(Item::Environment(environment)) => {
             let machine = matches!(reach, Reach::Machine { .. });
             let retry = matches!(reach, Reach::Machine { retryable: true });

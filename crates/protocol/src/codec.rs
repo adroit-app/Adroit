@@ -84,6 +84,7 @@ mod tests {
                 every_worktree: true,
                 marked: BTreeSet::from(["/w".into()]),
                 listed: BTreeSet::from(["/w".into(), "/w/src".into()]),
+                github: BTreeSet::from([("/w".into(), adroit_model::github::Listing::Issues)]),
             },
             past: Some(PastSight {
                 dir: Some("/w".into()),
@@ -366,6 +367,24 @@ mod tests {
                     }],
                 }),
                 Change::Tree(TreeChange::EntriesLeft { dir: "/w".into() }),
+                Change::Tree(TreeChange::GitHub {
+                    repository: "/w".into(),
+                    github: Some(Box::new(adroit_model::github::Repository {
+                        slug: "o/r".into(),
+                        pulls: Some(Ok(vec![adroit_model::github::Item {
+                            number: 1,
+                            title: "Draft".into(),
+                            url: "https://github.com/o/r/pull/1".into(),
+                            author: "me".into(),
+                            draft: true,
+                        }])),
+                        issues: Some(Err("gh is not logged in".into())),
+                    })),
+                }),
+                Change::Tree(TreeChange::GitHub {
+                    repository: "/v".into(),
+                    github: None,
+                }),
                 Change::Config(ConfigChange::Settings {
                     file: ConfigFile {
                         path: "/c/settings.toml".into(),

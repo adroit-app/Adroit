@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use adroit_model::files::Entry;
+use adroit_model::github::{self, Listing};
 use adroit_model::repository::Marks;
 use adroit_model::{Interrupted, Session, TerminalSession, Tree};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,9 @@ pub struct TreeSight {
     pub marked: BTreeSet<PathBuf>,
     /// The directories whose entries are listed.
     pub listed: BTreeSet<PathBuf>,
+    /// The repositories, by their root, whose listings on GitHub are open.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub github: BTreeSet<(PathBuf, Listing)>,
 }
 
 /// What the host read for the tree.
@@ -35,6 +39,9 @@ pub struct TreeWork {
     pub marks: BTreeMap<PathBuf, Marks>,
     /// By the directory.
     pub entries: BTreeMap<PathBuf, Vec<Entry>>,
+    /// What GitHub holds open of each repository on it, by its root.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub github: BTreeMap<PathBuf, github::Repository>,
 }
 
 /// Every session and terminal there is, and the tree they are placed in by
@@ -110,6 +117,13 @@ pub enum TreeChange {
     EntriesLeft {
         dir: PathBuf,
     },
+    /// The repository at `repository` is on GitHub as `github` says, or is
+    /// not, or `gh` cannot be run there.
+    #[serde(rename = "github")]
+    GitHub {
+        repository: PathBuf,
+        github: Option<Box<github::Repository>>,
+    },
 }
 
 impl TreeWork {
@@ -126,6 +140,14 @@ impl TreeWork {
                 self.entries.insert(dir, entries.clone()) != Some(entries)
             }
             TreeChange::EntriesLeft { dir } => self.entries.remove(&dir).is_some(),
+            TreeChange::GitHub {
+                repository,
+                github: Some(github),
+            } => self.github.insert(repository, (*github).clone()) != Some(*github),
+            TreeChange::GitHub {
+                repository,
+                github: None,
+            } => self.github.remove(&repository).is_some(),
         }
     }
 
@@ -226,6 +248,26 @@ mod tests {
         for (change, changed) in cases {
             assert_eq!(work.apply(change.clone()), changed, "{change:?}");
         }
+    }
+
+    #[test]
+    fn a_repository_on_github_is_kept_until_it_is_said_to_be_no_more() {
+        let mut work = TreeWork::default();
+        let on = |slug: &str| TreeChange::GitHub {
+            repository: "/r".into(),
+            github: Some(Box::new(github::Repository::new(slug))),
+        };
+        let off = TreeChange::GitHub {
+            repository: "/r".into(),
+            github: None,
+        };
+        assert!(work.apply(on("o/r")));
+        assert!(!work.apply(on("o/r")));
+        assert!(work.apply(on("o/s")));
+        assert_eq!(work.github["/r".as_ref() as &std::path::Path].slug, "o/s");
+        assert!(work.apply(off.clone()));
+        assert!(!work.apply(off));
+        assert!(work.github.is_empty());
     }
 
     #[test]

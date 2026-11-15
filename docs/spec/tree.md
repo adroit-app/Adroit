@@ -47,6 +47,8 @@ api                        ← a git repository with sessions in two worktrees
 │   └── implement
 ├── Terminals
 │   └── $ dev-server
+├── Pull Requests          ← what is open on GitHub, folded until opened
+├── Issues
 ├── main                   ← a worktree, folded until opened
 │   ├── Files
 │   ├── Sessions
@@ -66,6 +68,17 @@ notes                      ← a directory outside git: no worktree row
 Scratch                    ← every scratch session, straight under it
 └── explain-regex-flags
 ```
+
+A git workspace with a remote on GitHub lists Pull Requests and Issues
+after the rows of what runs in it, while `gh` is installed on its work
+machine; without `gh` it lists neither. Both start folded. Unfolded, each
+lists what is open on GitHub, as the login
+`gh` uses there sees it, each row by its number and title, a draft pull
+request drawn dim. What is listed is read again every minute while the
+heading is open, and its count stays on the heading once it is folded. When
+`gh` cannot answer, because it is not logged in or GitHub cannot be reached,
+the heading holds one row saying so. Opening a row opens it on GitHub in the
+browser, from a work machine too.
 
 Files starts folded. Unfolded, it lists the worktree's files as a
 [file tree](#file-trees). Hidden files once shown, and what git ignores, are
