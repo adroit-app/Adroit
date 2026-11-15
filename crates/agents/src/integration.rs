@@ -79,8 +79,10 @@ mod tests {
         assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit session start"));
         assert!(skill.contains("/Applications/Adroit.app/Contents/MacOS/adroit terminal start"));
         assert!(skill.contains(
-            "/Applications/Adroit.app/Contents/MacOS/adroit terminal start --program command --show"
+            "/Applications/Adroit.app/Contents/MacOS/adroit terminal start --program command --json --"
         ));
+        assert!(!skill.contains("`show"));
+        assert!(!skill.contains("--show"));
         assert!(!skill.contains("@ADROIT@"));
     }
 

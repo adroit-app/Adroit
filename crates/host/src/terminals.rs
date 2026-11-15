@@ -219,8 +219,8 @@ enum Operation {
         dir: Option<PathBuf>,
         name: Option<String>,
         command: Vec<String>,
-        /// Shown to the user while they look at the session `opener`.
-        show: bool,
+        /// Only listed, never opened in a window.
+        background: bool,
         opener: Option<SessionId>,
     },
 }
@@ -241,7 +241,7 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
     let mut name = None;
     let mut input = Vec::new();
     let mut argv = None;
-    let mut show = false;
+    let mut background = false;
     let mut opener = None;
     let mut pattern = None;
     let mut timeout = None;
@@ -286,7 +286,7 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
             }
             ("start", "--dir") if dir.is_none() => dir = Some(rest.next()?.into()),
             ("start", "--name") if name.is_none() => name = Some(rest.next()?.clone()),
-            ("start", "--show") if !show => show = true,
+            ("start", "--background") if !background => background = true,
             ("start", "--opener") if opener.is_none() => opener = Some(rest.next()?.parse().ok()?),
             ("start", "--") => {
                 argv = Some(rest.by_ref().cloned().collect::<Vec<_>>());
@@ -316,7 +316,7 @@ fn parse(args: &[String]) -> Option<(Operation, bool)> {
                 dir,
                 name,
                 command,
-                show,
+                background,
                 opener,
             }
         }
@@ -392,7 +392,7 @@ async fn execute(
             dir,
             name,
             command,
-            show,
+            background,
             opener,
         } => {
             let cwd = adroit_sys::fs::canonicalize(
@@ -423,7 +423,7 @@ async fn execute(
                     file: None,
                     command,
                     opener,
-                    show,
+                    show: !background,
                     restored_from: None,
                 },
             )
@@ -439,7 +439,7 @@ async fn execute(
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
-const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--show] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--show] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]\n       adroit terminal wait --terminal ID (--text TEXT | --regex REGEX) [--timeout SECS] [--new] [--json]";
+const USAGE: &str = "usage: adroit terminal start [--program shell|neovim] [--dir PATH] [--name NAME] [--background] [--json]\n       adroit terminal start --program command [--dir PATH] [--name NAME] [--background] [--json] -- PROGRAM [ARGS...]\n       adroit terminal list [--json]\n       adroit terminal input --terminal ID [--text TEXT | --paste TEXT | --keys KEY...]... [--json]\n       adroit terminal screen|stop --terminal ID [--json]\n       adroit terminal wait --terminal ID (--text TEXT | --regex REGEX) [--timeout SECS] [--new] [--json]";
 
 /// What a refused `adroit terminal <args>` prints: the usage, after the
 /// reason when the reason is a `--regex` that does not compile, which the
@@ -466,11 +466,11 @@ pub fn cli(args: &[String]) -> i32 {
 }
 
 /// What `adroit terminal <args>` asks the work host, naming the session it
-/// runs in, by `opener`, for a terminal to be shown beside it; or the exit
+/// runs in, by `opener`, for a terminal to be opened beside it; or the exit
 /// code it ends with, having said why. Only the command names that session.
 fn asked_as(
     args: &[String],
-    opener: impl FnOnce() -> Result<String, String>,
+    opener: impl FnOnce() -> Result<Option<String>, String>,
 ) -> Result<Vec<String>, i32> {
     let Some((operation, _)) = parse(args) else {
         eprintln!("{}", refusal(args));
@@ -483,8 +483,11 @@ fn asked_as(
             eprintln!("{USAGE}");
             return Err(2);
         }
-        Operation::Start { show: true, .. } => match opener() {
-            Ok(id) => vec!["--opener".to_string(), id],
+        Operation::Start {
+            background: false, ..
+        } => match opener() {
+            Ok(Some(id)) => vec!["--opener".to_string(), id],
+            Ok(None) => Vec::new(),
             Err(error) => {
                 eprintln!("adroit: {error}");
                 return Err(2);
@@ -501,15 +504,12 @@ fn asked_as(
 }
 
 /// The session this runs in, by Adroit's record of it, as the session's own
-/// credential tells the work host.
-fn opener() -> Result<String, String> {
+/// credential tells the work host; none outside a session Adroit runs.
+fn opener() -> Result<Option<String>, String> {
     use crate::delegation::launch::{ROOT_ENV, TOKEN_ENV};
     use crate::delegation::protocol::{Command, ask};
     let (Ok(credential), Ok(root)) = (std::env::var(TOKEN_ENV), std::env::var(ROOT_ENV)) else {
-        return Err(
-            "--show shows a terminal beside the session Adroit runs that starts it; run it in one"
-                .into(),
-        );
+        return Ok(None);
     };
     let context = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -524,7 +524,7 @@ fn opener() -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     context["id"]
         .as_str()
-        .map(str::to_owned)
+        .map(|id| Some(id.to_owned()))
         .ok_or_else(|| "the work host did not say which session this is".into())
 }
 
@@ -786,7 +786,7 @@ mod tests {
                     dir: Some("/src".into()),
                     name: None,
                     command: args(&["claude", "--debug"]),
-                    show: false,
+                    background: false,
                     opener: None,
                 },
                 false
@@ -798,43 +798,48 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_can_be_asked_to_be_shown_to_the_user_beside_the_session_that_started_it() {
+    fn a_terminal_can_be_started_in_the_background_or_beside_the_session_that_started_it() {
         let opener = adroit_model::SessionId::new();
         let opener_text = opener.to_string();
-        let shown = |words: &[&str]| match parse(&args(words)) {
-            Some((Operation::Start { show, opener, .. }, _)) => Some((show, opener)),
+        let started = |words: &[&str]| match parse(&args(words)) {
+            Some((
+                Operation::Start {
+                    background, opener, ..
+                },
+                _,
+            )) => Some((background, opener)),
             _ => None,
         };
         assert_eq!(
-            shown(&[
+            started(&[
                 "start",
                 "--program",
                 "command",
-                "--show",
+                "--background",
                 "--",
-                "sudo",
-                "true"
+                "sleep",
+                "1"
             ]),
             Some((true, None))
         );
         assert_eq!(
-            shown(&["start", "--show", "--opener", &opener_text]),
-            Some((true, Some(opener)))
+            started(&["start", "--opener", &opener_text]),
+            Some((false, Some(opener)))
         );
-        assert_eq!(shown(&["start"]), Some((false, None)));
-        assert_eq!(shown(&["start", "--show", "--show"]), None);
-        assert_eq!(parse(&args(&["screen", "--show"])), None);
+        assert_eq!(started(&["start"]), Some((false, None)));
+        assert_eq!(started(&["start", "--background", "--background"]), None);
+        assert_eq!(started(&["start", "--show"]), None);
+        assert_eq!(parse(&args(&["screen", "--background"])), None);
     }
 
     #[test]
-    fn only_the_command_names_the_session_a_terminal_is_shown_beside() {
+    fn only_the_command_names_the_session_a_terminal_opens_beside() {
         let opener = adroit_model::SessionId::new().to_string();
-        let given = args(&["start", "--show", "--opener", &opener]);
+        let given = args(&["start", "--opener", &opener]);
         assert!(matches!(asked_as(&given, || unreachable!()), Err(2)));
-        let asked = asked_as(
-            &args(&["start", "--program", "command", "--show", "--", "x"]),
-            || Ok(opener.clone()),
-        );
+        let asked = asked_as(&args(&["start", "--program", "command", "--", "x"]), || {
+            Ok(Some(opener.clone()))
+        });
         assert_eq!(
             asked.ok(),
             Some(args(&[
@@ -844,12 +849,18 @@ mod tests {
                 &opener,
                 "--program",
                 "command",
-                "--show",
                 "--",
                 "x"
             ]))
         );
-        let refused = asked_as(&args(&["start", "--show"]), || Err("outside".into()));
+        let outside = asked_as(&args(&["start"]), || Ok(None));
+        assert_eq!(outside.ok(), Some(args(&["terminal", "start"])));
+        let background = asked_as(&args(&["start", "--background"]), || unreachable!());
+        assert_eq!(
+            background.ok(),
+            Some(args(&["terminal", "start", "--background"]))
+        );
+        let refused = asked_as(&args(&["start"]), || Err("unreachable host".into()));
         assert!(matches!(refused, Err(2)));
         let plain = asked_as(&args(&["list"]), || unreachable!());
         assert_eq!(plain.ok(), Some(args(&["terminal", "list"])));

@@ -111,9 +111,9 @@ pub struct Start {
     /// A short name; made from the prompt when omitted.
     #[serde(default)]
     pub name: Option<String>,
-    /// Show it to the user in your place: set it when you hand over the talk the user is having with you. It opens with the keys only while the user is looking at you.
+    /// Keep it out of the user's sight: it is only listed, and no tab opens for it. Otherwise it opens in a tab, with the keys while the user is looking at you.
     #[serde(default)]
-    pub show: bool,
+    pub background: bool,
 }
 
 /// Send a message to another session.
@@ -267,6 +267,19 @@ mod tests {
         let answer = ask(&root, "credential", Command::Context, None).await;
         assert_eq!(answer.unwrap(), Value::from("answered"));
         replacing.await.unwrap();
+    }
+
+    #[test]
+    fn a_start_opens_in_the_window_unless_asked_to_stay_in_the_background() {
+        let start = |value: Value| serde_json::from_value::<Start>(value);
+        assert!(
+            !start(serde_json::json!({"prompt": "go"}))
+                .unwrap()
+                .background
+        );
+        let background = start(serde_json::json!({"prompt": "go", "background": true}));
+        assert!(background.unwrap().background);
+        assert!(start(serde_json::json!({"prompt": "go", "show": true})).is_err());
     }
 }
 

@@ -564,6 +564,20 @@ impl<T: Clone + PartialEq> Content<T> {
         self.show_added(at);
     }
 
+    /// Add `thing` in a new tab where [`Self::open_tab`] would, the tab shown
+    /// staying shown; with nothing open, it is shown.
+    pub fn open_behind(&mut self, thing: T) {
+        if self.tabs.is_empty() {
+            return self.open_tab(thing);
+        }
+        let w = self.window(thing);
+        let at = (self.current + 1).min(self.ordinary());
+        self.tabs.insert(at, ContentTab::single(w.id, w, false));
+        if self.current >= at {
+            self.current += 1;
+        }
+    }
+
     /// Show the tab just added at `at`; the only tab is shown with none
     /// shown before it.
     fn show_added(&mut self, at: usize) {
@@ -1444,6 +1458,25 @@ mod tests {
         assert_eq!(drawn(&c), "c");
         c.go_to_tab(0);
         assert_eq!(drawn(&c), "(a | b)");
+    }
+
+    #[test]
+    fn opening_behind_adds_a_tab_after_the_shown_one_and_keeps_it_shown() {
+        let mut c = one("a");
+        c.open_tab("b");
+        c.go_to_tab(0);
+        c.open_behind("z");
+        assert_eq!((c.tabs().len(), c.current_index()), (3, 0));
+        assert_eq!(c.focused(), Some(&"a"));
+        c.go_to_tab(1);
+        assert_eq!(drawn(&c), "z");
+    }
+
+    #[test]
+    fn opening_behind_with_nothing_open_shows_it() {
+        let mut c = Content::<&str>::default();
+        c.open_behind("z");
+        assert_eq!(c.focused(), Some(&"z"));
     }
 
     #[test]

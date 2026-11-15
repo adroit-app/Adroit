@@ -32,8 +32,9 @@ carries all the new session needs: the line of work, and what you know that it
 cannot find out itself. Set `worktree: true` when it edits files, so it works
 apart from you, and `base` to start from a revision another session left.
 Choose `agent` and `model` for the work; `models` lists what each agent
-accepts. Set `show: true` when you hand over the talk the user is having with
-you, so it opens in your place while the user is looking at you. Tell the user
+accepts. The session opens in a tab of the user's window, with the keys while
+the user is looking at you; set `background: true` only for one the user need
+not see open, and it is only listed in the tree. Tell the user
 you opened it and why.
 
 The session works in its own console, which the user can open and type into.
@@ -67,7 +68,8 @@ wait for answers or take locks.
 ## Probes and helper programs
 
 Run a program you want to try or keep beside you in an Adroit terminal, which
-the user sees in the tree, never in tmux or a hidden background process. Type
+opens in a tab of the user's window, never in tmux or a hidden background
+process; `--background` keeps it to the tree. Type
 into it with keys written as Adroit's keys file writes them, read its screen,
 and stop it when you are done:
 
@@ -88,9 +90,9 @@ interactive installer — do not hand it back to the user, and do not run it whe
 no one can answer it. Run it yourself in a terminal shown to the user:
 
 ```sh
-@ADROIT@ terminal start --program command --show --json -- sudo <command> [args...]
+@ADROIT@ terminal start --program command --json -- sudo <command> [args...]
 ```
 
-`--show` opens the terminal with the keys while the user is looking at you;
-otherwise it waits in the tree under its name. Tell the user to type there, read
+The terminal opens with the keys while the user is looking at you; otherwise it
+opens behind the tab they are in. Tell the user to type there, read
 `screen --json` until `exit` is set, then stop the terminal.

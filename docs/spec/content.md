@@ -144,11 +144,10 @@ resource is addressed by ID, not by a name or the caller's directory.
 directory when omitted. A command terminal takes its program and arguments
 after `--`, and only it does.
 
-`start --show`, run by a session Adroit runs, asks that the terminal be shown
-to the user beside that session. The window opens it with the keys when it
-appears while the user is looking at that session, as a session another opens
-is shown ([opening sessions](opening-sessions.md)); otherwise it is only listed.
-Run anywhere else, `--show` is refused.
+A terminal `start` makes opens in the window as a session another opens does
+([opening sessions](opening-sessions.md)): with the keys while the user is
+looking at the session Adroit runs that started it, and otherwise behind the
+tab shown. `start --background` keeps it to the tree.
 
 `input` sends what it is given to the terminal's program, in the order given,
 and returns once the terminal has taken it. `--text` is typed as it is, so a

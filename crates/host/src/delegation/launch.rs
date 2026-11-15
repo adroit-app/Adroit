@@ -21,8 +21,8 @@ pub const TOOLS: &str = "mcp__adroit__*";
 pub const SESSION_TAG: &str = "adroit.session";
 /// The session tag holding the identity of the session that opened it.
 pub const PARENT_TAG: &str = "adroit.parent";
-/// The session tag set on a session the session that opened it asked be
-/// shown to the user.
+/// The session tag set on a session or terminal the window opens as it
+/// appears: one started on request, unless asked to stay in the background.
 pub const SHOW_TAG: &str = "adroit.show";
 /// The session tag holding the code the session keeps.
 pub const CODE_TAG: &str = "adroit.code";
@@ -32,7 +32,7 @@ pub struct Delegation {
     pub id: SessionId,
     pub parent: Option<SessionId>,
     pub root: PathBuf,
-    /// Whether the session that opened it asked that it be shown to the user.
+    /// Whether the window opens it as it appears.
     pub show: bool,
     /// The code its record keeps.
     pub code: Option<adroit_model::SessionCode>,
@@ -187,7 +187,7 @@ pub fn naming_at_prompt(name: &str) -> String {
 
 const SCRATCH: &str = "\
 You run in Adroit's scratch folder, which every scratch session shares, for talk that belongs to no project; keep what you write here small. \
-Once the talk turns to work on a particular project — reading its code, changing it, running it — open a session in that project's directory with `start_session`, `show` set, and a first prompt that carries everything said here that it needs, then tell the user the work goes on there and leave it to that session. \
+Once the talk turns to work on a particular project — reading its code, changing it, running it — open a session in that project's directory with `start_session` and a first prompt that carries everything said here that it needs, then tell the user the work goes on there and leave it to that session. \
 Find the project's directory among the user's repositories (`ghq list --full-path` lists those ghq keeps); when you cannot tell which project is meant, ask the user.";
 
 /// What every session is told of Adroit's tools, whoever started it.
@@ -206,7 +206,7 @@ Messages from other sessions reach you between turns, headed by who sent them. T
 \n\n\
 Start probes and helper programs in an Adroit terminal, where the user sees them — `@ADROIT@ terminal start`, then `input`, `screen` and `stop` — never in tmux or a hidden background process, and stop the ones you start. \
 To wait until a program writes a line, such as a server saying it is ready, call `wait` with `--text` or `--regex` once rather than reading `screen` again and again; it also matches lines already written, so add `--new` when an earlier run left the same line. \
-When a command needs the user to type into it — a `sudo` password, a login, an interactive installer — neither hand it to the user nor run it where no one can answer it: run it yourself with `@ADROIT@ terminal start --program command --show --json -- <program> [args...]`, which opens it to the user with the keys while they look at you, and tell the user to type there. \
+When a command needs the user to type into it — a `sudo` password, a login, an interactive installer — neither hand it to the user nor run it where no one can answer it: run it yourself with `@ADROIT@ terminal start --program command --json -- <program> [args...]`, which opens it to the user, with the keys while they look at you, and tell the user to type there. \
 A command terminal stays once its program ends: read `screen --json` until its `exit` is set, then `stop` it.";
 
 #[cfg(test)]
@@ -217,11 +217,20 @@ mod tests {
     fn every_session_is_told_to_run_a_command_that_asks_the_user_in_a_terminal_shown_to_them() {
         let told = instructions(Path::new("/bin/adroit"), false);
         assert!(
-            told.contains("/bin/adroit terminal start --program command --show"),
+            told.contains("/bin/adroit terminal start --program command --json --"),
             "{told}"
         );
         assert!(told.contains("sudo"), "{told}");
         assert!(told.contains("`exit`"), "{told}");
+    }
+
+    #[test]
+    fn no_session_is_told_of_the_show_option_starts_no_longer_take() {
+        for scratch in [false, true] {
+            let told = instructions(Path::new("/bin/adroit"), scratch);
+            assert!(!told.contains("`show`"), "{told}");
+            assert!(!told.contains("--show"), "{told}");
+        }
     }
 
     fn delegation(parent: Option<SessionId>) -> Delegation {
@@ -263,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn a_session_asked_to_be_shown_is_tagged_so_and_no_other_is() {
+    fn a_session_to_open_in_the_window_is_tagged_so_and_no_other_is() {
         let mut shown = delegation(Some(SessionId::new()));
         shown.show = true;
         assert!(adroit_term::tags::value(&shown.tags(), SHOW_TAG).is_some());
@@ -272,10 +281,10 @@ mod tests {
     }
 
     #[test]
-    fn a_scratch_session_is_told_to_hand_project_work_to_a_session_shown_in_its_place() {
+    fn a_scratch_session_is_told_to_hand_project_work_to_a_session_in_that_project() {
         let told = instructions(Path::new("/bin/adroit"), true);
         assert!(told.contains("scratch folder"), "{told}");
-        assert!(told.contains("`show`"), "{told}");
+        assert!(told.contains("`start_session`"), "{told}");
         assert!(told.contains("Do your work yourself"), "{told}");
         let elsewhere = instructions(Path::new("/bin/adroit"), false);
         assert!(!elsewhere.contains("scratch folder"), "{elsewhere}");

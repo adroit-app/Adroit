@@ -12,7 +12,7 @@ use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch;
 use crate::sessions;
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--background] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
 
 /// What `adroit session start` was asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -26,6 +26,8 @@ struct Asked {
     agent: Option<adroit_model::Agent>,
     profile: Option<adroit_model::profile::ProfileId>,
     model: Option<String>,
+    /// Only listed, never opened in a window.
+    background: bool,
     /// `None` when the prompt is to be read from standard input.
     prompt: Option<String>,
 }
@@ -40,6 +42,7 @@ fn parse(args: &[String]) -> Option<Asked> {
             "--worktree" => asked.worktree = true,
             "--base" => asked.base = Some(rest.next()?.clone()),
             "--name" => asked.name = Some(rest.next()?.clone()),
+            "--background" => asked.background = true,
             "--permissions" if !permissions_given => {
                 asked.permissions = match rest.next()?.as_str() {
                     "default" => AgentPermissions::Default,
@@ -116,6 +119,7 @@ async fn start(
         prompt: prompt.into(),
         env: crate::daemon::agent_env(),
         started_ms: now_ms(),
+        show: !asked.background,
         ..Default::default()
     };
     let program = crate::work_host::adroit_program();
@@ -171,7 +175,7 @@ async fn start_as(
             model: asked.model.clone(),
             permissions: Some(asked.permissions.clone()),
             name: asked.name.clone(),
-            show: false,
+            background: asked.background,
         });
     let started = crate::delegation::protocol::ask(root, credential, command, None)
         .await
@@ -437,6 +441,7 @@ mod tests {
                 agent: None,
                 profile: None,
                 model: None,
+                background: false,
                 prompt: Some("find why --it fails".into()),
             })
         );
@@ -485,6 +490,16 @@ mod tests {
         assert!(asked.worktree);
         assert_eq!(asked.base.as_deref(), Some("main"));
         assert_eq!(parse(&args(&["--base", "main", "--", "go"])), None);
+    }
+
+    #[test]
+    fn a_session_opens_in_the_window_unless_started_in_the_background() {
+        assert!(!parse(&args(&["--", "go"])).unwrap().background);
+        assert!(
+            parse(&args(&["--background", "--", "go"]))
+                .unwrap()
+                .background
+        );
     }
 
     #[test]

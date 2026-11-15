@@ -27,11 +27,13 @@ cannot act as another.
 - **`start_session`** opens a session with a first prompt. It takes the
   directory to work in (the caller's own when omitted), whether to work in a
   new worktree, the revision that worktree starts from, the profile, the
-  agent, the model, the permission profile, a name, and whether to show it to
-  you. It returns the new session's id, [code](sessions.md#a-sessions-code) and name. A session asked to be shown
-  opens in the window with the keys when it appears while the window's focused
-  window shows the session that opened it; otherwise it is only listed, as is
-  any other. It starts from the profile it names, which has to
+  agent, the model, the permission profile, a name, and whether to start it
+  in the background. It returns the new session's id,
+  [code](sessions.md#a-sessions-code) and name. A session
+  opens in a tab of each window as it appears: with the keys in a window whose
+  focused window shows the session that opened it, and otherwise behind the
+  tab shown, so what you were looking at and typing into stays. One started
+  in the background is only listed. It starts from the profile it names, which has to
   start the agent when both are named; else from the agent's default profile,
   else from the default profile ([settings](settings.md#profiles)).
   It never starts from the caller's profile unless it names it. A profile that
@@ -114,8 +116,7 @@ asks another that knows something rather than working it out again, and
 plans nothing on an answer coming. Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
 A [scratch session](tree.md#scratch-sessions) is told besides to hand work on
-a project to a session in that project's directory, shown to you, and to
-leave it there.
+a project to a session in that project's directory and to leave it there.
 
 Where the instructions name an `adroit` command, such as `adroit terminal`
 for probes, they name the Adroit whose work host started the session by its
@@ -160,6 +161,9 @@ none follows `--`.
   names the revision it starts from.
 - `--name <name>` names it; without one it is named from its prompt, as the
   window names a session. A name already taken gets a number.
+- It opens in the window as a session another opens does, the session the
+  command runs in, if any, as its opener; `--background` keeps it to the
+  tree.
 - `--profile <id>` starts it from that profile, and `--agent claude|codex|pi|opencode`
   from that agent's default profile; with both, the profile has to start the
   agent. Without either it starts from the default profile.

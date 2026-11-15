@@ -421,7 +421,7 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         permissions: start.permissions.unwrap_or_default(),
         env: crate::daemon::agent_env(),
         started_ms: super::now_ms(),
-        show: start.show,
+        show: !start.background,
         ..Default::default()
     };
     let launched = launch(context, caller.id, &settings, request).await;
