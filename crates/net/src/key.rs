@@ -179,8 +179,7 @@ pub(crate) fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, E
 /// Writes beside `path` and moves the result into place, so a crash never
 /// leaves half a file. An existing file is replaced only when `replace` says so.
 pub(crate) fn write_private(path: &Path, bytes: &[u8], replace: bool) -> Result<(), Error> {
-    use adroit_sys::fs::{DirBuilderExt, OpenOptionsExt};
-    use std::io::Write;
+    use adroit_sys::fs::DirBuilderExt;
     let io = |source| Error::FileIo {
         path: path.display().to_string(),
         source,
@@ -191,26 +190,11 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8], replace: bool) -> Result<
         .mode(0o700)
         .create(parent)
         .map_err(io)?;
-    let staged = {
-        let mut builder = tempfile::Builder::new();
-        builder.prefix(".key-");
-        #[cfg(unix)]
-        builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600));
-        builder.tempfile_in(parent).map_err(io)?
-    };
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .custom_flags(adroit_sys::fs::O_NOFOLLOW)
-        .open(staged.path())
-        .map_err(io)?;
-    file.write_all(bytes).map_err(io)?;
-    file.sync_all().map_err(io)?;
     if replace {
-        staged.persist(path).map_err(|error| io(error.error))?;
+        adroit_sys::fs::replace(path, bytes, 0o600).map_err(io)
     } else {
-        std::fs::hard_link(staged.path(), path).map_err(io)?;
+        adroit_sys::fs::create_whole(path, bytes, 0o600).map_err(io)
     }
-    adroit_sys::fs::sync_dir(parent).map_err(io)
 }
 
 #[cfg(test)]

@@ -231,19 +231,14 @@ enum Written {
 }
 
 fn write(unit: &Unit) -> std::io::Result<Written> {
-    use std::io::Write;
     let written = match std::fs::read_to_string(&unit.file) {
         Ok(text) if text == unit.text => return Ok(Written::Unchanged),
         Ok(_) => Written::Replaced,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Written::Created,
         Err(error) => return Err(error),
     };
-    let parent = unit.file.parent().unwrap_or(Path::new("/"));
-    std::fs::create_dir_all(parent)?;
-    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
-    staged.write_all(unit.text.as_bytes())?;
-    staged.as_file().sync_all()?;
-    staged.persist(&unit.file).map_err(|error| error.error)?;
+    std::fs::create_dir_all(unit.file.parent().unwrap_or(Path::new("/")))?;
+    adroit_sys::fs::replace(&unit.file, &unit.text, 0o600)?;
     Ok(written)
 }
 

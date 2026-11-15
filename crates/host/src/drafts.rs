@@ -72,31 +72,10 @@ pub fn consume(
 
 /// Write `drafts` in `directory` whole, or not at all.
 fn keep(directory: &Path, drafts: &Drafts) -> Result<(), String> {
-    use adroit_sys::fs::OpenOptionsExt;
-    use std::io::Write;
-
-    let temporary = directory.join(format!(
-        ".draft-checkpoint-{}.tmp",
-        adroit_model::DraftId::new()
-    ));
-    let result = (|| {
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)
-            .map_err(|error| error.to_string())?;
-        file.write_all(&serde_json::to_vec(drafts).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-        std::fs::rename(&temporary, directory.join("draft-checkpoint.json"))
-            .map_err(|error| error.to_string())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let bytes = serde_json::to_vec(drafts).map_err(|error| error.to_string())?;
+    adroit_sys::fs::replace(directory.join("draft-checkpoint.json"), bytes, 0o600)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

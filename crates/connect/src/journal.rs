@@ -4,7 +4,7 @@ use adroit_protocol::{MutationStamp, MutationState, Request, is_generation};
 use adroit_sys::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const INPUT_LIMIT: u64 = 2 * 1024 * 1024;
@@ -291,17 +291,7 @@ impl Journal {
         if pending.len() >= self.capacity || total + retained(&record)? > TOTAL_LIMIT {
             return Err("mutation journal is full; resolve pending outcomes first".into());
         }
-        let mut temporary = tempfile::Builder::new()
-            .prefix(".intent-")
-            .tempfile_in(&self.root)
-            .map_err(|e| e.to_string())?;
-        temporary
-            .write_all(&bytes)
-            .and_then(|_| temporary.as_file().sync_all())
-            .map_err(|e| e.to_string())?;
-        std::fs::hard_link(temporary.path(), &path).map_err(|e| e.to_string())?;
-        drop(temporary);
-        self.sync()
+        adroit_sys::fs::create_whole(&path, bytes, 0o600).map_err(|e| e.to_string())
     }
 
     pub fn finish(&self, stamp: &MutationStamp, state: &MutationState) -> Result<bool, String> {
@@ -331,16 +321,7 @@ impl Journal {
         if bytes.len() as u64 > INPUT_LIMIT {
             return Err("mutation outcome exceeds the journal limit".into());
         }
-        let mut temporary = tempfile::Builder::new()
-            .prefix(".outcome-")
-            .tempfile_in(&self.root)
-            .map_err(|e| e.to_string())?;
-        temporary
-            .write_all(&bytes)
-            .and_then(|_| temporary.as_file().sync_all())
-            .map_err(|e| e.to_string())?;
-        temporary.persist(path).map_err(|e| e.to_string())?;
-        self.sync()?;
+        adroit_sys::fs::replace(path, bytes, 0o600).map_err(|e| e.to_string())?;
         Ok(true)
     }
 

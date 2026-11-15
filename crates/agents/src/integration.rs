@@ -2,7 +2,6 @@
 //! tells of its command, and the files it keeps for each agent in this
 //! instance's state folder.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use adroit_model::Agent;
@@ -34,28 +33,12 @@ pub(crate) fn instance_dir(agent: Agent) -> PathBuf {
 /// moment reads the old file or the new one whole, and whatever stood at
 /// `path`, a link included, is replaced rather than written through.
 pub(crate) fn write_whole(path: &Path, contents: &str) -> std::io::Result<()> {
-    use adroit_sys::fs::OpenOptionsExt;
     if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
         && std::fs::read(path).is_ok_and(|kept| kept == contents.as_bytes())
     {
         return Ok(());
     }
-    let written = path.with_file_name(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    let result = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&written)
-        .and_then(|mut file| file.write_all(contents.as_bytes()))
-        .and_then(|()| std::fs::rename(&written, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&written);
-    }
-    result
+    adroit_sys::fs::replace(path, contents, 0o600)
 }
 
 #[cfg(test)]

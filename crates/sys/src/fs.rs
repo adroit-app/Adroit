@@ -218,7 +218,10 @@ fn staged(
     mode: u32,
 ) -> std::io::Result<tempfile::NamedTempFile> {
     use std::io::Write;
-    let prefix = format!(".{}.", path.file_name().unwrap_or_default().to_string_lossy());
+    let prefix = format!(
+        ".{}.",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    );
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix).suffix(".tmp");
     #[cfg(unix)]

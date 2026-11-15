@@ -284,21 +284,26 @@ pub fn lock(path: &Path) -> Result<std::fs::File, String> {
 }
 
 pub fn write(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    use std::io::Write;
+    save_toml(path, value, 1024 * 1024, "Environment configuration")
+}
+
+/// Put `value` at `path` as TOML, replaced whole and open to its user alone,
+/// unless it is longer than `limit` bytes; `what` names it in an error.
+pub(crate) fn save_toml(
+    path: &Path,
+    value: &impl Serialize,
+    limit: usize,
+    what: &str,
+) -> Result<(), String> {
     let text = toml::to_string_pretty(value).map_err(|e| e.to_string())?;
-    if text.len() > 1024 * 1024 {
-        return Err("Environment configuration is too large".into());
+    if text.len() > limit {
+        return Err(format!("{what} exceeds its size limit"));
     }
     let parent = path
         .parent()
-        .ok_or("Environment configuration has no parent")?;
+        .ok_or_else(|| format!("{what} has no parent folder"))?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes())
-        .and_then(|_| file.as_file().sync_all())
-        .map_err(|e| e.to_string())?;
-    file.persist(path).map_err(|e| e.to_string())?;
-    Ok(())
+    adroit_sys::fs::replace(path, text, 0o600).map_err(|e| e.to_string())
 }
 
 /// Migrate once, retaining the legacy client's work and pending connection.

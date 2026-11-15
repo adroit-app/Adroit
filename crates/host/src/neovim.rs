@@ -2,7 +2,6 @@
 //! the colorscheme adroit ships, the data folder it is found through, and
 //! the file of the theme's colours it reads.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use adroit_term::Palette;
@@ -59,12 +58,8 @@ pub fn write_theme(file: &Path, palette: &Palette) -> std::io::Result<()> {
 }
 
 fn replace(file: &Path, text: &str) -> std::io::Result<()> {
-    let dir = file.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    let mut staged = tempfile::NamedTempFile::new_in(dir)?;
-    staged.write_all(text.as_bytes())?;
-    staged.persist(file).map_err(|e| e.error)?;
-    Ok(())
+    std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
+    adroit_sys::fs::replace(file, text, 0o600)
 }
 
 /// What every session's environment holds for its Neovims.

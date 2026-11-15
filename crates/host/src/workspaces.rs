@@ -53,20 +53,10 @@ fn change(
     Ok(true)
 }
 
-/// Written whole beside the file and moved over it, so a reader never sees
-/// half of it.
 fn write(directory: &Path, kept: &BTreeSet<PathBuf>) -> Result<(), String> {
-    let temporary = directory.join(format!(".{FILE}-{}.tmp", std::process::id()));
-    let result = (|| {
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let bytes = serde_json::to_vec_pretty(kept).map_err(|error| error.to_string())?;
-        std::fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-        std::fs::rename(&temporary, directory.join(FILE)).map_err(|error| error.to_string())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let bytes = serde_json::to_vec_pretty(kept).map_err(|error| error.to_string())?;
+    adroit_sys::fs::replace(directory.join(FILE), bytes, 0o644).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

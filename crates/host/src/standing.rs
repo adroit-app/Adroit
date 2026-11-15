@@ -88,20 +88,17 @@ fn says_path(socket: &Path) -> PathBuf {
 
 /// Say beside `socket` what the process serving there speaks.
 fn say(socket: &Path, said: &Said) -> std::io::Result<()> {
-    let path = says_path(socket);
-    // Written aside and moved in, so a window never reads it half written.
-    let aside = path.with_extension(format!("speaks.{}", said.pid));
     let versions: Vec<String> = said.speaks.iter().map(u32::to_string).collect();
-    std::fs::write(
-        &aside,
+    adroit_sys::fs::replace(
+        says_path(socket),
         format!(
             "pid {}\nbuild {}\nspeaks {}\n",
             said.pid,
             said.build,
             versions.join(" ")
         ),
-    )?;
-    std::fs::rename(&aside, &path)
+        0o644,
+    )
 }
 
 /// What was said last beside `socket`.

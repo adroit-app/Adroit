@@ -168,10 +168,7 @@ pub fn call(state: &Path, id: Option<&str>, name: &str) -> Result<(), String> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let partial = file.with_extension("partial");
-    std::fs::write(&partial, name)
-        .and_then(|()| std::fs::rename(&partial, &file))
-        .map_err(|e| e.to_string())
+    adroit_sys::fs::replace(&file, name, 0o644).map_err(|e| e.to_string())
 }
 
 /// Forget the environment `id` the host whose state is `state` serves, with

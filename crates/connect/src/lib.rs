@@ -137,21 +137,8 @@ impl Target {
     }
     /// Replace only this instance's configuration, leaving a rejected save intact.
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        use std::io::Write;
         self.validate()?;
-        let text = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
-        if text.len() > 65536 {
-            return Err("Execution configuration exceeds its size limit".into());
-        }
-        let parent = path
-            .parent()
-            .ok_or("Execution configuration has no parent folder")?;
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-        file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        file.as_file().sync_all().map_err(|e| e.to_string())?;
-        file.persist(path).map_err(|e| e.to_string())?;
-        Ok(())
+        environments::save_toml(path, self, 65536, "Execution configuration")
     }
     pub fn validate(&self) -> Result<(), String> {
         if let Self::Native { address, server } = self

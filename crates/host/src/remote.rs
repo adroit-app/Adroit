@@ -248,15 +248,8 @@ impl Publication {
             protocols,
         };
         let record = dir.join(format!("{role}.json"));
-        let aside = dir.join(format!("{role}.{}.json", endpoint.generation));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&aside)?;
-        file.write_all(&serde_json::to_vec(&endpoint).map_err(invalid)?)?;
-        file.sync_all()?;
-        std::fs::rename(&aside, &record)?;
+        let bytes = serde_json::to_vec(&endpoint).map_err(invalid)?;
+        adroit_sys::fs::replace(&record, bytes, 0o600)?;
         Ok(Self {
             endpoint,
             record,
