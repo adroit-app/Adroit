@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use adroit_model::{EnvironmentId, Session, Tree};
+use adroit_model::{CloneTarget, EnvironmentId, Session, Tree};
 use adroit_protocol::Offers;
 
 use super::filer::{Filer, Row};
@@ -32,6 +32,8 @@ pub enum Mark {
     Session,
     /// A path, drawn in a fixed-width face.
     Directory,
+    /// A repository to clone.
+    Clone,
 }
 
 /// What the scratch row says.
@@ -46,6 +48,8 @@ pub enum Choice {
     Session(SessionOffer),
     /// A directory to start a session in.
     Directory(Candidate),
+    /// A repository to clone, then take as a directory chosen.
+    Clone(CloneOffer),
 }
 
 impl Choice {
@@ -59,6 +63,7 @@ impl Choice {
             (Choice::Directory(a), Choice::Directory(b)) => {
                 a.environment == b.environment && a.path == b.path
             }
+            (Choice::Clone(a), Choice::Clone(b)) => a == b,
             _ => false,
         }
     }
@@ -94,6 +99,27 @@ pub struct Candidate {
     pub environment: EnvironmentId,
     pub path: PathBuf,
     pub source: Source,
+}
+
+/// A repository typed that the host of `environment` can clone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloneOffer {
+    pub environment: EnvironmentId,
+    pub target: CloneTarget,
+}
+
+/// The repository `query` names, offered to clone in `environment` while its
+/// host clones with ghq and ghq does not keep it already.
+pub fn clone_offer(
+    environment: &EnvironmentId,
+    offers: &Offers,
+    query: &str,
+) -> Option<CloneOffer> {
+    let target = CloneTarget::parse(query)?;
+    (offers.clones && target.kept_in(&offers.ghq).is_none()).then(|| CloneOffer {
+        environment: environment.clone(),
+        target,
+    })
 }
 
 /// A session the picker offers, with where it runs and how it stands.
@@ -330,6 +356,16 @@ pub fn labelled_lines(
                         place: label(&d.environment),
                         badge: d.source.label().into(),
                         mark: Mark::Directory,
+                    },
+                ),
+                Choice::Clone(c) => (
+                    Some("Clone with ghq"),
+                    Line {
+                        heading: None,
+                        name: c.target.path.clone(),
+                        place: label(&c.environment),
+                        badge: "ghq".into(),
+                        mark: Mark::Clone,
                     },
                 ),
             };
@@ -713,6 +749,7 @@ mod tests {
                 Choice::Scratch => "scratch".into(),
                 Choice::Session(s) => s.id.clone(),
                 Choice::Directory(d) => d.path.display().to_string(),
+                Choice::Clone(c) => format!("clone {}", c.target.path),
             })
             .collect()
     }
@@ -832,6 +869,56 @@ mod tests {
                     mark: Mark::Directory,
                 },
             ]
+        );
+    }
+
+    fn cloning(ghq: &[&str]) -> Offers {
+        Offers {
+            clones: true,
+            ghq: paths(ghq),
+            ..Offers::default()
+        }
+    }
+
+    #[test]
+    fn a_repository_typed_is_offered_to_clone_where_the_host_clones() {
+        let here = EnvironmentId::default();
+        let offered = clone_offer(&here, &cloning(&[]), "o/r").unwrap();
+        assert_eq!(offered.target.path, "github.com/o/r");
+        assert_eq!(offered.target.typed, "o/r");
+        assert_eq!(clone_offer(&here, &cloning(&[]), "api"), None);
+        assert_eq!(clone_offer(&here, &Offers::default(), "o/r"), None);
+    }
+
+    #[test]
+    fn a_repository_ghq_keeps_already_is_not_offered_to_clone() {
+        let kept = cloning(&["/g/github.com/O/R"]);
+        assert_eq!(
+            clone_offer(
+                &EnvironmentId::default(),
+                &kept,
+                "https://github.com/o/r.git"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_clone_row_draws_the_repository_s_place_under_a_heading_of_its_own() {
+        let target = adroit_model::CloneTarget::parse("o/r").unwrap();
+        let found = [Choice::Clone(CloneOffer {
+            environment: EnvironmentId::default(),
+            target,
+        })];
+        assert_eq!(
+            lines(&found, Path::new(HOME)),
+            [Line {
+                heading: Some("Clone with ghq"),
+                name: "github.com/o/r".into(),
+                place: None,
+                badge: "ghq".into(),
+                mark: Mark::Clone,
+            }]
         );
     }
 

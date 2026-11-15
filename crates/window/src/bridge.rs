@@ -883,6 +883,7 @@ impl AppCtx {
             | Effect::PromptRoot(_)
             | Effect::StartTerminal(_)
             | Effect::OpenLogin { .. }
+            | Effect::Clone { .. }
             | Effect::PromptClose(_)
             | Effect::StartWriting
             | Effect::KeepPanes { .. }

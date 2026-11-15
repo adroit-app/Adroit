@@ -2,6 +2,7 @@
 //! what adroit's daemon reports of the shells it runs, and what git says
 //! about the directories they run in.
 
+mod clone;
 mod code;
 mod command;
 pub mod config;
@@ -30,6 +31,7 @@ pub mod time;
 mod tree;
 pub mod usage;
 
+pub use clone::*;
 pub use code::*;
 pub use command::*;
 pub use environment::*;

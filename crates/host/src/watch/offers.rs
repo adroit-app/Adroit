@@ -66,6 +66,8 @@ async fn read() -> Offers {
     );
     Offers {
         recent: recent.unwrap_or_default(),
+        // ghq names a root wherever it is installed, so no root means no ghq.
+        clones: !ghq_roots.is_empty(),
         ghq,
         listed: listed.unwrap_or_default(),
         roots: ghq_roots.into_iter().chain(listed_roots).collect(),

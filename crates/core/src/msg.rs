@@ -207,6 +207,13 @@ pub enum Msg {
         environment: EnvironmentId,
         profile: adroit_model::profile::ProfileId,
     },
+    /// A repository chosen in the picker was cloned into `dir`, to be taken
+    /// for `then` as its row was chosen.
+    Cloned {
+        environment: EnvironmentId,
+        dir: PathBuf,
+        then: crate::picker::Then,
+    },
     /// The profile chosen for this draft, or for the next one.
     DraftProfile {
         tab: Option<Tab>,

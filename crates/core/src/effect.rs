@@ -83,6 +83,14 @@ pub enum Effect {
         environment: EnvironmentId,
         profile: adroit_model::profile::ProfileId,
     },
+    /// Clone `target` with ghq where `environment` runs, in a terminal shown
+    /// with the keys; once it is cloned, the window is told
+    /// [`Msg::Cloned`](crate::msg::Msg::Cloned) with `then`.
+    Clone {
+        environment: EnvironmentId,
+        target: adroit_model::CloneTarget,
+        then: crate::picker::Then,
+    },
     /// The prompt's text for a draft no window shows any longer goes to
     /// what the focused window shows now, or to nothing open.
     PromptClose(Option<Tab>),

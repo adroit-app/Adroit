@@ -115,6 +115,21 @@ pub enum Ask {
     LetGo {
         ids: Vec<String>,
     },
+    /// Clone the repository `typed` names with `ghq get` in a terminal held
+    /// back until it is released, which goes on showing what the clone
+    /// wrote once it ends.
+    Clone {
+        typed: String,
+        cols: u16,
+        rows: u16,
+    },
+    /// Where ghq keeps the repository at `path` under its roots, asked once
+    /// the terminal `after` that cloned it has ended.
+    Cloned {
+        path: String,
+        #[serde(with = "crate::wire::wide")]
+        after: u128,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -189,6 +204,7 @@ impl Ask {
     pub fn waits(&self) -> bool {
         match self {
             Self::LoginStanding { after, .. } => after.is_some(),
+            Self::Cloned { .. } => true,
             Self::Run { args, .. } => {
                 matches!(args.as_slice(), [terminal, wait, ..] if terminal == "terminal" && wait == "wait")
             }
@@ -250,6 +266,11 @@ pub enum Answer {
     BroughtBack {
         outcomes: Vec<adroit_model::BroughtBack>,
     },
+    /// Where ghq keeps the repository cloned, or none when it keeps none
+    /// there: the clone failed.
+    Cloned {
+        dir: Option<PathBuf>,
+    },
     /// What is written in the prompts, as kept.
     Drafts(Box<Drafts>),
     Done,
@@ -269,6 +290,17 @@ mod tests {
             cwd: "/src".into(),
             input: None,
         }
+    }
+
+    #[test]
+    fn waiting_for_a_clone_ends_with_the_one_who_asked() {
+        assert!(
+            Ask::Cloned {
+                path: "github.com/o/r".into(),
+                after: 1
+            }
+            .waits()
+        );
     }
 
     #[test]

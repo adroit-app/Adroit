@@ -224,6 +224,66 @@ impl Ui {
         });
     }
 
+    /// Clone `target` with ghq where `environment` runs, in a terminal shown
+    /// with the keys for the user to answer what the clone asks; once it
+    /// ends having cloned it, the repository's directory is taken for
+    /// `then`. A clone that fails leaves its terminal showing why.
+    pub(crate) fn clone_repository(
+        &self,
+        environment: EnvironmentId,
+        target: adroit_model::CloneTarget,
+        then: adroit_core::picker::Then,
+    ) {
+        let (app, hub) = (self.app, self.hub.clone());
+        let size = *self.local.console_size.peek();
+        spawn(async move {
+            let cannot = |text: String| format!("cannot clone {}: {text}", target.path);
+            let asked = Ask::Clone {
+                typed: target.typed.clone(),
+                cols: size.cols,
+                rows: size.rows,
+            };
+            let terminal = match app.ask_in(&environment, asked).await {
+                Answer::Terminal { terminal } => terminal,
+                Answer::Failed { text } => {
+                    app.status(Some(cannot(text)));
+                    return;
+                }
+                answer => {
+                    app.status(Some(cannot(format!("{answer:?}"))));
+                    return;
+                }
+            };
+            let id = terminal.id;
+            let tab = Tab::Terminal(environment.clone(), id);
+            if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
+                app.status(Some(cannot(e.to_string())));
+                return;
+            }
+            app.dispatch(Msg::TerminalOpened {
+                environment: environment.clone(),
+                terminal,
+            });
+            app.dispatch(Msg::Show {
+                thing: tab,
+                place: None,
+                how: None,
+            });
+            app.dispatch(Msg::Focus(Area::Console));
+            let asked = Ask::Cloned {
+                path: target.path.clone(),
+                after: id,
+            };
+            if let Answer::Cloned { dir: Some(dir) } = app.ask_in(&environment, asked).await {
+                app.dispatch(Msg::Cloned {
+                    environment,
+                    dir,
+                    then,
+                });
+            }
+        });
+    }
+
     /// Start a session from a draft with its first prompt, in the draft's
     /// place, where the host makes a folder of its own for a scratch draft
     /// only now: a draft left unsent leaves no empty directory behind.

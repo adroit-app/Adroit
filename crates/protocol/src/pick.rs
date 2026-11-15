@@ -23,6 +23,9 @@ pub struct Offers {
     pub recent: Vec<PathBuf>,
     /// The repositories `ghq list` names.
     pub ghq: Vec<PathBuf>,
+    /// Whether ghq clones a repository typed in the picker here.
+    #[serde(default)]
+    pub clones: bool,
     /// The folders in the roots the settings list.
     pub listed: Vec<PathBuf>,
     /// Where the directory tree starts besides the home directory: ghq's

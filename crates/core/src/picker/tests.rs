@@ -38,6 +38,7 @@ fn offers(recent: &[&str], ghq: &[&str], roots: &[&str]) -> PickChange {
     PickChange::Offers {
         offers: Offers {
             recent: paths(recent),
+            clones: false,
             ghq: paths(ghq),
             listed: Vec::new(),
             roots: paths(roots),
@@ -747,4 +748,101 @@ fn the_cursor_stays_on_its_session_while_a_change_of_state_moves_it() {
     // Typing still starts again from the best row.
     let run = run.send(Msg::PickerQuery("@".into()));
     assert_eq!(picker(&run).cursor, 0);
+}
+
+/// The picker open with a host that clones with ghq, `o/r` typed.
+fn typing_a_repository() -> Scenario {
+    picking()
+        .tell(PickChange::Offers {
+            offers: Offers {
+                clones: true,
+                ..Offers::default()
+            },
+        })
+        .send(Msg::PickerQuery("o/r".into()))
+}
+
+/// What `run` last asked to clone, and what it is taken for once cloned.
+fn cloning(run: &Scenario) -> Option<(String, Then)> {
+    run.last_effects().iter().find_map(|e| match e {
+        Effect::Clone { target, then, .. } => Some((target.path.clone(), *then)),
+        _ => None,
+    })
+}
+
+fn last_row(run: Scenario) -> Scenario {
+    let rows = names(&run).len();
+    on_row(run, rows - 1)
+}
+
+#[test]
+fn a_repository_typed_is_offered_to_clone_after_every_directory_that_matches() {
+    let run = typing_a_repository();
+    assert_eq!(
+        names(&run).last().map(String::as_str),
+        Some("github.com/o/r")
+    );
+    assert_eq!(
+        names(&picking().send(Msg::PickerQuery("o/r".into()))),
+        Vec::<String>::new(),
+        "a host that does not clone offers no clone"
+    );
+}
+
+#[test]
+fn choosing_the_clone_row_closes_the_picker_and_clones_the_repository_to_start_in() {
+    let run = last_row(typing_a_repository()).send(key("Enter"));
+    assert_eq!(run.state().picker.open, None);
+    assert_eq!(cloning(&run), Some(("github.com/o/r".into(), Then::Start)));
+}
+
+#[test]
+fn ctrl_s_ctrl_e_and_ctrl_t_on_the_clone_row_clone_it_for_a_shell_neovim_or_the_tree() {
+    for (k, then) in [("s", Then::Shell), ("e", Then::Neovim), ("t", Then::Keep)] {
+        let run = last_row(typing_a_repository()).send(ctrl(k));
+        assert_eq!(run.state().picker.open, None, "{k}");
+        assert_eq!(cloning(&run), Some(("github.com/o/r".into(), then)), "{k}");
+        assert_eq!(started(&run), None, "{k}");
+    }
+}
+
+#[test]
+fn the_picker_adding_to_the_tree_clones_a_repository_to_keep_it() {
+    let run = adding()
+        .tell(PickChange::Offers {
+            offers: Offers {
+                clones: true,
+                ..Offers::default()
+            },
+        })
+        .send(Msg::PickerQuery("o/r".into()));
+    assert_eq!(names(&run), ["github.com/o/r"]);
+    let run = run.send(key("Enter"));
+    assert_eq!(cloning(&run), Some(("github.com/o/r".into(), Then::Keep)));
+}
+
+#[test]
+fn a_repository_once_cloned_is_taken_as_its_row_was_chosen() {
+    let cloned = |then| Msg::Cloned {
+        environment: here(),
+        dir: "/g/github.com/o/r".into(),
+        then,
+    };
+    let run = Scenario::new()
+        .send(Msg::Opened {
+            environment: here(),
+            home: HOME.into(),
+        })
+        .send(cloned(Then::Start));
+    assert!(matches!(
+        &run.state().content.showing().tab,
+        Some(Tab::Draft { worktree, .. }) if worktree == &PathBuf::from("/g/github.com/o/r")
+    ));
+    let run = run.send(cloned(Then::Keep));
+    assert_eq!(kept(&run), Some("/g/github.com/o/r".into()));
+    let run = run.send(cloned(Then::Shell));
+    assert_eq!(
+        started(&run),
+        Some(("/g/github.com/o/r".into(), TerminalProgram::Shell))
+    );
 }

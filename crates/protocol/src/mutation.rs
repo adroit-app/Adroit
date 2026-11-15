@@ -33,6 +33,7 @@ impl Ask {
                 | Self::Drafts
                 | Self::Picture { .. }
                 | Self::LoginStanding { .. }
+                | Self::Cloned { .. }
                 | Self::Apply { .. }
                 | Self::MutationStatus { .. }
                 | Self::MutationEpoch

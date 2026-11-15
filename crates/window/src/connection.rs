@@ -482,6 +482,7 @@ fn label(request: &adroit_protocol::Request) -> String {
             Ask::MakeEntry { path, .. } => format!("Make file: {}", path.display()),
             Ask::SaveSettings { .. } | Ask::SaveKeys { .. } => "Save settings".into(),
             Ask::Run { .. } => "Run a command on the work machine".into(),
+            Ask::Clone { typed, .. } => format!("Clone: {typed}"),
             _ => "Change the remote work".into(),
         },
         Request::Stop { .. } | Request::Kill { .. } => "Stop a remote program".into(),

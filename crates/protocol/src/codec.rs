@@ -131,6 +131,21 @@ mod tests {
                 profile: "claude-work".parse().unwrap(),
             }),
         });
+        round_trips(Request::Ask {
+            asked: 12,
+            ask: Box::new(crate::Ask::Clone {
+                typed: "git@github.com:o/r.git".into(),
+                cols: 80,
+                rows: 24,
+            }),
+        });
+        round_trips(Request::Ask {
+            asked: 13,
+            ask: Box::new(crate::Ask::Cloned {
+                path: "github.com/o/r".into(),
+                after: u128::MAX,
+            }),
+        });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,
@@ -384,6 +399,7 @@ mod tests {
                     offers: Offers {
                         recent: vec!["/w".into()],
                         ghq: vec!["/g/r".into()],
+                        clones: true,
                         listed: vec!["/l/a".into()],
                         roots: vec!["/g".into(), "/l".into()],
                     },

@@ -130,6 +130,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             environment,
             profile,
         }],
+        Msg::Cloned {
+            environment,
+            dir,
+            then,
+        } => picker::cloned(state, environment, dir, then),
         Msg::DraftProfile { tab, profile } => {
             let found = state
                 .config

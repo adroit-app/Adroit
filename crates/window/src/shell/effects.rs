@@ -34,6 +34,11 @@ impl Ui {
                 environment,
                 profile,
             } => self.open_login(environment, profile),
+            Effect::Clone {
+                environment,
+                target,
+                then,
+            } => self.clone_repository(environment, target, then),
             Effect::StartDraft(start) => self.start_draft(*start),
             Effect::TypeInto { tab, typing } => self.type_into_tab(tab, typing),
             Effect::Palette(colours) => self.repaint(&colours),

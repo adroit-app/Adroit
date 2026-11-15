@@ -202,6 +202,17 @@ shell and `Ctrl+e` Neovim in its directory: a directory's own, the worktree a
 session runs in, the scratch folder for the scratch row. `Ctrl+t` adds the
 directory's workspace to the tree with nothing started there.
 
+Typing a repository ghq can clone — `owner/repo` on GitHub,
+`host/owner/repo`, or a URL git clones from — offers a row to clone it after
+the directories, which typing a filter and `Enter` therefore never chooses
+over a directory that matches, in each environment where ghq is offered as
+above and does not keep that repository already. Choosing it runs `ghq get`
+on that work machine in a terminal shown with the keys, so whatever the clone asks, a
+passphrase or a host to trust, is answered there. Once the clone succeeds,
+the repository's directory is taken as if it had been chosen from the list,
+by `Enter`, `Ctrl+s`, `Ctrl+e` or `Ctrl+t` as the clone row was; once it
+fails, the terminal stays with what it wrote.
+
 Add to Tree, in the Session menu, on an environment's heading or `A` in the
 tree, opens the picker on the directories alone, of the environment it was
 opened in: choosing one, from the list or the file tree, adds its workspace

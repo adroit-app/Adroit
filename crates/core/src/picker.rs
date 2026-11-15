@@ -171,12 +171,16 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
             &tree.changes,
         ));
     }
-    let rows = choices(&all_sessions, &directories, &picker.query, home, PICKS);
+    let clones = hosts.each().filter_map(|(environment, _)| {
+        clone_offer(environment, picker.offered.get(environment)?, &picker.query)
+    });
+    let rows = choices(&all_sessions, &directories, &picker.query, home, PICKS)
+        .into_iter()
+        .chain(clones.map(Choice::Clone));
     match picker.purpose {
-        Purpose::Go => rows,
+        Purpose::Go => rows.collect(),
         Purpose::Add => rows
-            .into_iter()
-            .filter(|c| matches!(c, Choice::Directory(_)))
+            .filter(|c| matches!(c, Choice::Directory(_) | Choice::Clone(_)))
             .collect(),
     }
 }
@@ -283,6 +287,9 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     if let Some(then) = Then::of(key)
         && matches!(state.picker.open, Some(Picking::Go(_)))
     {
+        if let Some(offer) = clone_under_cursor(state) {
+            return clone(state, offer, then);
+        }
         return match under_cursor(state) {
             Some((environment, dir)) => then_in(state, then, environment, dir),
             None => Vec::new(),
@@ -385,6 +392,13 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
             start_in_environment(state, environment, scratch)
         }
         Some(Choice::Directory(c)) => start_in_environment(state, c.environment, c.path),
+        Some(Choice::Clone(offer)) => {
+            let then = match &state.picker.open {
+                Some(Picking::Go(p)) if p.purpose == Purpose::Add => Then::Keep,
+                _ => Then::Start,
+            };
+            clone(state, offer, then)
+        }
         Some(Choice::Session(s)) => {
             close(&mut state.picker);
             content::show_session(state, s.environment, s.id)
@@ -462,9 +476,12 @@ fn start_in_environment(
     content::draft(&mut state.content, environment, dir, true)
 }
 
-/// What a row's directory is taken for other than what choosing it does.
+/// What a row's directory is taken for: a new session's draft there, as
+/// choosing it does, a shell or Neovim there, or its workspace kept in the
+/// tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Then {
+pub enum Then {
+    Start,
     Shell,
     Neovim,
     Keep,
@@ -510,7 +527,47 @@ fn under_cursor(state: &ViewState) -> Option<(EnvironmentId, PathBuf)> {
             Some((s.environment.clone(), worktree.to_path_buf()))
         }
         Choice::Directory(c) => Some((c.environment, c.path)),
+        Choice::Clone(_) => None,
     }
+}
+
+/// The repository the row under the cursor offers to clone, if it offers one.
+fn clone_under_cursor(state: &ViewState) -> Option<CloneOffer> {
+    let Some(Picking::Go(p)) = &state.picker.open else {
+        return None;
+    };
+    if p.mode == Mode::Tree {
+        return None;
+    }
+    match go_rows(p, &state.picker.home, &state.hosts, &state.tree)
+        .into_iter()
+        .nth(p.cursor)?
+    {
+        Choice::Clone(offer) => Some(offer),
+        _ => None,
+    }
+}
+
+/// Clone the repository `offer` names, the picker closed, its directory to
+/// be taken for `then` once it is cloned.
+fn clone(state: &mut ViewState, offer: CloneOffer, then: Then) -> Vec<Effect> {
+    close(&mut state.picker);
+    vec![Effect::Clone {
+        environment: offer.environment,
+        target: offer.target,
+        then,
+    }]
+}
+
+/// The repository cloned into `dir` of `environment` taken for `then`, as
+/// its row was chosen, whatever the window shows by now.
+pub(crate) fn cloned(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    dir: PathBuf,
+    then: Then,
+) -> Vec<Effect> {
+    take(state, then, environment, dir)
 }
 
 /// `then` done in `dir` of `environment`, the picker closed.
@@ -521,7 +578,17 @@ fn then_in(
     dir: PathBuf,
 ) -> Vec<Effect> {
     close(&mut state.picker);
+    take(state, then, environment, dir)
+}
+
+fn take(
+    state: &mut ViewState,
+    then: Then,
+    environment: EnvironmentId,
+    dir: PathBuf,
+) -> Vec<Effect> {
     let runs = match then {
+        Then::Start => return content::draft(&mut state.content, environment, dir, true),
         Then::Shell => TerminalProgram::Shell,
         Then::Neovim => TerminalProgram::Neovim,
         Then::Keep => {
