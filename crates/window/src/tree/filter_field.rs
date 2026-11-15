@@ -7,8 +7,8 @@ use adroit_core::msg::Msg;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
+use crate::components::InlineField;
 use crate::icons::{Icon, IconView};
-use crate::keys;
 
 /// The field mounts into `field`, through which the window gives it the
 /// keys and takes them back; `onfocus` asks for that.
@@ -30,30 +30,21 @@ pub(crate) fn FilterField(
             // A click goes on with what it holds, where `/` starts afresh.
             onclick: move |_| onfocus.call(true),
             span { class: "filter-field-funnel", IconView { icon: Icon::Filter, size: 13 } }
-            input {
+            InlineField {
                 class: "filter-field-input",
                 placeholder: "Filter",
-                value: "{text}",
-                autocomplete: "off",
-                spellcheck: "false",
-                "autocorrect": "off",
-                "autocapitalize": "off",
-                onmounted: move |e: MountedEvent| field.set(Some(e.data())),
-                onfocus: move |_| {
+                value: text,
+                onmounted: move |data| field.set(Some(data)),
+                onfocus: move |()| {
                     ontaken.call(());
                     app.dispatch(Msg::TreeFiltering(true));
                 },
-                onblur: move |_| app.dispatch(Msg::TreeFiltering(false)),
-                oninput: move |e: Event<FormData>| app.dispatch(Msg::TreeFilter(e.value())),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    match keys::of_field(&e).map(|k| k.key).as_deref() {
-                        Some("Enter") => onfocus.call(false),
-                        Some("Escape") => {
-                            app.dispatch(Msg::TreeFilter(String::new()));
-                            onfocus.call(false);
-                        }
-                        _ => {}
-                    }
+                onblur: move |()| app.dispatch(Msg::TreeFiltering(false)),
+                oninput: move |text| app.dispatch(Msg::TreeFilter(text)),
+                onenter: move |()| onfocus.call(false),
+                onescape: move |()| {
+                    app.dispatch(Msg::TreeFilter(String::new()));
+                    onfocus.call(false);
                 },
             }
         }

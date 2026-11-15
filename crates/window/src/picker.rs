@@ -7,8 +7,7 @@ use adroit_core::picker::Picking;
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::KeyHint;
-use crate::keys;
+use crate::components::{InlineField, KeyHint};
 
 mod go;
 mod interrupted;
@@ -45,25 +44,13 @@ pub(crate) fn Picker() -> Element {
 fn QueryField(query: String, #[props(default)] placeholder: String) -> Element {
     let app = use_context::<AppCtx>();
     rsx! {
-        input {
+        InlineField {
             class: "filter-field-input",
-            value: "{query}",
-            placeholder: "{placeholder}",
-            autocomplete: "off",
-            spellcheck: "false",
-            "autocorrect": "off",
-            "autocapitalize": "off",
-            onmounted: move |e: MountedEvent| async move {
-                let _ = e.data().set_focus(true).await;
-            },
-            oninput: move |e: Event<FormData>| app.dispatch(Msg::PickerQuery(e.value())),
-            onkeydown: move |e: Event<KeyboardData>| {
-                if let Some(k) = keys::of_field(&e).filter(|k| !keys::edits_text(k)) {
-                    // Tab and the arrows would move the focus or the caret.
-                    e.prevent_default();
-                    app.dispatch(Msg::PickerKey(k));
-                }
-            },
+            value: query,
+            placeholder,
+            focus: true,
+            oninput: move |text| app.dispatch(Msg::PickerQuery(text)),
+            onkey: move |k| app.dispatch(Msg::PickerKey(k)),
         }
     }
 }

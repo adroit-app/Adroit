@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 pub use adroit_core::overlay::rename::*;
 
 use crate::bridge::AppCtx;
+use crate::components::InlineField;
 
 #[component]
 pub fn SessionName(environment: EnvironmentId, id: String, name: String, place: Place) -> Element {
@@ -30,44 +31,35 @@ pub fn SessionName(environment: EnvironmentId, id: String, name: String, place: 
     };
     rsx! {
         if let Some(rename) = rename {
-            input {
+            InlineField {
                 class: "session-rename-input",
-                value: "{rename.text}",
+                value: rename.text,
                 aria_label: if place == Place::Heading { "Environment name" } else { "Session name" },
-                autocomplete: "off",
-                spellcheck: "false",
-                "autocorrect": "off",
-                "autocapitalize": "off",
-                onmounted: move |e: MountedEvent| async move {
-                    let _ = e.data().set_focus(true).await;
+                focus: true,
+                contained: true,
+                onmounted: move |_| {
                     document::eval("document.querySelector('.session-rename-input')?.select()");
                 },
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
-                onclick: move |e: Event<MouseData>| e.stop_propagation(),
-                ondoubleclick: move |e: Event<MouseData>| e.stop_propagation(),
                 oninput: {
                     let (environment, id) = (environment.clone(), id.clone());
-                    move |e: Event<FormData>| {
+                    move |text: String| {
                         app.dispatch(Msg::RenameText {
                             environment: environment.clone(),
                             id: id.clone(),
                             place,
-                            text: e.value(),
+                            text,
                         })
                     }
                 },
-                onblur: {
+                onenter: {
                     let finish = finish.clone();
-                    move |_| finish(false)
+                    move |()| finish(true)
                 },
-                onkeydown: move |e: Event<KeyboardData>| {
-                    e.stop_propagation();
-                    match crate::keys::of_field(&e).map(|k| k.key).as_deref() {
-                        Some("Enter") => { e.prevent_default(); finish(true); }
-                        Some("Escape") => { e.prevent_default(); finish(false); }
-                        _ => {}
-                    }
+                onescape: {
+                    let finish = finish.clone();
+                    move |()| finish(false)
                 },
+                onblur: move |()| finish(false),
             }
         } else {
             span {

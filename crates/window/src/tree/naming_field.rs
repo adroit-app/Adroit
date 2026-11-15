@@ -6,7 +6,7 @@ use adroit_core::overlay::naming::{Kind, Naming};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::{FILE_INDENT, FileGlyph, ListRow};
+use crate::components::{FILE_INDENT, FileGlyph, InlineField, ListRow};
 use crate::file_icons;
 
 #[component]
@@ -31,38 +31,18 @@ pub(crate) fn NamingField(naming: Naming, depth: usize) -> Element {
             kind: "file naming",
             style: "padding-left:{8 + FILE_INDENT * depth}px",
             FileGlyph { glyph: icon.glyph, style: colour }
-            input {
+            InlineField {
                 class: "session-rename-input file-naming-input",
-                value: "{naming.text}",
+                value: naming.text,
                 aria_label: label,
                 placeholder: "a name, or a/path",
-                autocomplete: "off",
-                spellcheck: "false",
-                "autocorrect": "off",
-                "autocapitalize": "off",
-                onmounted: move |e: MountedEvent| async move {
-                    let _ = e.data().set_focus(true).await;
-                },
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
-                onclick: move |e: Event<MouseData>| e.stop_propagation(),
-                oninput: move |e: Event<FormData>| app.dispatch(Msg::NamingText(e.value())),
-                // Leaving the field gives the name up, as Escape does: a
-                // click elsewhere is no reason to make a file.
-                onblur: move |_| app.dispatch(Msg::NamingEnd { commit: false }),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    e.stop_propagation();
-                    match crate::keys::of_field(&e).map(|k| k.key).as_deref() {
-                        Some("Enter") => {
-                            e.prevent_default();
-                            app.dispatch(Msg::NamingEnd { commit: true });
-                        }
-                        Some("Escape") => {
-                            e.prevent_default();
-                            app.dispatch(Msg::NamingEnd { commit: false });
-                        }
-                        _ => {}
-                    }
-                },
+                focus: true,
+                contained: true,
+                oninput: move |text| app.dispatch(Msg::NamingText(text)),
+                onenter: move |()| app.dispatch(Msg::NamingEnd { commit: true }),
+                onescape: move |()| app.dispatch(Msg::NamingEnd { commit: false }),
+                // A click elsewhere is no reason to make a file.
+                onblur: move |()| app.dispatch(Msg::NamingEnd { commit: false }),
             }
         }
     }

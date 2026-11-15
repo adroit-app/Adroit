@@ -14,10 +14,9 @@ use dioxus::core::{Runtime, ScopeId, Task, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::{Button, Dialog};
+use crate::components::{Button, Dialog, InlineField};
 use crate::environments::{Joining, fresh_name, machine_name, of_machine, of_served, retarget};
 use crate::icons::{Icon, IconView};
-use crate::keys;
 
 /// How far adding has come.
 #[derive(Debug, Clone, PartialEq)]
@@ -207,22 +206,6 @@ fn step_option(delta: i32) {
            all[next].scrollIntoView({{ block: 'nearest' }});
          }})();"
     ));
-}
-
-/// A key in one of the sheet's text fields: `Enter` does what the field is
-/// for, and a key that does not type is the sheet's.
-fn field_key(app: AppCtx, e: &Event<KeyboardData>, mut enter: impl FnMut()) {
-    let Some(k) = keys::of_field(e) else {
-        return;
-    };
-    if k.key == "Enter" {
-        e.prevent_default();
-        enter();
-    } else if !keys::edits_text(&k) {
-        // Tab and the arrows would move the focus or the caret.
-        e.prevent_default();
-        take_key(app, k);
-    }
 }
 
 /// The sheet, while the view state holds it open.
@@ -497,18 +480,15 @@ fn Where(adding: Adding) -> Element {
         }
         div { class: "adding-label", "Or by address" }
         div { class: "adding-address",
-            input {
+            InlineField {
                 class: "adding-input",
-                r#type: "text",
+                contained: true,
                 aria_label: "Work machine address",
                 placeholder: "work-box.local:47130",
-                spellcheck: "false",
-                autocomplete: "off",
-                "autocorrect": "off",
-                "autocapitalize": "off",
-                value: "{address}",
-                oninput: move |e: Event<FormData>| address.set(e.value()),
-                onkeydown: move |e: Event<KeyboardData>| field_key(adding.app, &e, pair_typed),
+                value: address(),
+                oninput: move |text| address.set(text),
+                onenter: move |()| pair_typed(),
+                onkey: move |k| take_key(adding.app, k),
             }
             Button { kind: "primary", onclick: move |_| pair_typed(), "Pair" }
         }
@@ -754,20 +734,15 @@ fn Name(
             p { class: "adding-note adding-paired", IconView { icon: Icon::Check, size: 14 } "Paired with {machine}" }
         }
         div { class: "adding-label", "Name" }
-        input {
+        InlineField {
             class: "adding-input",
-            r#type: "text",
+            contained: true,
             aria_label: "Environment name",
-            spellcheck: "false",
-            autocomplete: "off",
-            "autocorrect": "off",
-            "autocapitalize": "off",
-            value: "{typed}",
-            onmounted: move |e: MountedEvent| async move {
-                let _ = e.data().set_focus(true).await;
-            },
-            oninput: move |e: Event<FormData>| typed.set(e.value()),
-            onkeydown: move |e: Event<KeyboardData>| field_key(adding.app, &e, add),
+            value: typed(),
+            focus: true,
+            oninput: move |text| typed.set(text),
+            onenter: move |()| add(),
+            onkey: move |k| take_key(adding.app, k),
         }
         div { class: "dialog-actions",
             Button { onclick: move |_| adding.back(), "Back" }

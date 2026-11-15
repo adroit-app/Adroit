@@ -12,7 +12,7 @@ use adroit_core::config::Config;
 use adroit_protocol::FileText;
 
 use crate::actions::Action;
-use crate::components::{Button, IconButton, Keys, SettingsError};
+use crate::components::{Button, IconButton, InlineField, Keys, SettingsError};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
@@ -101,15 +101,11 @@ pub fn KeysPane() -> Element {
                     }
                 }
             }
-            input {
+            InlineField {
                 class: "keys-bar-search",
                 placeholder: "Filter by key, action or what it does",
-                autocomplete: "off",
-                spellcheck: "false",
-                "autocorrect": "off",
-                "autocapitalize": "off",
-                value: "{filter}",
-                oninput: move |e| filter.set(e.value()),
+                value: filter(),
+                oninput: move |text| filter.set(text),
             }
             Button { title: "Open the keys file", onclick: move |_| crate::settings_window::open_with("-t", &path, crate::client_keys::STARTER), "Open keys.toml" }
             if confirm_reset() {
