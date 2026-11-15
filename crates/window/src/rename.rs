@@ -58,7 +58,7 @@ pub fn SessionName(environment: EnvironmentId, id: String, name: String, place: 
                 },
                 onblur: {
                     let finish = finish.clone();
-                    move |_| finish(true)
+                    move |_| finish(false)
                 },
                 onkeydown: move |e: Event<KeyboardData>| {
                     e.stop_propagation();

@@ -380,7 +380,7 @@ the `adroit session` commands take it wherever they take the session's id.
 
 Double-clicking a session's name in the tree or its tab edits that name
 in place. The rename action from the keyboard or menu opens the same editor.
-Enter or leaving the field accepts the name; Escape cancels. An unchanged
+Enter accepts the name; Escape or leaving the field cancels. An unchanged
 name leaves the session's name as it was; an emptied one keeps the name too,
 but lets the session's agent name it again.
 
