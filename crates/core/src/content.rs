@@ -3,6 +3,7 @@
 //! the keys, and the options a draft starts with.
 
 pub mod draft;
+mod editing;
 mod focus;
 mod layout;
 mod listing;
@@ -22,6 +23,7 @@ use crate::effect::Effect;
 use crate::layout::Layout;
 use crate::tree::nav::Place;
 
+pub(crate) use editing::*;
 pub use focus::*;
 pub use layout::*;
 pub(crate) use listing::{listed, tell_live};
@@ -78,6 +80,8 @@ pub struct ContentView {
     settled_for: Option<Tab>,
     /// Whether each side panel was shown when last looked at.
     panels_seen: Option<(bool, bool)>,
+    /// The documents switched between their viewer and a Neovim.
+    editing: editing::Editing,
 }
 
 impl Default for ContentView {
@@ -103,6 +107,7 @@ impl Default for ContentView {
             placed_for: None,
             settled_for: None,
             panels_seen: None,
+            editing: editing::Editing::default(),
         }
     }
 }
@@ -335,7 +340,10 @@ pub(crate) fn show(
         view.place = place;
     }
     match how {
-        Some(how) => view.windows.open_in(thing, how),
+        Some(how) => {
+            let how = started_in(view, how);
+            view.windows.open_in(thing, how)
+        }
         None => view.windows.open(thing),
     }
     Vec::new()

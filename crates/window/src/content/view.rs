@@ -41,6 +41,8 @@ pub(crate) fn ContentPanel(
 ) -> Element {
     let app = use_context::<AppCtx>();
     // A document is painted light or dark as the theme in force is.
+    // How each document was left in each window, to read on from there.
+    let left_at = use_signal(viewers::LeftAt::new);
     let theme = use_memo(move || {
         let config = app.config.read();
         let system = config
@@ -114,6 +116,7 @@ pub(crate) fn ContentPanel(
                             path: path.clone(),
                             root,
                             theme,
+                            left_at,
                             commands: viewer_command,
                             on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
                             on_link: move |file| {

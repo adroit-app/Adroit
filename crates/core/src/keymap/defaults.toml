@@ -31,6 +31,7 @@
 "Ctrl+q _" = "window.maximize_height"
 "Ctrl+q |" = "window.maximize_width"
 "Ctrl+q T" = "window.to_tab"
+"Ctrl+q e" = "window.edit"
 "Ctrl+q m 1" = "tab.merge 1"
 "Ctrl+q m 2" = "tab.merge 2"
 "Ctrl+q m 3" = "tab.merge 3"
@@ -227,4 +228,5 @@
 "h" = "viewer.back"
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
+"e" = "window.edit"
 "q" = "window.quit"

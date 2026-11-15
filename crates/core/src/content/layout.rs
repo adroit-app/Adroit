@@ -18,6 +18,9 @@ pub enum Opening {
     Split(Axis),
     /// In a new tab after the one shown.
     Tab,
+    /// In place of what the window by this id shows, or else as
+    /// [`Opening::Existing`] once that window is gone.
+    InWindow(WindowId),
 }
 
 /// A window's identity, unique across every tab of the content.
@@ -635,7 +638,30 @@ impl<T: Clone + PartialEq> Content<T> {
             }
             Opening::Split(axis) => self.split(axis, thing),
             Opening::Tab => self.open_tab(thing),
+            Opening::InWindow(id) => {
+                if !self.replace_window(id, thing.clone()) {
+                    self.open_in(thing, Opening::Existing);
+                }
+            }
         }
+    }
+
+    /// The window `id` shows `thing` in place of what it showed, focused,
+    /// and its tab is an ordinary one; whether there was such a window.
+    pub fn replace_window(&mut self, id: WindowId, thing: T) -> bool {
+        let Some(at) = self
+            .tabs
+            .iter()
+            .position(|t| t.windows().iter().any(|w| w.id == id))
+        else {
+            return false;
+        };
+        let tab = &mut self.tabs[at];
+        set_shows(&mut tab.root, id, &thing);
+        tab.preview = false;
+        self.set_current(at);
+        self.focus(id);
+        true
     }
 
     /// Close the preview, when there is one and another tab is shown.
@@ -1382,6 +1408,14 @@ impl<T: Clone + PartialEq> Content<T> {
     }
 }
 
+fn set_shows<T: Clone>(node: &mut Node<T>, id: WindowId, thing: &T) {
+    match node {
+        Node::Window(w) if w.id == id => w.shows = thing.clone(),
+        Node::Window(_) => {}
+        Node::Split(_, parts) => parts.iter_mut().for_each(|(_, n)| set_shows(n, id, thing)),
+    }
+}
+
 fn replace_in<T: Clone + PartialEq>(node: &mut Node<T>, from: &T, to: &T) {
     match node {
         Node::Window(w) if w.shows == *from => w.shows = to.clone(),
@@ -1606,6 +1640,41 @@ mod tests {
         c.look("d");
         c.keep();
         assert!(c.tabs().iter().all(|t| !t.is_preview()));
+    }
+
+    #[test]
+    fn a_window_takes_another_thing_in_place_and_the_others_keep_theirs() {
+        let mut c = one("a");
+        c.split(Axis::Row, "a");
+        let id = c.focused_window().unwrap();
+        assert!(c.replace_window(id, "b"));
+        assert_eq!(drawn(&c), "(a | b)");
+        assert_eq!(c.focused_window(), Some(id));
+        c.close_window();
+        assert!(!c.replace_window(id, "c"));
+        assert_eq!(drawn(&c), "a");
+    }
+
+    #[test]
+    fn the_preview_s_window_taking_another_thing_makes_it_a_tab() {
+        let mut c = one("a");
+        c.look("b");
+        let id = c.focused_window().unwrap();
+        c.replace_window(id, "c");
+        assert!(c.tabs().iter().all(|t| !t.is_preview()));
+    }
+
+    #[test]
+    fn opened_in_a_window_a_thing_takes_its_place_or_else_opens_as_it_would() {
+        let mut c = one("a");
+        c.split(Axis::Row, "x");
+        let id = c.focused_window().unwrap();
+        c.open_in("b", Opening::InWindow(id));
+        assert_eq!(drawn(&c), "(a | b)");
+        c.close_window();
+        c.open_in("y", Opening::InWindow(id));
+        assert_eq!(c.tabs().len(), 2);
+        assert_eq!(c.focused(), Some(&"y"));
     }
 
     #[test]

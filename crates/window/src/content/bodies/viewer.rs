@@ -16,6 +16,7 @@ pub(crate) fn ViewerWindow(
     path: PathBuf,
     root: PathBuf,
     theme: ReadSignal<&'static str>,
+    left_at: Signal<viewers::LeftAt>,
     commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
     on_close: EventHandler<()>,
     on_link: EventHandler<PathBuf>,
@@ -23,7 +24,15 @@ pub(crate) fn ViewerWindow(
     let command = use_memo(move || commands().filter(|(w, _)| *w == window).map(|(_, c)| c));
     rsx! {
         div { class: "win-viewer",
-            viewers::Viewer { path, root, theme, command, on_close, on_link }
+            viewers::Viewer {
+                path,
+                root,
+                theme,
+                command,
+                on_close,
+                on_link,
+                left: Some((window, left_at)),
+            }
         }
     }
 }

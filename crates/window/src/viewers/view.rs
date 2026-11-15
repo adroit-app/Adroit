@@ -1,6 +1,7 @@
 //! The viewers as components, each drawn within the box it is given.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -17,7 +18,9 @@ use super::markdown::{
 use super::pdf;
 use super::serve::{self, Scope};
 use adroit_core::viewers::FileKind;
-use adroit_core::viewers::{Effect, ImageState, Media, Scroll, ViewerAction, ViewerState};
+use adroit_core::viewers::{
+    Effect, ImageState, MarkdownState, Media, Scroll, ViewerAction, ViewerState, Zoom,
+};
 
 /// The viewers' look, put in the page with each viewer.
 pub const CSS: &str = include_str!("../../assets/css/viewer.css");
@@ -32,11 +35,23 @@ pub struct Command {
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
+/// How a document's viewer was left in a window: its zoom and how far down
+/// it was read.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Left {
+    pub zoom: Zoom,
+    pub top: f64,
+}
+
+/// How each document's viewer was left, by the window it was in, so a
+/// window switched to the document's Neovim and back reads on where it was.
+pub type LeftAt = HashMap<(u64, PathBuf), Left>;
+
 /// The file at `path` in the viewer of its kind. Actions arrive through
 /// `command`; `on_close` is called when one asks for the viewer to close.
 /// A document reads the images it shows from under `root` alone, is painted
-/// in Arto's `theme`, and calls `on_link` with the file a link it shows
-/// leads to.
+/// in Arto's `theme`, calls `on_link` with the file a link it shows leads
+/// to, and, given the window it is in, comes back as it was left there.
 #[component]
 pub fn Viewer(
     path: PathBuf,
@@ -45,11 +60,12 @@ pub fn Viewer(
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
     on_link: EventHandler<PathBuf>,
+    #[props(default)] left: Option<(u64, Signal<LeftAt>)>,
 ) -> Element {
     let key = path.to_string_lossy().into_owned();
     match ViewerState::new(FileKind::of(&path)) {
         Some(_) => rsx! {
-            ViewerOf { key: "{key}", path, root, theme, command, on_close, on_link }
+            ViewerOf { key: "{key}", path, root, theme, command, on_close, on_link, left }
         },
         None => rsx! {
             div { class: "viewer",
@@ -159,6 +175,7 @@ fn ViewerOf(
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
     on_link: EventHandler<PathBuf>,
+    left: Option<(u64, Signal<LeftAt>)>,
 ) -> Element {
     let kind = FileKind::of(&path);
     let prefix = use_hook(|| format!("adroit-viewer-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
@@ -168,7 +185,33 @@ fn ViewerOf(
             _ => Scope::File(path.clone()),
         })
     });
-    let mut state = use_signal(|| ViewerState::new(kind).expect("a kind with a viewer"));
+    let was = use_hook(|| {
+        left.and_then(|(window, at)| at.peek().get(&(window, path.clone())).copied())
+            .filter(|_| kind == FileKind::Markdown)
+    });
+    let mut state =
+        use_signal(
+            || match (ViewerState::new(kind).expect("a kind with a viewer"), was) {
+                (ViewerState::Markdown(_), Some(was)) => {
+                    ViewerState::Markdown(MarkdownState { zoom: was.zoom })
+                }
+                (fresh, _) => fresh,
+            },
+        );
+    // How far down the document is read, as its frame last told.
+    let top = use_hook(|| Rc::new(Cell::new(was.map_or(0.0, |w| w.top))));
+    use_drop({
+        let (path, top) = (path.clone(), top.clone());
+        move || {
+            if let (Some((window, mut at)), ViewerState::Markdown(s)) = (left, *state.peek()) {
+                let left = Left {
+                    zoom: s.zoom,
+                    top: top.get(),
+                };
+                at.write().insert((window, path), left);
+            }
+        }
+    });
     // A command sent before the viewer opened is not for it.
     let last = use_hook(|| Rc::new(Cell::new(command.peek().map_or(0, |c| c.seq))));
     let images: Images = use_hook(Images::default);
@@ -233,7 +276,7 @@ fn ViewerOf(
                     shown: frame_doc,
                     gone,
                 }));
-                spawn(follow_links(path, media_id.clone(), on_link));
+                spawn(follow_frame(path, media_id.clone(), on_link, top.clone()));
             }
             FileKind::Pdf => {
                 spawn(async move {
@@ -410,16 +453,26 @@ fn ViewerOf(
         },
         ViewerState::Html(s) => {
             let document = page.read().clone().flatten().unwrap_or_default();
-            page_frame(media_id.clone(), box_id.clone(), s.zoom.factor(), document)
+            page_frame(
+                media_id.clone(),
+                box_id.clone(),
+                s.zoom.factor(),
+                0.0,
+                document,
+            )
         }
         ViewerState::Markdown(s) => match frame_doc.read().clone() {
             None => rsx! {},
             Some(Err(why)) => rsx! {
                 ViewerEmpty { "{why.says()}" }
             },
-            Some(Ok(document)) => {
-                page_frame(media_id.clone(), box_id.clone(), s.zoom.factor(), document)
-            }
+            Some(Ok(document)) => page_frame(
+                media_id.clone(),
+                box_id.clone(),
+                s.zoom.factor(),
+                top.get(),
+                document,
+            ),
         },
     };
     rsx! {
@@ -503,29 +556,43 @@ async fn follow_markdown(mut f: Followed) {
     }
 }
 
-/// Hand `on_link` the file each link pressed in the frame `frame`, which
-/// shows the document at `path`, leads to, when there is one.
-async fn follow_links(path: PathBuf, frame: String, on_link: EventHandler<PathBuf>) {
+/// Hear what the frame `frame`, which shows the document at `path`, tells:
+/// the file each link pressed leads to, handed to `on_link` when there is
+/// one, and how far down it is scrolled, kept in `top`.
+async fn follow_frame(
+    path: PathBuf,
+    frame: String,
+    on_link: EventHandler<PathBuf>,
+    top: Rc<Cell<f64>>,
+) {
     let mut heard = document::eval(&format!(
         "window.addEventListener('message', (e) => {{
            const f = document.getElementById({frame:?});
            if (!f || e.source !== f.contentWindow) return;
            const m = e.data;
-           if (!m || m.adroitViewerLink !== 1 || typeof m.path !== 'string') return;
-           dioxus.send(m.path);
+           if (!m) return;
+           if (m.adroitViewerLink === 1 && typeof m.path === 'string') dioxus.send(['link', m.path]);
+           if (m.adroitViewerTop === 1 && typeof m.top === 'number') dioxus.send(['top', m.top]);
          }});
          await new Promise(() => {{}});"
     ));
-    while let Ok(written) = heard.recv::<String>().await {
-        if let Some(file) = link_target(&path, &written).filter(|f| f.is_file()) {
-            on_link.call(file);
+    while let Ok((what, value)) = heard.recv::<(String, serde_json::Value)>().await {
+        match (what.as_str(), value) {
+            ("link", serde_json::Value::String(written)) => {
+                if let Some(file) = link_target(&path, &written).filter(|f| f.is_file()) {
+                    on_link.call(file);
+                }
+            }
+            ("top", value) => top.set(value.as_f64().unwrap_or_default()),
+            _ => {}
         }
     }
 }
 
 /// The frame `media_id` that draws `document` apart from the window, at
-/// `zoom`, handing the keys pressed in it to the viewer's box `box_id`.
-fn page_frame(media_id: String, box_id: String, zoom: f64, document: String) -> Element {
+/// `zoom` and scrolled `top` down, handing the keys pressed in it to the
+/// viewer's box `box_id`.
+fn page_frame(media_id: String, box_id: String, zoom: f64, top: f64, document: String) -> Element {
     let relay_id = media_id.clone();
     rsx! {
         iframe {
@@ -534,7 +601,10 @@ fn page_frame(media_id: String, box_id: String, zoom: f64, document: String) -> 
             "srcdoc": "{document}",
             "sandbox": "allow-scripts allow-forms",
             onload: move |_| {
-                document::eval(&frame_script(&media_id, &format!("{{\"zoom\": {zoom}}}")));
+                document::eval(&frame_script(
+                    &media_id,
+                    &format!("{{\"zoom\": {zoom}, \"top\": {top}}}"),
+                ));
             },
             onmounted: move |_| {
                 // Keys pressed in the page come back to the viewer,

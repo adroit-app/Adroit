@@ -142,10 +142,12 @@ impl Ui {
                 Answer::Terminal { terminal } => terminal,
                 Answer::Failed { text } => {
                     app.status(Some(format!("cannot start {base}: {text}")));
+                    app.dispatch(Msg::TerminalFailed { opening });
                     return;
                 }
                 answer => {
                     app.status(Some(format!("cannot start {base}: {answer:?}")));
+                    app.dispatch(Msg::TerminalFailed { opening });
                     return;
                 }
             };
@@ -153,6 +155,7 @@ impl Ui {
             let tab = Tab::Terminal(environment.clone(), id);
             if let Err(e) = attach_held(app, &hub, id, tab.clone(), size).await {
                 app.status(Some(format!("cannot start {base}: {e}")));
+                app.dispatch(Msg::TerminalFailed { opening });
                 return;
             }
             app.dispatch(Msg::TerminalOpened {

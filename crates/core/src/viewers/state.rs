@@ -284,7 +284,7 @@ mod tests {
     use crate::keymap::{Context, Keymap};
 
     #[test]
-    fn every_key_the_viewer_area_binds_runs_a_viewer_action_or_shows_the_keys() {
+    fn every_key_the_viewer_area_binds_runs_a_viewer_action_shows_the_keys_or_edits() {
         let map = Keymap::defaults();
         let bound: Vec<(&str, String, String)> = map
             .listed()
@@ -294,7 +294,9 @@ mod tests {
         assert!(!bound.is_empty());
         for (_, keys, name) in bound {
             let action: Action = name.parse().unwrap();
-            if action == Action::KeysHelp {
+            // Switching a document's window to its Neovim is the window's,
+            // not the viewer's.
+            if matches!(action, Action::KeysHelp | Action::WindowEdit) {
                 continue;
             }
             assert!(ViewerAction::of(&action).is_some(), "{keys} = {name}");

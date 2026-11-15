@@ -830,6 +830,7 @@ mod tests {
             ("h", Action::ViewerBack),
             ("l", Action::ViewerForward),
             ("y", Action::ViewerCopyPath),
+            ("e", Action::WindowEdit),
             ("q", Action::WindowQuit),
         ] {
             assert_eq!(step(&map, &viewer, &[], keys), Step::Run(action), "{keys}");
@@ -1325,6 +1326,7 @@ mod tests {
                 ("_", Action::WindowMaximizeHeight),
                 ("|", Action::WindowMaximizeWidth),
                 ("T", Action::WindowToTab),
+                ("e", Action::WindowEdit),
                 ("1", Action::TabGo(1)),
                 ("9", Action::TabGo(9)),
             ] {

@@ -40,6 +40,9 @@ fn go(state: &mut ViewState, to: Spot) {
 /// an action is on the selected row; from elsewhere, on what the focused
 /// window shows.
 pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
+    if action == Action::WindowEdit {
+        return super::switch_editing(state);
+    }
     let area = state.content.focus;
     let on_list = matches!(area, Area::Sidebar | Area::Details);
     let shown = {

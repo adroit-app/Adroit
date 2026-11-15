@@ -393,6 +393,8 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
             .as_ref()
             .filter(|p| p.environment == *environment)
             .map(|p| HostPath::local(&p.worktree)),
+        // A Neovim a window hides behind its document's viewer is shown all
+        // the same, so the host does not ask it to quit.
         terminals: state
             .content
             .windows
@@ -402,6 +404,11 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
                 Tab::Terminal(e, id) if e == environment => Some(*id),
                 _ => None,
             })
+            .chain(content::hidden_terminals(
+                &state.content,
+                environment,
+                tree::terminals(state.hosts.work(environment)),
+            ))
             .collect(),
         ..shown_part
     }

@@ -115,6 +115,10 @@ pub enum Msg {
         environment: EnvironmentId,
         terminal: TerminalSession,
     },
+    /// A terminal asked to open as `opening` could not be started.
+    TerminalFailed {
+        opening: crate::content::Opening,
+    },
     /// The window ended the terminal by this id in `environment`.
     TerminalClosed {
         environment: EnvironmentId,

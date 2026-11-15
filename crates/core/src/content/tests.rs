@@ -1393,3 +1393,151 @@ fn a_kept_tab_of_what_the_terminal_host_took_comes_back_and_takes_what_stands_fo
         Some(Tab::Session(here(), "c".into()))
     );
 }
+
+/// The work of a worktree `/r/a` with a session, and a Neovim by id 4 on
+/// `/r/a/README.md` when `editing`.
+fn document_work(editing: bool) -> Scenario {
+    let nvim = adroit_model::TerminalSession {
+        program: TerminalProgram::Neovim,
+        file: Some("/r/a/README.md".into()),
+        ..shell(4, "/r/a")
+    };
+    let listed = listed().session(session("a").cwd("/r/a"));
+    let listed = if editing {
+        listed.terminal(nvim)
+    } else {
+        listed
+    };
+    Scenario::new()
+        .send(opened(None))
+        .event(snapshot().listed(listed))
+}
+
+fn readme() -> Tab {
+    Tab::Viewer(here(), "/r/a/README.md".into())
+}
+
+fn edit() -> Msg {
+    Msg::Window(Action::WindowEdit)
+}
+
+fn focused_window(run: &Scenario) -> WindowId {
+    run.state().content.windows.focused_window().unwrap()
+}
+
+fn terminals_seen(run: &Scenario) -> BTreeSet<u128> {
+    crate::settle::sight(run.state(), &here()).terminals
+}
+
+#[test]
+fn a_document_s_viewer_switches_in_its_window_to_the_neovim_on_it() {
+    let run = document_work(true).send(show(readme()));
+    let window = focused_window(&run);
+    let editing = run.send(edit());
+    assert_eq!(active(&editing), Some(Tab::Terminal(here(), 4)));
+    assert_eq!(focused_window(&editing), window);
+    assert_eq!(editing.state().content.windows.tabs().len(), 1);
+    assert_eq!(editing.state().content.focus, Area::Console);
+}
+
+#[test]
+fn a_document_with_no_neovim_starts_one_for_its_window_once() {
+    let run = document_work(false).send(show(readme()));
+    let window = focused_window(&run);
+    let asked = run.send(edit());
+    assert_eq!(
+        asked.last_effects(),
+        [Effect::StartTerminal(TerminalAsk {
+            place: place("/r/a").unwrap(),
+            runs: TerminalProgram::Neovim,
+            file: Some("/r/a/README.md".into()),
+            opening: Opening::InWindow(window),
+            focus: true,
+        })]
+    );
+    let again = asked.send(edit());
+    assert!(again.last_effects().is_empty());
+    let started = again.send(Msg::Show {
+        thing: Tab::Terminal(here(), 9),
+        place: place("/r/a"),
+        how: Some(Opening::InWindow(window)),
+    });
+    assert_eq!(active(&started), Some(Tab::Terminal(here(), 9)));
+    assert_eq!(started.state().content.windows.tabs().len(), 1);
+}
+
+#[test]
+fn a_neovim_started_after_its_window_moved_on_opens_beside_what_it_shows_now() {
+    let run = document_work(false).send(Msg::Show {
+        thing: readme(),
+        place: None,
+        how: Some(Opening::Preview),
+    });
+    let window = focused_window(&run);
+    let moved_on = run.send(edit()).send(Msg::Show {
+        thing: session_tab("a"),
+        place: None,
+        how: Some(Opening::Preview),
+    });
+    let started = moved_on.send(Msg::Show {
+        thing: Tab::Terminal(here(), 9),
+        place: place("/r/a"),
+        how: Some(Opening::InWindow(window)),
+    });
+    assert_eq!(
+        started.state().content.windows.shows(window),
+        Some(&session_tab("a"))
+    );
+    assert!(shown(&started).contains(&Tab::Terminal(here(), 9)));
+}
+
+#[test]
+fn a_neovim_that_could_not_start_lets_the_document_ask_for_one_again() {
+    let run = document_work(false).send(show(readme()));
+    let window = focused_window(&run);
+    let failed = run.send(edit()).send(Msg::TerminalFailed {
+        opening: Opening::InWindow(window),
+    });
+    assert!(
+        failed
+            .send(edit())
+            .last_effects()
+            .iter()
+            .any(|e| matches!(e, Effect::StartTerminal(_)))
+    );
+}
+
+#[test]
+fn a_neovim_on_a_document_switches_back_to_its_viewer_and_runs_on_hidden() {
+    let run = document_work(true).send(show(Tab::Terminal(here(), 4)));
+    let viewing = run.send(edit());
+    assert_eq!(active(&viewing), Some(readme()));
+    assert_eq!(terminals_seen(&viewing), BTreeSet::from([4]));
+    let back = viewing.send(edit());
+    assert_eq!(active(&back), Some(Tab::Terminal(here(), 4)));
+}
+
+#[test]
+fn a_hidden_neovim_is_let_go_once_its_window_closes() {
+    let closed = document_work(true)
+        .send(show(Tab::Terminal(here(), 4)))
+        .send(edit())
+        .send(Msg::Window(Action::WindowQuit));
+    assert!(terminals_seen(&closed).is_empty());
+}
+
+#[test]
+fn only_a_document_and_a_neovim_on_one_switch() {
+    let picture = document_work(true)
+        .send(show(Tab::Viewer(here(), "/r/a/shot.png".into())))
+        .send(edit());
+    assert_eq!(
+        active(&picture),
+        Some(Tab::Viewer(here(), "/r/a/shot.png".into()))
+    );
+    assert!(picture.last_effects().is_empty());
+    let session = document_work(true)
+        .send(show(session_tab("a")))
+        .send(edit());
+    assert_eq!(active(&session), Some(session_tab("a")));
+}

@@ -39,6 +39,7 @@ changes them ([keys](../keys.md)).
 | `window.maximize_height` | Tallest | make the focused window as tall as the others allow | `global`: `Ctrl+q _` |
 | `window.maximize_width` | Widest | make the focused window as wide as the others allow | `global`: `Ctrl+q \|` |
 | `window.to_tab` | Move Window to a New Tab | move the focused window to a new tab, unless it is the only one of its tab | `global`: `Ctrl+q T` |
+| `window.edit` |  | switch the focused window between a document's viewer and a Neovim on the document, which runs on hidden while the window shows the viewer ([content](../content.md#viewers)) | `global`: `Ctrl+q e`<br>`viewer`: `e` |
 | `tab.merge_last` |  | merge the content's tab shown into the tab shown before it, or else the tab beside it: every window of it, as it is split, right of every window there, the focused one keeping the focus ([content](../content.md)) | `global`: `Ctrl+q M`, `Ctrl+q m m` |
 | `tab.next` | Next Tab | show the next tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Tab`, `Ctrl+PageDown`, `Cmd+}`, `Ctrl+q g t` |
 | `tab.prev` | Previous Tab | show the previous tab of the area the keys are in: the details panel's sheets there, elsewhere the content's tabs; repeats ([keys](../keys.md#repeating)) | `global`: `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Cmd+{`, `Ctrl+q g T` |
@@ -128,9 +129,9 @@ changes them ([keys](../keys.md)).
 | `zoom.reset` | Actual Size | draw the window at the zoom the settings give | `global`: `Mod+0` |
 | `tree.toggle` | Toggle Tree | show or hide the tree | `global`: `Mod+b` |
 | `details.toggle` | Toggle Details | show or hide the details panel | `global`: `Mod+d` |
-| `viewer.zoom_in` |  | in a viewer, draw an image, a PDF or an HTML page larger ([viewers](../content.md#viewers)) | `viewer`: `Plus`, `=` |
-| `viewer.zoom_out` |  | in a viewer, draw an image, a PDF or an HTML page smaller | `viewer`: `-` |
-| `viewer.zoom_fit` |  | in a viewer, draw an image, a PDF or an HTML page fitting the window | `viewer`: `0` |
+| `viewer.zoom_in` |  | in a viewer, draw an image, a PDF, an HTML page or a Markdown document larger ([viewers](../content.md#viewers)) | `viewer`: `Plus`, `=` |
+| `viewer.zoom_out` |  | in a viewer, draw an image, a PDF, an HTML page or a Markdown document smaller | `viewer`: `-` |
+| `viewer.zoom_fit` |  | in a viewer, draw an image, a PDF, an HTML page or a Markdown document fitting the window | `viewer`: `0` |
 | `viewer.page_next` |  | in a viewer, show a PDF's next page | `viewer`: `J` |
 | `viewer.page_prev` |  | in a viewer, show a PDF's previous page | `viewer`: `K` |
 | `viewer.play` |  | in a viewer, play or pause a movie | `viewer`: `Space` |
@@ -177,6 +178,7 @@ changes them ([keys](../keys.md)).
 "Ctrl+q _" = "window.maximize_height"
 "Ctrl+q |" = "window.maximize_width"
 "Ctrl+q T" = "window.to_tab"
+"Ctrl+q e" = "window.edit"
 "Ctrl+q m 1" = "tab.merge 1"
 "Ctrl+q m 2" = "tab.merge 2"
 "Ctrl+q m 3" = "tab.merge 3"
@@ -373,5 +375,6 @@ changes them ([keys](../keys.md)).
 "h" = "viewer.back"
 "l" = "viewer.forward"
 "y" = "viewer.copy_path"
+"e" = "window.edit"
 "q" = "window.quit"
 ```

@@ -74,6 +74,10 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             environment,
             request: Request::TerminalOpened { terminal },
         }],
+        Msg::TerminalFailed { opening } => {
+            content::not_started(&mut state.content, opening);
+            Vec::new()
+        }
         Msg::TerminalClosed { environment, id } => vec![Effect::Host {
             environment,
             request: Request::TerminalClosed { id },
