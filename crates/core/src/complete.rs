@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use adroit_model::Tree;
 
 use crate::content::Tab;
-use crate::tree::nav::{self, Place};
+use crate::tree::Place;
+use crate::tree::nav;
 
 /// What `@` offers: a word, and what it is.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -21,7 +21,7 @@ use adroit_protocol::{Seq, WorkSnapshot};
 
 use crate::effect::Effect;
 use crate::layout::Layout;
-use crate::tree::nav::Place;
+use crate::tree::Place;
 
 pub(crate) use editing::*;
 pub use focus::*;

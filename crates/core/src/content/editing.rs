@@ -10,7 +10,7 @@ use adroit_model::{EnvironmentId, TerminalProgram, TerminalSession};
 use super::{Area, ContentView, Opening, Tab, TerminalAsk, WindowId};
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::tree::{self, nav::Place};
+use crate::tree::{self, Place};
 use crate::viewers::FileKind;
 
 #[derive(Debug, Clone, Default, PartialEq)]

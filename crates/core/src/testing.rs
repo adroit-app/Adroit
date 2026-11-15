@@ -13,7 +13,7 @@ pub use adroit_protocol::testing::{
 
 use crate::content::Tab;
 use crate::msg::Msg;
-use crate::tree::nav::Place;
+use crate::tree::Place;
 
 /// A session adroit runs in a worktree of its own under [`REPO`], named
 /// unlike its id so a test sees which of the two the window shows.

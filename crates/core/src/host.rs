@@ -10,7 +10,7 @@ use crate::chrome::status_line;
 use crate::content::Tab;
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::tree::{self, nav};
+use crate::tree::{self, Place, nav};
 
 /// How the window stands with the work host.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -93,9 +93,9 @@ impl Hosts {
     }
 
     /// The session by `id` in `environment`, with the worktree it runs in.
-    pub fn session(&self, environment: &EnvironmentId, id: &str) -> Option<(nav::Place, &Session)> {
+    pub fn session(&self, environment: &EnvironmentId, id: &str) -> Option<(Place, &Session)> {
         nav::find(tree::listed(self.work(environment)), id)
-            .map(|(p, s)| (nav::Place::at(environment, p), s))
+            .map(|(p, s)| (Place::at(environment, p), s))
     }
 
     /// The environment of what `tab` shows, the window's own with nothing
@@ -346,7 +346,7 @@ fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Liste
             }
             (tab, cwd) => {
                 let content = &mut state.content;
-                content.place = cwd.map(|cwd| nav::Place::at(environment, cwd));
+                content.place = cwd.map(|cwd| Place::at(environment, cwd));
                 content.windows.open(tab);
             }
         }

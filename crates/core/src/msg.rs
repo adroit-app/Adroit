@@ -18,7 +18,8 @@ use crate::overlay::context_menu::Target;
 use crate::overlay::rename::Place as RenamePlace;
 use crate::prompt::send::Taken;
 use crate::tree;
-use crate::tree::nav::{Item, Place};
+use crate::tree::Place;
+use crate::tree::nav::Item;
 use crate::zoom;
 
 #[derive(Debug, Clone, PartialEq)]

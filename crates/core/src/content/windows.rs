@@ -15,7 +15,8 @@ use crate::actions::Action;
 use crate::details;
 use crate::effect::Effect;
 use crate::state::ViewState;
-use crate::tree::nav::{Item, Place};
+use crate::tree::Place;
+use crate::tree::nav::Item;
 use crate::tree::{self, nav};
 
 /// How much of its split a window grows or shrinks by a key.

@@ -14,7 +14,7 @@ use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::keymap::{Context, Step};
 use crate::state::ViewState;
-use crate::tree::nav::Place;
+use crate::tree::Place;
 use crate::tree::{self, TreeView};
 
 mod choices;

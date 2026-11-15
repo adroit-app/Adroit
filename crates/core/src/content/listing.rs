@@ -12,7 +12,8 @@ use crate::chrome::status_line;
 use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::state::ViewState;
-use crate::tree::nav::{self, Item, Place};
+use crate::tree::Place;
+use crate::tree::nav::{self, Item};
 
 /// The sessions waiting in `next` that were not waiting in `prev`, each as
 /// its name and what it waits for.

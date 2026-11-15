@@ -4,6 +4,9 @@
 //! keep read.
 
 pub mod nav;
+mod place;
+
+pub use place::*;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,7 +23,7 @@ use crate::completion::{Completions, Viewed};
 use crate::content::{Showing, Tab};
 use crate::effect::Effect;
 use crate::host::Hosts;
-use nav::{Folds, Heading, Item, Place};
+use nav::{Folds, Heading, Item};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TreeView {
