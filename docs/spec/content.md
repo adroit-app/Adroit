@@ -244,4 +244,6 @@ The images a session's console drew are listed in the Resources sheet
 of the details panel, and stay listed after the console lets them go
 ([details](details.md)). Opened from there, one is shown in the image viewer
 like an image file, in a window of the content; its tab is not kept for the
-next run.
+next run. A click on an image in a session's console looks at it in the image
+viewer in the preview, as a click on it in Resources does, and does not reach
+the program.

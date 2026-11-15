@@ -74,6 +74,8 @@ impl Size {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Picture {
     pub url: Arc<str>,
+    /// What the image shows, as [`Drawn::shows`] tells it.
+    pub shows: u64,
     pub size: [u32; 2],
     pub src: [f32; 4],
     pub dst: [f32; 4],
@@ -86,6 +88,21 @@ pub struct Drawn {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+}
+
+impl Drawn {
+    /// What the image shows, hashed: the same for the same pixels, so one
+    /// drawn over the screen is told for the one handed over.
+    pub fn shows(&self) -> u64 {
+        shows(self.width, self.height, &self.rgba)
+    }
+}
+
+fn shows(width: u32, height: u32, rgba: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    (width, height, rgba).hash(&mut h);
+    h.finish()
 }
 
 /// The most images waiting to be taken; past it the oldest give way, so a
@@ -104,8 +121,9 @@ struct State {
     fresh: HashSet<ImageId>,
     /// Images in whole since they were last taken, oldest first.
     drawn: VecDeque<Drawn>,
-    /// Each image as a `data:` URL, made once for what it shows.
-    urls: HashMap<ImageId, (u64, Arc<str>)>,
+    /// Each image as a `data:` URL and what it shows, made once for each
+    /// generation of it.
+    urls: HashMap<ImageId, (u64, Arc<str>, u64)>,
     exited: bool,
     /// A cell's pixels as the daemon was last told them.
     cell: (f32, f32),
@@ -721,12 +739,13 @@ impl Pane {
             .collect();
         let mut out = Vec::new();
         for d in merged(draws) {
-            let Some(url) = s.url(d.image_id) else {
+            let Some((url, shows)) = s.url(d.image_id) else {
                 continue;
             };
             let [x, y, w, h] = d.dst;
             out.push(Picture {
                 url,
+                shows,
                 size: d.image_size,
                 src: d.src,
                 dst: [x / cell.0, y / cell.1, w / cell.0, h / cell.1],
@@ -1080,19 +1099,22 @@ impl State {
         true
     }
 
-    fn url(&mut self, id: ImageId) -> Option<Arc<str>> {
+    /// The image `id` as a `data:` URL, and what it shows as
+    /// [`Drawn::shows`] tells it.
+    fn url(&mut self, id: ImageId) -> Option<(Arc<str>, u64)> {
         let image = self.images.image(id)?;
         let generation = image.generation();
-        if let Some((g, url)) = self.urls.get(&id)
+        if let Some((g, url, shows)) = self.urls.get(&id)
             && *g == generation
         {
-            return Some(url.clone());
+            return Some((url.clone(), *shows));
         }
         let mut pixels = Vec::new();
         image.write_rgba8(&mut pixels);
         let url = data_url(image.width, image.height, &pixels)?;
-        self.urls.insert(id, (generation, url.clone()));
-        Some(url)
+        let shows = shows(image.width, image.height, &pixels);
+        self.urls.insert(id, (generation, url.clone(), shows));
+        Some((url, shows))
     }
 }
 

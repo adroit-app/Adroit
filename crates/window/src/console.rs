@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use adroit_core::content::Opening;
+use adroit_core::msg::Msg;
 use adroit_nvim::{Embedded, UiState};
 use adroit_protocol::{Answer, Ask};
 use adroit_term::{Daemon, Palette, Pane};
@@ -182,9 +184,8 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let ch = use_cell_height();
     let _ = frame();
     let hub = use_context::<Hub>();
-    let remote = use_context::<crate::bridge::AppCtx>()
-        .remote_status_of(tab.environment())
-        .is_some();
+    let app = use_context::<crate::bridge::AppCtx>();
+    let remote = app.remote_status_of(tab.environment()).is_some();
     let pane = hub.panes.borrow().get(&tab).cloned();
     let Some(pane) = pane else {
         return rsx! {
@@ -196,6 +197,19 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let rows = screen.rows as f64;
     let mut frame = frame;
     let mut rest = use_signal(|| 0.0);
+    // An image the session drew is looked at whole rather than clicked
+    // through to the program, which a picture gives nothing to point at.
+    let onclick = {
+        let (pane, pictures) = (pane.clone(), pictures.clone());
+        move |at: (usize, usize)| match drawn_at(&tab, &pictures, at) {
+            Some(thing) => app.dispatch(Msg::Show {
+                thing,
+                place: None,
+                how: Some(Opening::Preview),
+            }),
+            None => pane.click(at.0, at.1),
+        }
+    };
     let onwheel = {
         let pane = pane.clone();
         move |e: WheelEvent| {
@@ -217,7 +231,7 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     rsx! {
         div { class: "console-screen", onwheel,
             ScreenView { screen, cell_width, show_cursor: focused, pictures }
-            Clicks { cell_width, onclick: { let pane = pane.clone(); move |(col, row)| pane.click(col, row) } }
+            Clicks { cell_width, onclick }
         }
         if if remote { pane.program_exited() } else { pane.exited() } {
             EmptyState { kind: "detached", title: "Ended",
@@ -287,6 +301,27 @@ pub fn ReaderScreen(
             }
         }
     }
+}
+
+/// The image of `pictures` drawn on top over the cell `at`, by column and
+/// row, as the image viewer shows the copy kept of it; only a session's
+/// images are kept.
+fn drawn_at(tab: &Tab, pictures: &[adroit_term::Picture], at: (usize, usize)) -> Option<Tab> {
+    let Tab::Session(environment, session) = tab else {
+        return None;
+    };
+    let (x, y) = (at.0 as f32 + 0.5, at.1 as f32 + 0.5);
+    let p = pictures.iter().rev().find(|p| {
+        let [left, top, w, h] = p.dst;
+        (left..left + w).contains(&x) && (top..top + h).contains(&y)
+    })?;
+    Some(Tab::Drawn {
+        environment: environment.clone(),
+        session: session.clone(),
+        id: p.shows,
+        width: p.size[0],
+        height: p.size[1],
+    })
 }
 
 /// The cell, by column and row, at `x` and `y` pixels from the grid's top left.
@@ -538,6 +573,45 @@ pub fn Composer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn picture(shows: u64, dst: [f32; 4]) -> adroit_term::Picture {
+        adroit_term::Picture {
+            url: "data:".into(),
+            shows,
+            size: [64, 32],
+            src: [0.0, 0.0, 64.0, 32.0],
+            dst,
+        }
+    }
+
+    #[test]
+    fn a_click_on_a_session_s_image_finds_the_topmost_one_under_it_as_its_resources_name_it() {
+        let session = Tab::Session(adroit_model::EnvironmentId::default(), "a".into());
+        let pictures = [
+            picture(1, [0.0, 0.0, 4.0, 2.0]),
+            picture(2, [2.0, 1.0, 4.0, 2.0]),
+        ];
+        let drawn = |id| Tab::Drawn {
+            environment: adroit_model::EnvironmentId::default(),
+            session: "a".into(),
+            id,
+            width: 64,
+            height: 32,
+        };
+        // (cell clicked, what is found)
+        let cases = [
+            ((0, 0), Some(drawn(1))),
+            ((3, 1), Some(drawn(2))),
+            ((5, 2), Some(drawn(2))),
+            ((6, 0), None),
+            ((0, 2), None),
+        ];
+        for (at, want) in cases {
+            assert_eq!(drawn_at(&session, &pictures, at), want, "{at:?}");
+        }
+        let terminal = Tab::Terminal(adroit_model::EnvironmentId::default(), 1);
+        assert_eq!(drawn_at(&terminal, &pictures, (0, 0)), None);
+    }
 
     #[test]
     fn attached_prompts_use_their_actual_text_rows_instead_of_the_minimum() {

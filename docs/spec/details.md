@@ -87,7 +87,8 @@ ended, what it reported. Copying one copies what it was asked.
 
 An image of Resources opens in the content as a file of the tree does: opened,
 looked at in the preview, or opened in a split or a new tab, by the same
-actions ([viewers](content.md#viewers)). An image file opens in the image
+actions ([viewers](content.md#viewers)); a click looks at it in the preview,
+so the next one clicked takes its place. An image file opens in the image
 viewer; an image the console drew opens in the image viewer too, named for its
 size. The keys stay in the panel, and the panel stays on the session while one
 of its images is shown, so the next one can be picked. An image the console

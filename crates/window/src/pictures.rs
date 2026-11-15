@@ -2,7 +2,6 @@
 //! with a small copy to show in the overview.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use adroit_core::details::Shot;
@@ -21,7 +20,8 @@ const BYTES: usize = 128 * 1024 * 1024;
 /// An image the console drew, kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kept {
-    /// What it shows, hashed: the same image drawn again is kept once.
+    /// What it shows, as [`Drawn::shows`] tells it: the same image drawn
+    /// again is kept once, and one clicked in the console is found by it.
     pub id: u64,
     pub at_ms: u64,
     pub width: u32,
@@ -30,18 +30,11 @@ pub struct Kept {
     pub thumb: Arc<str>,
 }
 
-/// What `drawn` shows, hashed, as [`Kept::id`] tells it.
-pub fn id_of(drawn: &Drawn) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
-    (drawn.width, drawn.height, &drawn.rgba).hash(&mut h);
-    h.finish()
-}
-
 impl Kept {
     /// `drawn` encoded to keep, seen at `at_ms`; `None` when its pixels do
     /// not make an image.
     pub fn of(drawn: Drawn, at_ms: u64) -> Option<Kept> {
-        let id = id_of(&drawn);
+        let id = drawn.shows();
         let image =
             DynamicImage::ImageRgba8(RgbaImage::from_raw(drawn.width, drawn.height, drawn.rgba)?);
         Some(Kept {

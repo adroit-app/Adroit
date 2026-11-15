@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use adroit_term::{Daemon, Input, Key, Palette, Pane, Size, Spawn, tags};
+use adroit_term::{Daemon, Drawn, Input, Key, Palette, Pane, Size, Spawn, tags};
 
 mod support;
 use support::{sh, socket_dir};
@@ -595,6 +595,31 @@ async fn each_image_the_program_sends_is_handed_over_once_whole() {
     assert_eq!(got[1].rgba, [255, 0, 0, 255, 0, 255, 0, 255]);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(pane.take_drawn().is_empty(), "handed over again");
+}
+
+#[tokio::test]
+#[cfg_attr(windows, ignore = "ConPTY does not pass the graphics protocol through")]
+async fn an_image_drawn_over_the_screen_tells_what_it_shows_as_its_handed_over_one_does() {
+    let (d, _dir) = daemon().await;
+    let id = d
+        .spawn(sh(
+            r"printf '\033_Ga=T,f=24,s=2,v=1;/wAAAP8A\033\\'; printf '\033_Ga=T,f=24,s=1,v=1;/wAA\033\\'; sleep 5",
+        ))
+        .await
+        .unwrap();
+    let pane = attach(&d, id).await;
+    let mut got = Vec::new();
+    for _ in 0..200 {
+        got.extend(pane.take_drawn());
+        if got.len() >= 2 && pane.pictures().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let handed: Vec<u64> = got.iter().map(Drawn::shows).collect();
+    let drawn: Vec<u64> = pane.pictures().iter().map(|p| p.shows).collect();
+    assert_eq!(drawn, handed);
+    assert_ne!(handed[0], handed[1]);
 }
 
 #[tokio::test]

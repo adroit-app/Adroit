@@ -25,11 +25,7 @@ pub(crate) fn keep_drawn(
         let g = gallery.peek();
         drawn
             .into_iter()
-            .filter(|d| {
-                g.store
-                    .find(&environment, &session, pictures::id_of(d))
-                    .is_none()
-            })
+            .filter(|d| g.store.find(&environment, &session, d.shows()).is_none())
             .collect()
     };
     if drawn.is_empty() {

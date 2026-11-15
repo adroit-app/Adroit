@@ -210,8 +210,9 @@ pub(crate) fn open_row(
     Vec::new()
 }
 
-/// An entry clicked: it is selected and does what `Enter` on
-/// it would, save that a heading folds or unfolds its group where it is.
+/// An entry clicked: it is selected and does what `Enter` on it would, save
+/// that a heading folds or unfolds its group where it is and an image is
+/// looked at in the preview, so the next one clicked takes its place.
 pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usize) -> Vec<Effect> {
     let Some(l) = entry_listing(details, work) else {
         return Vec::new();
@@ -225,6 +226,7 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             fold(details, *group, !folded);
             Vec::new()
         }
+        Some(entry @ Entry::Image(_)) => opened(details, &l, entry, Opening::Preview),
         Some(entry) => opened(details, &l, entry, Opening::Existing),
         None => Vec::new(),
     }
@@ -1617,15 +1619,19 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_an_image_opens_it_as_its_key_does() {
-        let run = with_images().send(Msg::DetailsClick(2));
-        assert_eq!(
-            local(&run),
-            [Effect::Show {
-                thing: Tab::Viewer(here(), "/w/plot.png".into()),
-                how: Opening::Existing,
-            }]
-        );
+    fn a_click_on_an_image_looks_at_it_in_the_preview() {
+        let (drawn, file) = (drawn_tab(), Tab::Viewer(here(), "/w/plot.png".into()));
+        for (at, thing) in [(1, drawn), (2, file)] {
+            let run = with_images().send(Msg::DetailsClick(at));
+            assert_eq!(
+                local(&run),
+                [Effect::Show {
+                    thing: thing.clone(),
+                    how: Opening::Preview,
+                }],
+                "{thing:?}"
+            );
+        }
     }
 
     #[test]
