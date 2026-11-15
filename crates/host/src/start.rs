@@ -11,6 +11,7 @@ use adroit_term::Daemon;
 use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch;
 use crate::sessions;
+use crate::starting::{self, Failure as Failed, Stage};
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--background] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
 
@@ -83,31 +84,26 @@ pub(crate) fn name_for(given: Option<&str>, prompt: &str, taken: &[&str]) -> Str
     fresh_name(&label, taken)
 }
 
-/// Starts the session `asked` for as the user's own.
+/// Starts the session `asked` for as the user's own, beside the agent
+/// sessions named `taken`.
 async fn start(
     daemon: &Daemon,
+    settings: &crate::settings::Settings,
     asked: &Asked,
     dir: PathBuf,
     prompt: &str,
+    taken: &[&str],
 ) -> Result<String, String> {
     // Refused before a worktree is made for it.
-    let settings = crate::settings::current();
-    let chosen = crate::programs::starting(&settings, asked.agent, asked.profile.as_ref())?;
-    let listed = daemon
-        .sessions()
-        .await
-        .map_err(|e| format!("cannot reach the daemon: {e}"))?;
-    let names: Vec<String> = sessions::agents(&listed).map(|s| s.name).collect();
-    let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-    let name = name_for(asked.name.as_deref(), prompt, &taken);
-    let cwd = if asked.worktree {
+    let chosen = crate::programs::starting(settings, asked.agent, asked.profile.as_ref())?;
+    let name = name_for(asked.name.as_deref(), prompt, taken);
+    let worktree = if asked.worktree {
         let summary = prompt.lines().next().unwrap_or_default();
-        adroit_vcs::worktree::create(&dir, &name, asked.base.as_deref(), summary)
-            .await?
-            .path
+        Some(adroit_vcs::worktree::create(&dir, &name, asked.base.as_deref(), summary).await?)
     } else {
-        dir
+        None
     };
+    let cwd = worktree.as_ref().map_or(dir, |made| made.path.clone());
     let request = crate::execution::StartRequest {
         agent: chosen.agent(),
         profile: Some(chosen.profile),
@@ -122,36 +118,47 @@ async fn start(
         show: !asked.background,
         ..Default::default()
     };
-    let program = crate::work_host::adroit_program();
-    let (resolved, recorded) = crate::delegation::app::prepare(
-        &crate::delegation::app::root(),
-        &settings,
-        request,
-        None,
-        &program,
-    )
-    .await?;
-    let mut spawn = resolved.spawn;
-    spawn.cols = crate::execution::COLS;
-    spawn.rows = crate::execution::ROWS;
-    let palette = crate::themes::palette_in_force(&settings)?;
-    let attach = recorded.clone();
-    let started =
-        crate::execution::spawn_headless_prepared(daemon, spawn, &palette, move |id| async move {
-            attach.attach(id).await
-        })
-        .await;
-    if started.as_ref().is_err_and(|error| {
-        !crate::remote::active() || !crate::execution::spawn_may_have_happened(error)
-    }) {
-        recorded.failed().await;
-    }
-    started.map_err(|e| {
-        format!(
-            "cannot start {name}: {}",
-            crate::execution::spawn_failure(&e)
+    let launched = async {
+        let refused = |error| Failed::new(Stage::Refused, error);
+        let program = crate::work_host::adroit_program();
+        let (resolved, recorded) = crate::delegation::app::prepare(
+            &crate::delegation::app::root(),
+            settings,
+            request,
+            None,
+            &program,
         )
-    })?;
+        .await
+        .map_err(refused)?;
+        let mut spawn = resolved.spawn;
+        spawn.cols = crate::execution::COLS;
+        spawn.rows = crate::execution::ROWS;
+        let palette = crate::themes::palette_in_force(settings).map_err(refused)?;
+        let attach = recorded.clone();
+        let started = crate::execution::spawn_headless_prepared(
+            daemon,
+            spawn,
+            &palette,
+            move |id| async move { attach.attach(id).await },
+        )
+        .await;
+        let Err(error) = started else {
+            return Ok(());
+        };
+        let message = format!(
+            "cannot start {name}: {}",
+            crate::execution::spawn_failure(&error)
+        );
+        if crate::remote::active() && crate::execution::spawn_may_have_happened(&error) {
+            return Err(Failed::new(Stage::MayHaveRun, message));
+        }
+        recorded.failed().await;
+        Err(Failed::new(Stage::NotStarted, message))
+    }
+    .await;
+    starting::settled(worktree, launched)
+        .await
+        .map_err(|failure| failure.message)?;
     Ok(name)
 }
 
@@ -387,12 +394,24 @@ pub(crate) async fn run(
             };
         }
     };
-    let started = start(
-        &crate::daemon::daemon(),
-        &prepared.asked,
-        prepared.dir,
-        &prepared.prompt,
-    )
+    let started = async {
+        let daemon = crate::daemon::daemon();
+        let listed = daemon
+            .sessions()
+            .await
+            .map_err(|e| format!("cannot reach the daemon: {e}"))?;
+        let names: Vec<String> = sessions::agents(&listed).map(|s| s.name).collect();
+        let taken: Vec<&str> = names.iter().map(String::as_str).collect();
+        start(
+            &daemon,
+            &crate::settings::current(),
+            &prepared.asked,
+            prepared.dir,
+            &prepared.prompt,
+            &taken,
+        )
+        .await
+    }
     .await
     .map_err(Failure::Run);
     match started {
@@ -562,6 +581,47 @@ mod tests {
             "find-login-test"
         );
         assert_eq!(name_for(Some("Review API"), "anything", &[]), "review-api");
+    }
+
+    fn worktrees(source: &std::path::Path) -> usize {
+        let listed = std::process::Command::new("git")
+            .args(["worktree", "list", "--porcelain"])
+            .current_dir(source)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .filter(|line| line.starts_with("worktree "))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn a_start_that_fails_before_its_agent_ran_takes_its_new_worktree_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = crate::testing::repository(dir.path());
+        let settings = crate::settings::Settings::parse(
+            "[[profiles]]\nid = \"gone\"\nagent = \"claude\"\n[profiles.launch]\ncommand = [\"/nonexistent/claude\"]\n",
+        )
+        .unwrap();
+        let asked = Asked {
+            worktree: true,
+            profile: Some("gone".parse().unwrap()),
+            ..Default::default()
+        };
+
+        let refused = start(
+            &Daemon::new(dir.path().join("unused.sock")),
+            &settings,
+            &asked,
+            source.clone(),
+            "review the change",
+            &[],
+        )
+        .await
+        .unwrap_err();
+
+        assert!(refused.contains("/nonexistent/claude"), "{refused}");
+        assert_eq!(worktrees(&source), 1);
     }
 
     #[test]

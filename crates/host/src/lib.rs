@@ -42,6 +42,7 @@ pub mod sessions;
 pub mod settings;
 pub mod standing;
 pub mod start;
+mod starting;
 pub mod system_usage;
 mod terminal_host;
 pub mod terminals;

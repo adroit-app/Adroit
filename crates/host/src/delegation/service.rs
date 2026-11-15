@@ -24,6 +24,7 @@ use super::{
 };
 use crate::restore::Fate;
 use crate::settings::{RestoreSessions, Settings};
+use crate::starting::{Failure, Stage};
 
 type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Send + Sync>;
 
@@ -532,15 +533,15 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         ..Default::default()
     };
     let launched = launch(context, caller.id, &settings, request).await;
-    settled(worktree, launched).await
-}
-
-/// Why a start failed, as far as what it leaves behind goes.
-enum Failed {
-    /// Refused or failed before the agent could run.
-    NothingRan(Error),
-    /// The agent may be running on the work machine all the same.
-    MayHaveRun(Error),
+    crate::starting::settled(worktree, launched)
+        .await
+        .map_err(|failure| {
+            let code = match failure.stage {
+                Stage::Refused => Code::Invalid,
+                Stage::NotStarted | Stage::MayHaveRun => Code::Storage,
+            };
+            Error::new(code, failure.message)
+        })
 }
 
 async fn launch(
@@ -548,10 +549,10 @@ async fn launch(
     opener: SessionId,
     settings: &Settings,
     request: crate::execution::StartRequest,
-) -> std::result::Result<Value, Failed> {
+) -> std::result::Result<Value, Failure> {
     let (name, cwd) = (request.name.clone(), request.cwd.clone());
     let palette = crate::themes::palette_in_force(settings)
-        .map_err(|error| Failed::NothingRan(Error::new(Code::Invalid, error)))?;
+        .map_err(|error| Failure::new(Stage::Refused, error))?;
     let (resolved, recorded) = super::app::prepare(
         &context.root,
         settings,
@@ -560,7 +561,7 @@ async fn launch(
         &context.program,
     )
     .await
-    .map_err(|error| Failed::NothingRan(Error::new(Code::Invalid, error)))?;
+    .map_err(|error| Failure::new(Stage::Refused, error))?;
     let mut spawn = resolved.spawn;
     spawn.cols = crate::execution::COLS;
     spawn.rows = crate::execution::ROWS;
@@ -573,44 +574,17 @@ async fn launch(
     )
     .await;
     if let Err(error) = started {
-        let failure = Error::new(
-            Code::Storage,
-            format!(
-                "cannot start {name}: {}",
-                crate::execution::spawn_failure(&error)
-            ),
+        let message = format!(
+            "cannot start {name}: {}",
+            crate::execution::spawn_failure(&error)
         );
         if crate::remote::active() && crate::execution::spawn_may_have_happened(&error) {
-            return Err(Failed::MayHaveRun(failure));
+            return Err(Failure::new(Stage::MayHaveRun, message));
         }
         recorded.failed().await;
-        return Err(Failed::NothingRan(failure));
+        return Err(Failure::new(Stage::NotStarted, message));
     }
     Ok(json!({"id": recorded.id, "code": recorded.code, "name": name, "dir": cwd}))
-}
-
-/// The start's answer, with the worktree made for it taken back when nothing
-/// ran in it, so a refused start leaves no directory, branch or change behind.
-async fn settled(
-    worktree: Option<adroit_vcs::worktree::Worktree>,
-    launched: std::result::Result<Value, Failed>,
-) -> Result<Value> {
-    match launched {
-        Ok(started) => Ok(started),
-        Err(Failed::MayHaveRun(error)) => Err(error),
-        Err(Failed::NothingRan(mut error)) => {
-            if let Some(worktree) = worktree
-                && let Err(left) = adroit_vcs::worktree::remove(&worktree).await
-            {
-                error.message = format!(
-                    "{}; the worktree made for it is left at {}: {left}",
-                    error.message,
-                    worktree.path.display()
-                );
-            }
-            Err(error)
-        }
-    }
 }
 
 /// The sessions that have not ended, narrowed as `filter` asks.
@@ -1484,82 +1458,6 @@ mod tests {
         let sessions = context.call(|store| store.sessions()).await.unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(std::fs::read_dir(&worktrees).unwrap().count(), 0);
-    }
-
-    async fn new_worktree(dir: &Path) -> adroit_vcs::worktree::Worktree {
-        let source = dir.join("api");
-        std::fs::create_dir(&source).unwrap();
-        for args in [
-            &["init", "-q", "-b", "main"][..],
-            &["commit", "-q", "--allow-empty", "-m", "first"],
-        ] {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&source)
-                .env("GIT_AUTHOR_NAME", "Test")
-                .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
-                .env("GIT_COMMITTER_NAME", "Test")
-                .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-                .status()
-                .unwrap();
-            assert!(status.success());
-        }
-        adroit_vcs::worktree::create(&source, "review", None, "review")
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn a_start_that_fails_before_anything_ran_takes_its_new_worktree_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let worktree = new_worktree(dir.path()).await;
-        let path = worktree.path.clone();
-
-        let refused = settled(
-            Some(worktree),
-            Err(Failed::NothingRan(Error::new(
-                Code::Refused,
-                "the opening session has ended",
-            ))),
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(refused.code, Code::Refused);
-        assert!(!path.exists());
-    }
-
-    #[tokio::test]
-    async fn a_start_that_may_have_run_keeps_its_new_worktree() {
-        let dir = tempfile::tempdir().unwrap();
-        let worktree = new_worktree(dir.path()).await;
-        let path = worktree.path.clone();
-
-        let failed = settled(
-            Some(worktree),
-            Err(Failed::MayHaveRun(Error::new(
-                Code::Storage,
-                "cannot start review: the work machine did not answer",
-            ))),
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(failed.code, Code::Storage);
-        assert!(path.is_dir());
-    }
-
-    #[tokio::test]
-    async fn a_started_session_keeps_its_new_worktree() {
-        let dir = tempfile::tempdir().unwrap();
-        let worktree = new_worktree(dir.path()).await;
-        let path = worktree.path.clone();
-
-        settled(Some(worktree), Ok(json!({"name": "review"})))
-            .await
-            .unwrap();
-
-        assert!(path.is_dir());
     }
 
     #[tokio::test]

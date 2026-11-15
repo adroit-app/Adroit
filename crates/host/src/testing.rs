@@ -101,3 +101,27 @@ impl MessageBuilder {
         self.0
     }
 }
+
+/// A git repository at `dir/api` with one commit, made without the user's
+/// own git configuration signing it.
+pub(crate) fn repository(dir: &std::path::Path) -> std::path::PathBuf {
+    let source = dir.join("api");
+    std::fs::create_dir(&source).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["commit", "-q", "--allow-empty", "-m", "first"],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(&source)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    source
+}
