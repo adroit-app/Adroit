@@ -130,6 +130,13 @@ pub enum Ask {
         #[serde(with = "crate::wire::wide")]
         after: u128,
     },
+    /// Make a worktree of the repository at `repository` that starts at the
+    /// head of its pull request `number` on GitHub, titled `title`.
+    PullWorktree {
+        repository: PathBuf,
+        number: u64,
+        title: String,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -246,6 +253,10 @@ pub enum Answer {
     },
     /// The image was kept here.
     Kept {
+        path: PathBuf,
+    },
+    /// The worktree was made here.
+    Worktree {
         path: PathBuf,
     },
     /// The image asked for, or none when it cannot be read or shown.

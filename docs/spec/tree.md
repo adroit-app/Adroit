@@ -80,6 +80,11 @@ heading is open, and its count stays on the heading once it is folded. When
 the heading holds one row saying so. Opening a row opens it on GitHub in the
 browser, from a work machine too.
 
+`n` on a row opens a new session on it, its first prompt already naming it
+and left to finish and send: an issue's in the repository's checkout, a pull
+request's in a new worktree that starts at the pull request's head, fetched
+from GitHub, whether it comes from the repository or a fork.
+
 Files starts folded. Unfolded, it lists the worktree's files as a
 [file tree](#file-trees). Hidden files once shown, and what git ignores, are
 drawn dim; the version control's own `.git` and `.jj` are not listed. A file jj or

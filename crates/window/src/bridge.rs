@@ -764,6 +764,37 @@ impl AppCtx {
             }
             Effect::Open { target, .. } => open([target]),
             Effect::Reveal { path, .. } => open(["-R".into(), path]),
+            Effect::PullWorktree {
+                environment,
+                repository,
+                number,
+                title,
+                prompt,
+            } => {
+                self.notice(format!("Making a worktree for pull request #{number}"));
+                let made = self.ask_in(
+                    &environment,
+                    Ask::PullWorktree {
+                        repository,
+                        number,
+                        title,
+                    },
+                );
+                let app = *self;
+                spawn(async move {
+                    match made.await {
+                        Answer::Worktree { path } => app.dispatch(Msg::DraftWritten {
+                            environment,
+                            worktree: path,
+                            prompt,
+                        }),
+                        Answer::Failed { text } => app.status(Some(format!(
+                            "cannot make a worktree for pull request #{number}: {text}"
+                        ))),
+                        answer => app.notice(format!("the work host answered {answer:?}")),
+                    }
+                });
+            }
             Effect::Copy { text, done } => {
                 let told = match crate::clipboard::copy_to_clipboard(&text) {
                     Ok(()) => done,

@@ -90,6 +90,13 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             watched.read_again();
             made.map(|()| Answer::Done)
         }
+        Ask::PullWorktree {
+            repository,
+            number,
+            title,
+        } => adroit_vcs::github::pull_worktree(&repository, number, &title)
+            .await
+            .map(|path| Answer::Worktree { path }),
         Ask::SaveSettings { text } => save_settings(text),
         Ask::SaveSettingsChecked { text, expected } => save_settings_checked(text, expected),
         Ask::SaveKeys { text } => save_keys(&text),

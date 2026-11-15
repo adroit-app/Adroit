@@ -147,6 +147,14 @@ mod tests {
                 after: u128::MAX,
             }),
         });
+        round_trips(Request::Ask {
+            asked: 12,
+            ask: Box::new(crate::Ask::PullWorktree {
+                repository: "/w".into(),
+                number: 7,
+                title: "修正".into(),
+            }),
+        });
         round_trips(Request::History {
             asked: 3,
             agent: adroit_model::Agent::Claude,

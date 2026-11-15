@@ -157,6 +157,13 @@ pub enum Msg {
         how: Option<Opening>,
         take_keys: bool,
     },
+    /// Open a new session's draft in `worktree` of `environment` with
+    /// `prompt` written in it, the keys in the prompt.
+    DraftWritten {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        prompt: String,
+    },
     /// Edit the file at this path in a Neovim started in its folder in the
     /// environment, or in the one already on it; the keys go to that Neovim.
     EditFile(EnvironmentId, PathBuf),

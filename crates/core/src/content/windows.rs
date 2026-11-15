@@ -2,6 +2,9 @@
 //! windows, split, close and arrange them, go through the tabs, and open
 //! what a row stands for.
 
+use std::path::{Path, PathBuf};
+
+use adroit_model::github::Listing;
 use adroit_model::{EnvironmentId, TerminalProgram};
 
 use super::{
@@ -169,6 +172,12 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
                 c.close_showing(|t| things.contains(t))
             })
         }
+        Action::SessionNew
+            if let Some(Item::GitHubItem(environment, root, listing, number)) =
+                state.tree.selected.clone().filter(|_| on_list) =>
+        {
+            on_github(state, environment, &root, listing, number)
+        }
         Action::SessionNew => match place_here(state, on_list) {
             Some(p) => draft(&mut state.content, p.environment, p.worktree, true),
             None => Vec::new(),
@@ -233,6 +242,61 @@ pub(crate) fn act(state: &mut ViewState, action: Action) -> Vec<Effect> {
 /// Where something new starts: the selected row's worktree, from a side
 /// panel, or the home of the environment whose heading is selected, or else
 /// the one in the middle.
+/// A new session on the pull request or issue numbered `number` of the
+/// repository at `root`, its first prompt naming it: an issue's in the
+/// repository's checkout, a pull request's in a worktree made for it that
+/// starts at its head.
+fn on_github(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    root: &Path,
+    listing: Listing,
+    number: u64,
+) -> Vec<Effect> {
+    let work = state.hosts.work(&environment);
+    let Some(item) = tree::github(work, root).and_then(|r| r.item(listing, number)) else {
+        return Vec::new();
+    };
+    let kind = match listing {
+        Listing::Pulls => "Pull request",
+        Listing::Issues => "Issue",
+    };
+    let prompt = format!("{kind} #{number}: {}\n{}\n", item.title, item.url);
+    match listing {
+        Listing::Pulls => vec![Effect::PullWorktree {
+            environment,
+            repository: root.to_path_buf(),
+            number,
+            title: item.title.clone(),
+            prompt,
+        }],
+        Listing::Issues => {
+            let row = Item::GitHubItem(environment.clone(), root.to_path_buf(), listing, number);
+            match nav::place_of(tree::listed(work), &row) {
+                Some(place) => draft_written(state, environment, place.worktree, prompt),
+                None => Vec::new(),
+            }
+        }
+    }
+}
+
+/// A new session's draft shown in `worktree` with `prompt` written in it,
+/// the keys in the prompt.
+pub(crate) fn draft_written(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    worktree: PathBuf,
+    prompt: String,
+) -> Vec<Effect> {
+    let mut effects = draft(&mut state.content, environment, worktree, true);
+    effects.push(Effect::PromptRestore {
+        tab: state.content.active().cloned(),
+        text: prompt,
+        images: Vec::new(),
+    });
+    effects
+}
+
 fn place_here(state: &ViewState, on_list: bool) -> Option<Place> {
     match state.tree.selected.as_ref().filter(|_| on_list) {
         Some(Item::Environment(environment)) => {

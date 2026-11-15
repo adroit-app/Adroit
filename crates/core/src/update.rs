@@ -100,6 +100,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             how,
             take_keys,
         } => content::open_row(state, item, how, take_keys),
+        Msg::DraftWritten {
+            environment,
+            worktree,
+            prompt,
+        } => content::draft_written(state, environment, worktree, prompt),
         Msg::EditFile(environment, path) => content::edit_file(state, environment, path),
         Msg::OpenFile(environment, path) => content::open_file(state, environment, path),
         Msg::RowClicked(item) => content::open_row(state, item, Some(Opening::Existing), true),

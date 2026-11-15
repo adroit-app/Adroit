@@ -1,12 +1,12 @@
 //! What GitHub holds open of a repository, asked of `gh`, which keeps the
 //! login: Adroit holds no token of its own.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use adroit_model::github::{Item, Listing, Read};
 use serde::Deserialize;
 
-use crate::{Error, run};
+use crate::{Backend, Error, run};
 
 /// The most items of a listing read.
 pub const LIMIT: usize = 30;
@@ -51,6 +51,46 @@ pub async fn list(root: &Path, slug: &str, listing: Listing) -> Read {
         Err(Error::Failed { stderr, .. }) => Err(reason(&stderr)),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// A new worktree of the repository at `root` that starts at the head of
+/// its pull request `number` on GitHub, named after it; `title` describes
+/// the change a jj workspace starts.
+pub async fn pull_worktree(root: &Path, number: u64, title: &str) -> Result<PathBuf, String> {
+    let remote = remote(root)
+        .await
+        .ok_or("the repository has no remote on GitHub")?;
+    let head = fetch_pull(root, &remote.name, number).await?;
+    crate::worktree::create(root, &format!("pr-{number}"), Some(&head), title)
+        .await
+        .map(|w| w.path)
+}
+
+/// The commit the pull request `number` ends at on `remote`, fetched into
+/// the repository at `root`. GitHub keeps it as `refs/pull/<number>/head`,
+/// which a fork's pull request has too; it is kept as the remote's
+/// `pull/<number>`, where jj, which reads only branches and tags, sees it
+/// once imported.
+async fn fetch_pull(root: &Path, remote: &str, number: u64) -> Result<String, String> {
+    let tracking = format!("refs/remotes/{remote}/pull/{number}");
+    let spec = format!("+refs/pull/{number}/head:{tracking}");
+    let failed = |e: Error| e.to_string();
+    run("git", &["fetch", "--quiet", remote, &spec], Some(root))
+        .await
+        .map_err(failed)?;
+    if Backend::of(root) == Some(Backend::Jj) {
+        run("jj", &["git", "import"], Some(root))
+            .await
+            .map_err(failed)?;
+    }
+    let commit = run(
+        "git",
+        &["rev-parse", "--verify", &format!("{tracking}^{{commit}}")],
+        Some(root),
+    )
+    .await
+    .map_err(failed)?;
+    Ok(commit.trim().into())
 }
 
 /// Each remote `git remote -v` or `jj git remote list` names, by its name
@@ -164,6 +204,77 @@ fn reason(stderr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sh(dir: &Path, program: &str, args: &[&str]) -> String {
+        let output = std::process::Command::new(program)
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+            .env("JJ_USER", "Test")
+            .env("JJ_EMAIL", "test@example.invalid")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    /// A repository standing for GitHub's, holding pull request 7 as GitHub
+    /// keeps it, and a clone of it; the head of the pull request.
+    fn cloned_with_a_pull(dir: &Path) -> (std::path::PathBuf, String) {
+        let hub = dir.join("hub");
+        std::fs::create_dir(&hub).unwrap();
+        sh(&hub, "git", &["init", "-q", "-b", "main"]);
+        std::fs::write(hub.join("a.txt"), "a").unwrap();
+        sh(&hub, "git", &["add", "a.txt"]);
+        sh(&hub, "git", &["commit", "-q", "-m", "first"]);
+        let clone = dir.join("clone");
+        sh(dir, "git", &["clone", "-q", "hub", "clone"]);
+        sh(&hub, "git", &["switch", "-q", "-c", "fix"]);
+        std::fs::write(hub.join("b.txt"), "b").unwrap();
+        sh(&hub, "git", &["add", "b.txt"]);
+        sh(&hub, "git", &["commit", "-q", "-m", "fix"]);
+        let head = sh(&hub, "git", &["rev-parse", "HEAD"]).trim().to_string();
+        sh(&hub, "git", &["update-ref", "refs/pull/7/head", &head]);
+        (clone, head)
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_s_head_is_fetched_as_its_remote_s_pull_ref() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, head) = cloned_with_a_pull(dir.path());
+        assert_eq!(fetch_pull(&clone, "origin", 7).await.unwrap(), head);
+        let kept = sh(&clone, "git", &["rev-parse", "refs/remotes/origin/pull/7"]);
+        assert_eq!(kept.trim(), head);
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_s_head_fetched_into_a_jj_repository_is_seen_by_jj() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, head) = cloned_with_a_pull(dir.path());
+        sh(&clone, "jj", &["git", "init", "--colocate"]);
+        assert_eq!(fetch_pull(&clone, "origin", 7).await.unwrap(), head);
+        let seen = sh(
+            &clone,
+            "jj",
+            &["log", "--no-graph", "-r", &head, "-T", "commit_id"],
+        );
+        assert_eq!(seen.trim(), head);
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_that_does_not_exist_cannot_be_fetched() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clone, _) = cloned_with_a_pull(dir.path());
+        assert!(fetch_pull(&clone, "origin", 8).await.is_err());
+    }
 
     #[test]
     fn a_github_url_in_any_form_git_takes_names_its_repository() {

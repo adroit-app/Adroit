@@ -941,3 +941,87 @@ fn reading_the_console_starts_from_its_window_or_the_prompt_below_whatever_it_sh
         }
     }
 }
+
+/// The keys in the tree on item `number` of `listing` of `/r`, which is on
+/// GitHub with pull request 7 and issue 8 read.
+fn on_github_item(listing: adroit_model::github::Listing, number: u64) -> Scenario {
+    use adroit_model::github::{Item as GitHubItem, Repository};
+    use adroit_protocol::TreeChange;
+
+    let item = |number: u64, title: &str, kind: &str| GitHubItem {
+        number,
+        title: title.into(),
+        url: format!("https://github.com/o/r/{kind}/{number}"),
+        author: "me".into(),
+        draft: false,
+    };
+    let mut repository = Repository::new("o/r");
+    repository.pulls = Some(Ok(vec![item(7, "Fix the login", "pull")]));
+    repository.issues = Some(Ok(vec![item(8, "Login fails", "issues")]));
+    showing(Area::Sidebar)
+        .event(crate::testing::patch(2).change(TreeChange::GitHub {
+            repository: "/r".into(),
+            github: Some(Box::new(repository)),
+        }))
+        .send(Msg::TreeSelect(Some(Item::GitHubItem(
+            here(),
+            "/r".into(),
+            listing,
+            number,
+        ))))
+}
+
+#[test]
+fn a_new_session_on_an_issue_is_a_draft_in_its_repository_its_prompt_naming_the_issue() {
+    use adroit_model::github::Listing;
+
+    let run = on_github_item(Listing::Issues, 8).send(perform(
+        Action::SessionNew,
+        None,
+        Probe::default(),
+    ));
+    let active = run.state().content.active().cloned();
+    assert!(
+        matches!(&active, Some(Tab::Draft { worktree, .. }) if worktree.starts_with("/r")),
+        "{active:?}"
+    );
+    assert!(run.last_effects().contains(&Effect::PromptRestore {
+        tab: active,
+        text: "Issue #8: Login fails\nhttps://github.com/o/r/issues/8\n".into(),
+        images: Vec::new(),
+    }));
+}
+
+#[test]
+fn a_new_session_on_a_pull_request_asks_for_a_worktree_at_its_head_first() {
+    use adroit_model::github::Listing;
+
+    let run =
+        on_github_item(Listing::Pulls, 7).send(perform(Action::SessionNew, None, Probe::default()));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PullWorktree {
+            environment: here(),
+            repository: "/r".into(),
+            number: 7,
+            title: "Fix the login".into(),
+            prompt: "Pull request #7: Fix the login\nhttps://github.com/o/r/pull/7\n".into(),
+        }]
+    );
+    let made = run.send(Msg::DraftWritten {
+        environment: here(),
+        worktree: "/r-wt/pr-7".into(),
+        prompt: "Pull request #7".into(),
+    });
+    let active = made.state().content.active().cloned();
+    assert!(
+        matches!(&active, Some(Tab::Draft { worktree, .. }) if worktree.as_path() == std::path::Path::new("/r-wt/pr-7")),
+        "{active:?}"
+    );
+    assert_eq!(made.state().content.focus, Area::Prompt);
+    assert!(made.last_effects().contains(&Effect::PromptRestore {
+        tab: active,
+        text: "Pull request #7".into(),
+        images: Vec::new(),
+    }));
+}

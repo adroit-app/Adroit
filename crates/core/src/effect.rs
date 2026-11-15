@@ -79,6 +79,16 @@ pub enum Effect {
     // The content.
     /// Start a shell or a Neovim as asked.
     StartTerminal(TerminalAsk),
+    /// Make a worktree of the repository at `repository` of `environment`
+    /// that starts at the head of its pull request `number`, titled `title`,
+    /// then open a draft there with `prompt` written in it.
+    PullWorktree {
+        environment: EnvironmentId,
+        repository: PathBuf,
+        number: u64,
+        title: String,
+        prompt: String,
+    },
     /// Open a terminal running the CLI's own login where this profile runs
     /// it, and show it.
     OpenLogin {

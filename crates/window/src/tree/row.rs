@@ -55,9 +55,11 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
             "What is open on GitHub of the repository, as gh sees it there. Enter folds it"
         }
         Item::GitHubItem(_, _, Listing::Pulls, _) => {
-            "A pull request open on GitHub. Enter opens it in the browser"
+            "A pull request open on GitHub. Enter opens it in the browser; n starts a session in a worktree at its head"
         }
-        Item::GitHubItem(..) => "An issue open on GitHub. Enter opens it in the browser",
+        Item::GitHubItem(..) => {
+            "An issue open on GitHub. Enter opens it in the browser; n starts a session on it"
+        }
         Item::GitHubFailed(..) => "Why gh could not say what is open on GitHub",
     }
 }
