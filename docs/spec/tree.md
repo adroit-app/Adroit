@@ -20,6 +20,8 @@ Inside a git workspace, each worktree where something runs has a row of its
 own; a worktree where only shells or Neovim run is listed for them. A
 workspace where everything runs in its main checkout shows that checkout's
 contents straight under it, with no worktree row; one outside git always does.
+A workspace where no session or terminal runs starts folded; once you fold or
+unfold it, it stays as you left it.
 
 A worktree's files sit under its Files heading, and what runs in it under
 Sessions and Terminals: Terminals holds every program Adroit runs in a

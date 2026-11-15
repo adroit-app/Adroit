@@ -134,27 +134,59 @@ impl Item {
 }
 
 /// Which nodes of the tree are folded: those the user folded or unfolded,
-/// each against how it starts.
+/// each as they left it, and the rest as they start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Folds(HashSet<String>);
+pub struct Folds {
+    /// Whether each node the user folded or unfolded is open. Kept as the
+    /// user left it rather than against how the node starts, since a
+    /// workspace starts otherwise once something runs in it or stops.
+    chosen: HashMap<String, bool>,
+    /// The workspaces where nothing runs, which start folded.
+    resting: HashSet<(EnvironmentId, PathBuf)>,
+}
 
 impl Folds {
     /// Whether `item` shows the rows under it. A row that does not fold has
     /// none to show.
     pub fn is_open(&self, item: &Item) -> bool {
-        item.fold_key()
-            .is_some_and(|k| item.starts_open() != self.0.contains(&k))
+        item.fold_key().is_some_and(|k| {
+            self.chosen
+                .get(&k)
+                .copied()
+                .unwrap_or_else(|| item.starts_open() && !self.rests(item))
+        })
+    }
+
+    fn rests(&self, item: &Item) -> bool {
+        match item {
+            Item::Workspace(environment, root) => self
+                .resting
+                .iter()
+                .any(|(e, r)| e == environment && r == root),
+            _ => false,
+        }
     }
 
     pub fn set(&mut self, item: &Item, open: bool) {
-        let Some(key) = item.fold_key() else {
-            return;
-        };
-        if open == item.starts_open() {
-            self.0.remove(&key);
-        } else {
-            self.0.insert(key);
+        if let Some(key) = item.fold_key() {
+            self.chosen.insert(key, open);
         }
+    }
+
+    /// Notes which workspaces of `environment`'s `tree` hold no session and
+    /// no terminal, so that they start folded.
+    pub fn rest(&mut self, environment: &EnvironmentId, tree: &Tree) {
+        self.resting.retain(|(e, _)| e != environment);
+        self.resting.extend(
+            tree.workspaces
+                .iter()
+                .filter(|ws| {
+                    ws.worktrees
+                        .iter()
+                        .all(|w| w.sessions.is_empty() && w.terminals.is_empty())
+                })
+                .map(|ws| (environment.clone(), ws.root.clone())),
+        );
     }
 
     pub fn toggle(&mut self, item: &Item) {
@@ -1068,6 +1100,58 @@ mod tests {
         assert_eq!(row(&folds), Some(across("/api", Heading::Sessions)));
         folds.toggle(&worktree(OAUTH));
         assert_eq!(row(&folds), Some(session("o")));
+    }
+
+    #[test]
+    fn a_workspace_where_nothing_runs_starts_folded_and_keeps_how_it_was_folded() {
+        let t = repositories()
+            .checkout("/idle", "/idle", "main")
+            .kept("/idle")
+            .session(testing::session("c").cwd("/web"))
+            .build();
+        let mut folds = Folds::default();
+        folds.rest(&here(), &t);
+        assert!(folds.is_open(&ws("/web")));
+        assert!(!folds.is_open(&ws("/idle")));
+        let got = rows(&t, &[], &folds);
+        assert!(got.contains(&ws("/idle")));
+        assert!(!got.contains(&sessions_of("/idle")));
+        assert!(got.contains(&sessions_of("/web")));
+
+        folds.toggle(&ws("/idle"));
+        folds.toggle(&ws("/web"));
+        let busy = repositories()
+            .checkout("/idle", "/idle", "main")
+            .kept("/idle")
+            .session(testing::session("i").cwd("/idle"))
+            .build();
+        folds.rest(&here(), &busy);
+        assert!(folds.is_open(&ws("/idle")));
+        let t = repositories()
+            .checkout("/idle", "/idle", "main")
+            .kept("/idle")
+            .build();
+        folds.rest(&here(), &t);
+        assert!(folds.is_open(&ws("/idle")));
+        assert!(!folds.is_open(&ws("/web")));
+    }
+
+    #[test]
+    fn a_workspace_comes_open_once_something_runs_in_it() {
+        let idle = repositories()
+            .checkout("/idle", "/idle", "main")
+            .kept("/idle")
+            .build();
+        let busy = repositories()
+            .checkout("/idle", "/idle", "main")
+            .kept("/idle")
+            .terminal(testing::shell(1, "/idle"))
+            .build();
+        let mut folds = Folds::default();
+        folds.rest(&here(), &idle);
+        assert!(!folds.is_open(&ws("/idle")));
+        folds.rest(&here(), &busy);
+        assert!(folds.is_open(&ws("/idle")));
     }
 
     #[test]

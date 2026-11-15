@@ -272,6 +272,10 @@ pub(crate) fn press(view: &mut TreeView, key: Key) -> Vec<Effect> {
 /// the sessions waiting on the user in all of them. A directory's entries
 /// come from what its environment's host listed of it.
 pub(crate) fn build(view: &mut TreeView, hosts: &Hosts) {
+    for (environment, host) in hosts.each() {
+        view.folds
+            .rest(environment, facts(host.work.as_ref()).tree());
+    }
     let from = (
         hosts
             .each()
@@ -754,6 +758,27 @@ mod tests {
         assert_eq!(rows(&run), [Item::Environment(here()), ws.clone()]);
         let unfolded = run.send(Msg::TreeFoldToggle(ws));
         assert!(rows(&unfolded).contains(&Item::Session(here(), "a".into())));
+    }
+
+    #[test]
+    fn a_workspace_where_nothing_runs_is_listed_folded() {
+        let notes = Item::Workspace(here(), "/notes".into());
+        let run = Scenario::new().event(
+            testing::snapshot().listed(
+                testing::listed()
+                    .session(session("a").cwd("/r"))
+                    .kept("/notes"),
+            ),
+        );
+        let after = |run: &Scenario| {
+            let got = rows(run);
+            let at = got.iter().position(|r| *r == notes).unwrap();
+            got.get(at + 1).cloned()
+        };
+        assert_eq!(after(&run), Some(Item::Workspace(here(), "/r".into())));
+        assert!(rows(&run).contains(&Item::Session(here(), "a".into())));
+        let unfolded = run.send(Msg::TreeFoldToggle(notes.clone()));
+        assert_ne!(after(&unfolded), Some(Item::Workspace(here(), "/r".into())));
     }
 
     #[test]
