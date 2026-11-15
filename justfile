@@ -26,6 +26,8 @@ test:
     for task_variable in "${!ADROIT_@}"; do
         # The one the tests are asked to run in, as a Neovim to be shipped is.
         [[ $task_variable == ADROIT_NVIM ]] && continue
+        # Whether the tests may listen on the local network.
+        [[ $task_variable == ADROIT_TEST_LAN ]] && continue
         unset "$task_variable"
     done
     unset CODEX_THREAD_ID

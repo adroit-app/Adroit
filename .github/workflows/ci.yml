@@ -64,6 +64,9 @@ jobs:
       - run: just ci
         env:
           CI: "1"
+          # A runner has no firewall to ask, so the tests may listen on the
+          # local network, which they skip by default.
+          ADROIT_TEST_LAN: "1"
 
   # Nix does not run on Windows, so the toolchain comes from rustup, which
   # reads rust-toolchain.toml, and the recipes run in Git Bash.

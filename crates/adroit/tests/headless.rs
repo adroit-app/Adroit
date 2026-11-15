@@ -1369,6 +1369,12 @@ async fn answers_only_on_loopback(
 
 #[test]
 fn a_paired_work_machine_is_found_on_the_local_network_when_its_address_changed() {
+    // Browsing listens on every interface from this test executable, and a
+    // Mac's application firewall asks about each build of it anew.
+    if std::env::var_os("ADROIT_TEST_LAN").is_none() {
+        eprintln!("not tested on the local network unless ADROIT_TEST_LAN is set");
+        return;
+    }
     let hosts = Hosts::new();
     let gateway = gatewayed(&hosts, true);
     let key = hosts.0.path().join("client/paired.key");
