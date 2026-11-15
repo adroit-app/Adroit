@@ -10,3 +10,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; color: var(--kbd-text); backg
 .icon-button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px;
   background: transparent; color: var(--text-3); font: inherit; cursor: default; }
 .icon-button:hover { background: var(--line-strong); color: var(--text); }
+/* What came of reading the settings, told over a window. */
+.settings-banner { flex: none; max-height: 30vh; overflow: auto; padding: 12px; white-space: pre-wrap; user-select: text; }
+.settings-banner.wait { color: var(--wait); }
+.settings-banner.fail { color: var(--fail); }

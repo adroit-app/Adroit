@@ -7,7 +7,7 @@
 .console-empty-title { color: var(--text); font-size: 15px; font-weight: 500; }
 .console-empty > .icon { color: var(--text-3); }
 .console > .console-empty { bottom: var(--composer, 0px); overflow-y: auto; justify-content: safe center; padding: 24px 32px; }
-.console-empty.detached { background: rgba(15,17,20,0.92); }
+.console-empty.detached { background: var(--veil); }
 .console-empty code, .console-empty-hint code { font-family: var(--mono); font-size: 12px; background: var(--raised); padding: 1px 6px; border-radius: 4px; }
 .screen { position: relative; font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); line-height: var(--cell-h); white-space: pre; }
 .screen-line { height: var(--cell-h); display: flex; }

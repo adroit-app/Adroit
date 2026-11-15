@@ -39,4 +39,4 @@
 /* A tab dragged among the tabs stands where it would land, faded and outlined, the others making room. */
 .tab.ghost { opacity: 0.55; outline: 1px dashed var(--focus-border); outline-offset: -1px; }
 /* What is dragged, by its name, following the pointer. */
-.drag-ghost { position: fixed; z-index: 50; pointer-events: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--focus-border); border-radius: 7px; background: var(--raised); color: var(--text); font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); opacity: 0.92; }
+.drag-ghost { position: fixed; z-index: 50; pointer-events: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--focus-border); border-radius: 7px; background: var(--raised); color: var(--text); font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px var(--shadow); opacity: 0.92; }

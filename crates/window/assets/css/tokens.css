@@ -14,11 +14,24 @@
   --text: #cdcecf;
   --text-2: #9b9ea2;
   --text-3: #7c8187;
+  --text-4: #5d636c;
   --wait: #dbc074;
   --run: #719cd6;
   --done: #81b29a;
   --fail: #c94f6d;
   --coord: #9d79d6;
+  --shell: #b364a2;
+  --wait-tint: rgba(219,192,116,0.16);
+  --wait-tint-soft: rgba(219,192,116,0.12);
+  --run-tint: rgba(113,156,214,0.16);
+  --run-tint-soft: rgba(113,156,214,0.08);
+  --done-tint: rgba(129,178,154,0.14);
+  --fail-tint: rgba(201,79,109,0.14);
+  --coord-tint: rgba(157,121,214,0.14);
+  --shell-tint: rgba(179,100,162,0.14);
+  --veil: rgba(19,26,36,0.92);
+  --track: rgba(205,206,207,0.05);
+  --scrim: rgba(8,9,11,0.6);
   --usage-cpu: #63cdcf;
   --usage-gpu: #9d79d6;
   --usage-memory: #81b29a;
@@ -28,12 +41,8 @@
   /* The console's font and line height, set from the settings. */
   --term-font: var(--mono); --term-size: 13px; --term-weight: 400; --cell-h: 17px;
   --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
-  /* Tints no theme sets, so they stay as they are in every theme. */
-  --wait-tint: rgba(232,180,94,0.16);
-  --wait-tint-soft: rgba(232,180,94,0.12);
-  --fail-tint: rgba(235,163,170,0.10);
-  --run-tint: rgba(113,156,214,0.16);
   --kbd-text: #9b9ea2;
+  --on-run: #fff;
   --shadow: rgba(0,0,0,0.45);
 }
 * { box-sizing: border-box; }

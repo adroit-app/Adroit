@@ -2,8 +2,8 @@
   border-radius: 10px; box-shadow: 0 -6px 30px var(--shadow); }
 .prompt.focused { border-color: var(--focus-border); }
 /* Claude Code's bash mode, in its pink. */
-.prompt.shell { border-color: #c96b9f; }
-.prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: rgba(240,128,190,0.14); color: #f080be; }
+.prompt.shell { border-color: var(--shell); }
+.prompt-shell { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 7px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; background: var(--shell-tint); color: var(--shell); }
 .prompt-foot { display: flex; align-items: center; gap: 10px; padding: 2px 12px 6px; font-size: 11.5px; color: var(--text-3); }
 .prompt-foot-target { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .prompt-attachments { display: flex; gap: 10px; overflow-x: auto; padding: 8px 14px 12px; }
@@ -16,10 +16,10 @@
 .prompt-foot-target .icon { vertical-align: -2px; margin-right: 4px; }
 .prompt-foot-message { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .mode-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 5px; font-family: var(--mono); font-weight: 500; font-size: 11px; }
-.mode-chip.insert { background: rgba(143,198,164,0.14); color: var(--done); }
-.mode-chip.normal { background: rgba(120,174,232,0.14); color: var(--run); }
-.mode-chip.pass { background: rgba(232,180,94,0.14); color: var(--wait); }
-.mode-chip.cmd { background: rgba(185,162,236,0.14); color: var(--coord); }
+.mode-chip.insert { background: var(--done-tint); color: var(--done); }
+.mode-chip.normal { background: var(--run-tint); color: var(--run); }
+.mode-chip.pass { background: var(--wait-tint); color: var(--wait); }
+.mode-chip.cmd { background: var(--coord-tint); color: var(--coord); }
 .state-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11.5px; font-weight: 500; background: color-mix(in srgb, currentColor 14%, transparent); }
 .state-badge.wait { color: var(--wait); }
 .state-badge.run { color: var(--run); }
@@ -31,7 +31,7 @@
 .prompt.answering { border-color: var(--wait); }
 .prompt.answering .prompt-grid { opacity: 0.4; }
 .prompt-foot-answering { color: var(--wait); white-space: nowrap; }
-.prompt-scroll { position: absolute; top: 10px; bottom: 4px; right: 4px; width: 4px; border-radius: 2px; background: rgba(255,255,255,0.05); }
+.prompt-scroll { position: absolute; top: 10px; bottom: 4px; right: 4px; width: 4px; border-radius: 2px; background: var(--track); }
 .prompt-scroll-thumb { position: absolute; left: 0; right: 0; border-radius: 2px; background: var(--focus-border); }
 .vim-cmdline { font-family: var(--term-font); font-size: var(--term-size); font-weight: var(--term-weight); color: var(--text); padding: 2px 14px; }
 .vim-menu { position: absolute; z-index: 10; background: var(--raised); border: 1px solid var(--line-strong);

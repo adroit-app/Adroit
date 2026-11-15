@@ -17,7 +17,7 @@ pub fn SettingsFileError(config: Signal<Config>) -> Element {
 pub fn SettingsNotice(notice: Option<String>) -> Element {
     rsx! {
         if let Some(notice) = notice {
-            Banner { role: "status", colour: "var(--wait)", text: notice }
+            Banner { role: "status", kind: "wait", text: notice }
         }
     }
 }
@@ -29,21 +29,21 @@ pub fn SettingsLoadError(error: Option<String>) -> Element {
         if let Some(error) = error {
             Banner {
                 role: "alert",
-                colour: "var(--fail, #f08080)",
+                kind: "fail",
                 text: format!("{error}. Fix the configuration file before saving settings."),
             }
         }
     }
 }
 
-/// `text` told over the window in `colour`, as `role` says it.
+/// `text` told over the window in the colour of `kind`, `wait` or `fail`, as
+/// `role` says it.
 #[component]
-fn Banner(role: &'static str, colour: &'static str, text: String) -> Element {
+fn Banner(role: &'static str, kind: &'static str, text: String) -> Element {
     rsx! {
         div {
-            class: "settings-error",
+            class: "settings-banner {kind}",
             role,
-            style: "padding: 12px; color: {colour}; white-space: pre-wrap; flex: none; max-height: 30vh; overflow: auto; user-select: text",
             "{text}"
         }
     }

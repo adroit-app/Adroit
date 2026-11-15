@@ -1,5 +1,5 @@
 /* The lightbox: one image at a time over a dimmed window; a click outside its frame closes it. */
-.lightbox { position: fixed; inset: 0; z-index: 25; background: rgba(8,9,11,0.72); display: flex; align-items: center; justify-content: center; }
+.lightbox { position: fixed; inset: 0; z-index: 25; background: var(--scrim); display: flex; align-items: center; justify-content: center; }
 .lightbox-frame { width: 90vw; height: 88vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; }
 .lightbox-bar { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 12px; }
 .lightbox-name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

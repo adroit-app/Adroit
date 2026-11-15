@@ -26,6 +26,8 @@ pub fn window(p: &Palette) -> Window {
     // Dark lines on a light ground stand out more than light lines on a
     // dark one, so a light theme draws them closer to its panels.
     let line = |amount: f64| toward(if dark { amount } else { amount * 0.65 });
+    let (wait, run, done, fail, coord) = (p.ansi[3], p.ansi[4], p.ansi[2], p.ansi[1], p.ansi[5]);
+    let shell = mix(p.ansi[5], p.ansi[1], 0.5);
     let mut vars = vec![
         ("--ground", ground.hex()),
         ("--panel", bg.hex()),
@@ -38,17 +40,38 @@ pub fn window(p: &Palette) -> Window {
         ("--text", fg.hex()),
         ("--text-2", toward(0.72)),
         ("--text-3", toward(0.55)),
-        ("--wait", p.ansi[3].hex()),
-        ("--run", p.ansi[4].hex()),
-        ("--done", p.ansi[2].hex()),
-        ("--fail", p.ansi[1].hex()),
-        ("--coord", p.ansi[5].hex()),
+        ("--text-4", toward(0.375)),
+        ("--wait", wait.hex()),
+        ("--run", run.hex()),
+        ("--done", done.hex()),
+        ("--fail", fail.hex()),
+        ("--coord", coord.hex()),
+        ("--shell", shell.hex()),
+        ("--wait-tint", faint(wait, 0.16)),
+        ("--wait-tint-soft", faint(wait, 0.12)),
+        ("--run-tint", faint(run, 0.16)),
+        ("--run-tint-soft", faint(run, 0.08)),
+        ("--done-tint", faint(done, 0.14)),
+        // Red reads darker than the other states at the same opacity.
+        ("--fail-tint", faint(fail, 0.14)),
+        ("--coord-tint", faint(coord, 0.14)),
+        ("--shell-tint", faint(shell, 0.14)),
+        ("--veil", faint(ground, 0.92)),
+        ("--track", faint(fg, 0.05)),
+        // A light ground dimmed as deep as a dark one turns grey.
+        (
+            "--scrim",
+            faint(Rgb::new(8, 9, 11), if dark { 0.6 } else { 0.3 }),
+        ),
         ("--usage-cpu", p.ansi[6].hex()),
         ("--usage-context", p.ansi[6].hex()),
         ("--usage-gpu", p.ansi[5].hex()),
         ("--usage-memory", p.ansi[2].hex()),
         ("--usage-storage", mix(p.ansi[3], p.ansi[1], 0.25).hex()),
         ("--kbd-text", toward(0.72)),
+        // What is drawn on the run colour, as a switch's knob, is white in
+        // every theme, as macOS draws it.
+        ("--on-run", "#fff".to_string()),
         // A shadow as deep on a light ground as on a dark one reads as a
         // smudge rather than as depth.
         (
@@ -155,6 +178,11 @@ fn mix(from: Rgb, to: Rgb, amount: f64) -> Rgb {
             .clamp(0.0, 255.0) as u8
     };
     Rgb::new(at(from.r, to.r), at(from.g, to.g), at(from.b, to.b))
+}
+
+/// `colour` seen through at `alpha`, over whatever lies behind it.
+fn faint(colour: Rgb, alpha: f64) -> String {
+    format!("rgba({},{},{},{alpha})", colour.r, colour.g, colour.b)
 }
 
 /// `window`'s colours as declarations for the stylesheet's root.
@@ -294,6 +322,81 @@ mod tests {
             }
             assert_eq!(w.dark, toward_text, "{name}");
         }
+    }
+
+    /// The colour and the opacity of `rgba(r,g,b,a)`.
+    fn rgba(s: &str) -> (Rgb, f64) {
+        let inner = s
+            .strip_prefix("rgba(")
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or_else(|| panic!("{s} is not rgba()"));
+        let parts: Vec<&str> = inner.split(',').collect();
+        let channel = |i: usize| parts[i].trim().parse::<u8>().unwrap();
+        (
+            Rgb::new(channel(0), channel(1), channel(2)),
+            parts[3].trim().parse().unwrap(),
+        )
+    }
+
+    #[test]
+    fn each_tint_is_its_state_s_colour_of_the_theme_seen_faintly() {
+        let tints = [
+            ("--wait-tint", "--wait"),
+            ("--wait-tint-soft", "--wait"),
+            ("--run-tint", "--run"),
+            ("--run-tint-soft", "--run"),
+            ("--done-tint", "--done"),
+            ("--fail-tint", "--fail"),
+            ("--coord-tint", "--coord"),
+            ("--shell-tint", "--shell"),
+        ];
+        for name in ["Nightfox", "Catppuccin Latte"] {
+            let w = window(&preset(name));
+            for (tint, base) in tints {
+                let (colour, alpha) = rgba(var(&w, tint));
+                assert_eq!(colour.hex(), var(&w, base), "{name}: {tint}");
+                assert!(alpha > 0.0 && alpha <= 0.2, "{name}: {tint}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_soft_tint_is_fainter_than_its_tint() {
+        let w = window(&preset("Nightfox"));
+        for (soft, tint) in [
+            ("--wait-tint-soft", "--wait-tint"),
+            ("--run-tint-soft", "--run-tint"),
+        ] {
+            assert!(rgba(var(&w, soft)).1 < rgba(var(&w, tint)).1, "{soft}");
+        }
+    }
+
+    #[test]
+    fn the_shell_is_drawn_between_the_theme_s_magenta_and_red() {
+        let p = preset("Catppuccin Latte");
+        let w = window(&p);
+        let shell = Rgb::parse(var(&w, "--shell")).unwrap();
+        let between = |c: u8, a: u8, b: u8| a.min(b) <= c && c <= a.max(b);
+        let (m, r) = (p.ansi[5], p.ansi[1]);
+        assert!(
+            between(shell.r, m.r, r.r) && between(shell.g, m.g, r.g) && between(shell.b, m.b, r.b)
+        );
+    }
+
+    #[test]
+    fn the_veil_over_a_detached_console_is_the_theme_s_ground_nearly_opaque() {
+        for name in ["Nightfox", "Catppuccin Latte"] {
+            let w = window(&preset(name));
+            let (colour, alpha) = rgba(var(&w, "--veil"));
+            assert_eq!(colour.hex(), var(&w, "--ground"), "{name}");
+            assert!(alpha > 0.8, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_light_theme_dims_what_is_behind_a_dialog_less() {
+        let alpha = |name: &str| rgba(var(&window(&preset(name)), "--scrim")).1;
+        assert!(alpha("Catppuccin Latte") < alpha("Nightfox"));
     }
 
     #[test]

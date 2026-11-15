@@ -57,6 +57,7 @@ select:focus, input:focus, textarea:focus { border-color: var(--input-focus); }
 button { background: var(--select); border-color: transparent; padding: 5px 12px; }
 button:hover { background: var(--line-strong); }
 .settings-error { color: var(--fail); margin-bottom: 12px; user-select: text; }
+.settings-banner { margin-bottom: 12px; }
 @media (max-width: 760px) {
   .settings-nav { width: 155px; }
   .settings-pane { padding-inline: 18px; padding-bottom: 20px; }
@@ -85,7 +86,7 @@ button:disabled { opacity: 0.45; }
 .binding-form { border-top: 1px solid var(--line); background: var(--raised); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 .binding-fields { display: flex; gap: 8px; align-items: center; }
 .binding-fields .binding-recorder { flex: 1; min-width: 0; }
-.binding-recorder.recording { border-color: var(--wait); box-shadow: 0 0 0 2px rgba(232,180,94,0.2); }
+.binding-recorder.recording { border-color: var(--wait); box-shadow: 0 0 0 2px var(--wait-tint); }
 .binding-note { font-size: 12px; color: var(--text-3); }
 .binding-note.warn { color: var(--wait); }
 .binding-note.bad { color: var(--fail); }
@@ -154,7 +155,7 @@ input.switch { appearance: none; position: relative; flex: none; width: 34px; he
 input.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
   background: var(--text); box-shadow: 0 1px 2px var(--shadow); transition: transform 0.15s; }
 input.switch:checked { background: var(--run); }
-input.switch:checked::after { transform: translateX(14px); background: #fff; }
+input.switch:checked::after { transform: translateX(14px); background: var(--on-run); }
 input.switch:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .about { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 28px 0 26px; }
 .about-icon { width: 88px; height: 88px; margin-bottom: 14px; filter: drop-shadow(0 6px 16px var(--shadow)); }

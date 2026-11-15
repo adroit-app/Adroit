@@ -1,6 +1,6 @@
 .header { height: 40px; display: flex; align-items: center; gap: 14px; padding: 0 16px; flex: none; }
 .header-crumbs { display: flex; gap: 6px; color: var(--text-2); align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
-.header-crumbs-sep { color: #5d636c; display: inline-flex; }
+.header-crumbs-sep { color: var(--text-4); display: inline-flex; }
 .header-crumbs-item { display: inline-flex; align-items: center; gap: 6px; }
 .header-crumbs-item .icon { color: var(--text-3); }
 .header-crumbs-path { font-family: var(--mono); font-size: 12px; }

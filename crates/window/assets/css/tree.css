@@ -4,7 +4,7 @@
 .list-row-meta { color: var(--text-3); font-size: 11.5px; }
 .agent-badge { flex: none; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-2); font-size: 10px; line-height: 16px; }
 .list-row.selected { background: var(--select); }
-.list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: rgba(120,174,232,0.08); border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.list-row.shown { box-shadow: inset 3px 0 0 var(--run); background: var(--run-tint-soft); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .list-row.shown.selected { background: var(--select); }
 .list-row.shown .list-row-name { color: var(--text); font-weight: 600; }
 .app-panel.focused .list-row.selected.shown { box-shadow: inset 3px 0 0 var(--run), inset 0 0 0 1px var(--focus-line); }
@@ -37,7 +37,7 @@
 .list-row.group { height: 24px; color: var(--text-3); font-size: 11.5px; font-weight: 500; }
 .list-row.group .place-mark { color: var(--text-3); }
 .tab-where { flex: none; padding: 0 5px; border-radius: 4px; background: var(--raised); color: var(--text-3); font-family: var(--mono); font-size: 10px; line-height: 16px; }
-.list-row.shown .tab-where { background: rgba(120,174,232,0.16); color: var(--run); }
+.list-row.shown .tab-where { background: var(--run-tint); color: var(--run); }
 .sidebar-inbox .list-row-name .reads-only-mark { margin-left: 6px; vertical-align: -2px; }
 .list-row.environment { height: 30px; gap: 7px; }
 .list-row.environment:not(:first-child) { margin-top: 6px; }
