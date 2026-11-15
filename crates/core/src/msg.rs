@@ -408,6 +408,16 @@ pub enum Msg {
         target: Target,
         action: Action,
     },
+    /// Look at the image `Tab` in the lightbox over the window, holding the
+    /// keys until it closes.
+    LightboxOpen(Tab),
+    /// Run the lightbox's action.
+    LightboxAction(Action),
+    /// Move the lightbox's image by shares of its width and height.
+    LightboxPan {
+        dx: f64,
+        dy: f64,
+    },
     /// Open the sheet adding an environment, holding the keys until it
     /// closes.
     AddingOpen,

@@ -7,6 +7,7 @@ mod body;
 mod effects;
 mod footer;
 pub(crate) mod header;
+mod lightbox;
 mod local;
 pub(crate) mod overlays;
 pub(crate) mod panels;

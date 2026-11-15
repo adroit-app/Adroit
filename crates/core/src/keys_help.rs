@@ -269,6 +269,7 @@ mod tests {
                 Context::Console,
                 Context::Prompt,
                 Context::Draft,
+                Context::Lightbox,
                 Context::Agent(adroit_model::Agent::Claude),
             ]
         );

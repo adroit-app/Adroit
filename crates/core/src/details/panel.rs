@@ -530,29 +530,51 @@ fn use_shot(
     session: Option<&str>,
 ) -> Vec<Effect> {
     match (&shot.source, how) {
-        (Source::Console { id, width, height }, Use::Open(how)) => session
-            .map(|session| Effect::Show {
-                thing: Tab::Drawn {
-                    environment: environment.clone(),
-                    session: session.to_owned(),
-                    id: *id,
-                    width: *width,
-                    height: *height,
-                },
-                how,
+        (_, Use::Open(how)) => shot_tab(shot, environment, session)
+            .map(|thing| match how {
+                Opening::Existing => Effect::Lightbox(thing),
+                how => Effect::Show { thing, how },
             })
             .into_iter()
             .collect(),
-        (Source::File { path, .. }, Use::Open(how)) => vec![Effect::Show {
-            thing: Tab::Viewer(environment.clone(), path.into()),
-            how,
-        }],
         (Source::Console { .. }, Use::Copy) => {
             vec![Effect::Notice("A drawn image has no file to copy".into())]
         }
         (Source::Console { .. }, Use::Reveal) => Vec::new(),
         (Source::File { path, touch }, how) => use_link(&file_link(path, *touch), how, environment),
     }
+}
+
+/// What shows `shot` in the content: a file in its viewer, or the drawn image
+/// of `session`'s console, both of `environment`.
+fn shot_tab(shot: &Shot, environment: &EnvironmentId, session: Option<&str>) -> Option<Tab> {
+    match &shot.source {
+        Source::Console { id, width, height } => session.map(|session| Tab::Drawn {
+            environment: environment.clone(),
+            session: session.to_owned(),
+            id: *id,
+            width: *width,
+            height: *height,
+        }),
+        Source::File { path, .. } => Some(Tab::Viewer(environment.clone(), path.into())),
+    }
+}
+
+/// The images of Resources of the session shown, in their order, as the
+/// lightbox steps through them. A file of an environment not `local` is left
+/// out, as no viewer reads it.
+pub fn images(details: &Details, work: Option<&WorkSnapshot>, local: bool) -> Vec<Tab> {
+    let read = session_read(details, work);
+    let empty = Links::default();
+    let links = read.and_then(|r| r.links.as_ref()).unwrap_or(&empty);
+    let mut shots = shots(&details.shown.drawn, links, read);
+    shots.truncate(details.shown.settings.links_kept);
+    let session = details.shown.session.as_deref();
+    shots
+        .iter()
+        .filter(|s| local || matches!(s.source, Source::Console { .. }))
+        .filter_map(|s| shot_tab(s, &details.shown.environment, session))
+        .collect()
 }
 
 /// What was read of the shown session.
@@ -807,7 +829,7 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::testing::here;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -1784,7 +1806,7 @@ mod tests {
 
     /// Resources of `a` listing an image its console drew and, older, an
     /// image file: rows Images heading, the drawn one, the file.
-    fn with_images() -> Scenario {
+    pub(crate) fn with_images() -> Scenario {
         let read_now = SessionRead {
             links: Some(Links {
                 images: vec![adroit_model::links::ImageFile {
@@ -1806,7 +1828,7 @@ mod tests {
         ])
     }
 
-    fn drawn_tab() -> Tab {
+    pub(crate) fn drawn_tab() -> Tab {
         Tab::Drawn {
             environment: here(),
             session: "a".into(),
@@ -1817,11 +1839,24 @@ mod tests {
     }
 
     #[test]
-    fn opening_an_image_shows_it_in_the_content_where_the_key_says() {
+    fn opening_an_image_looks_at_it_in_the_lightbox() {
+        for (keys, thing) in [
+            (vec![Key::Down, Key::Open], drawn_tab()),
+            (
+                vec![Key::Last, Key::Open],
+                Tab::Viewer(here(), "/w/plot.png".into()),
+            ),
+        ] {
+            let run = with_images().send_all(keys.iter().copied().map(Msg::DetailsKey));
+            assert_eq!(local(&run), [Effect::Lightbox(thing)], "{keys:?}");
+        }
+    }
+
+    #[test]
+    fn opening_an_image_in_a_split_or_a_tab_shows_it_in_the_content() {
         let (drawn, file) = (drawn_tab(), Tab::Viewer(here(), "/w/plot.png".into()));
         // (keys, what is shown, how)
         let cases = [
-            (vec![Key::Down, Key::Open], &drawn, Opening::Existing),
             (
                 vec![Key::Down, Key::OpenIn(Opening::Split(Axis::Row))],
                 &drawn,
@@ -1852,19 +1887,25 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_an_image_opens_it_as_enter_does() {
+    fn a_click_on_an_image_looks_at_it_in_the_lightbox() {
         let (drawn, file) = (drawn_tab(), Tab::Viewer(here(), "/w/plot.png".into()));
         for (at, thing) in [(1, drawn), (2, file)] {
             let run = with_images().send(Msg::DetailsClick(at));
-            assert_eq!(
-                local(&run),
-                [Effect::Show {
-                    thing: thing.clone(),
-                    how: Opening::Existing,
-                }],
-                "{thing:?}"
-            );
+            assert_eq!(local(&run), [Effect::Lightbox(thing.clone())], "{thing:?}");
         }
+    }
+
+    #[test]
+    fn the_lightbox_holds_the_images_of_resources_in_their_order() {
+        let file = Tab::Viewer(here(), "/w/plot.png".into());
+        let run = with_images();
+        let work = run.state().hosts.work(&here());
+        assert_eq!(
+            images(&run.state().details, work, true),
+            [drawn_tab(), file]
+        );
+        // A work machine's files are read on this computer by no viewer.
+        assert_eq!(images(&run.state().details, work, false), [drawn_tab()]);
     }
 
     #[test]

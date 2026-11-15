@@ -33,6 +33,7 @@ pub const CSS: &str = concat!(
     include_str!("../assets/css/picker.css"),
     include_str!("../assets/css/keys-help.css"),
     include_str!("../assets/css/adding.css"),
+    include_str!("../assets/css/lightbox.css"),
 );
 
 /// The Settings window's stylesheet, on the main window's colours.

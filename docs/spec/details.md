@@ -92,11 +92,11 @@ by the description it was started with before any. Opening one shows what it
 was started as, what it was asked, the latest steps it took, and, once it
 ended, what it reported. Copying one copies what it was asked.
 
-An image of Resources opens in the content as a file of the tree does: opened,
-or opened in a split or a new tab, by the same actions
-([viewers](content.md#viewers)); a click opens it. An image file opens in the image
-viewer; an image the console drew opens in the image viewer too, named for its
-size. The keys stay in the panel, and the panel stays on the session while one
+An image of Resources, opened or clicked, is looked at in the lightbox among
+the others ([images in the console](content.md#images-in-the-console)).
+Opened in a split or a new tab, by the same actions as a file of the tree
+([viewers](content.md#viewers)), an image file opens in the image viewer, and
+an image the console drew does too, named for its size. The keys stay in the panel, and the panel stays on the session while one
 of its images is shown, so the next one can be picked. An image the console
 drew is kept while Adroit runs, after the console has let it go, the newest
 few of each session; it has no file to copy or reveal, and its window says

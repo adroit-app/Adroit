@@ -16,7 +16,7 @@ use adroit_protocol::RepositoryRead;
 pub use adroit_model::Note;
 
 mod environment;
-mod panel;
+pub(crate) mod panel;
 mod rows;
 mod system;
 mod timeline;

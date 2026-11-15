@@ -74,6 +74,7 @@ fn App() -> Element {
             KeysHelp {}
             crate::adding::AddingSheet {}
             ConfirmDialog {}
+            super::lightbox::Lightbox {}
         }
     }
 }

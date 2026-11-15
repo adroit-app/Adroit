@@ -12,6 +12,7 @@ use crate::chrome::{self, Chrome, status_line};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::host::Hosts;
+use crate::keymap::{Context, Step};
 use crate::keys_help::{self, Press};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
@@ -22,6 +23,7 @@ use crate::update::step;
 
 pub mod confirm;
 pub mod context_menu;
+pub mod lightbox;
 pub mod naming;
 pub mod rename;
 #[cfg(test)]
@@ -29,6 +31,7 @@ mod tests;
 
 use confirm::Ask;
 use context_menu::Target;
+use lightbox::Lightbox;
 use naming::{Kind, Naming};
 use rename::{Place as RenamePlace, Rename};
 
@@ -41,6 +44,8 @@ pub struct Overlays {
     pub naming: Option<Naming>,
     /// The sheet adding an environment is open.
     pub adding: bool,
+    /// A session's images looked at one at a time.
+    pub lightbox: Option<Lightbox>,
     pub banner: Banner,
 }
 
@@ -84,6 +89,7 @@ pub enum Holder {
     Naming,
     Adding,
     Confirm,
+    Lightbox,
 }
 
 /// Every overlay open, the one that takes a key first.
@@ -96,6 +102,7 @@ pub fn holding(overlays: &Overlays, picker: &PickerView, chrome: &Chrome) -> Vec
         (overlays.naming.is_some(), Holder::Naming),
         (overlays.adding, Holder::Adding),
         (overlays.confirm.is_some(), Holder::Confirm),
+        (overlays.lightbox.is_some(), Holder::Lightbox),
     ]
     .into_iter()
     .filter_map(|(open, holder)| open.then_some(holder))
@@ -124,7 +131,12 @@ pub fn holds_menu_bar(held: &[Holder]) -> bool {
     held.iter().any(|h| {
         matches!(
             h,
-            Holder::Picker | Holder::Rename | Holder::Naming | Holder::Adding | Holder::Confirm
+            Holder::Picker
+                | Holder::Rename
+                | Holder::Naming
+                | Holder::Adding
+                | Holder::Confirm
+                | Holder::Lightbox
         )
     })
 }
@@ -149,6 +161,13 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
                 Press::Close => chrome::close_keys_help(chrome),
                 Press::Scroll(lines) => vec![Effect::ScrollKeysHelp(lines)],
                 Press::Nothing => Vec::new(),
+            }
+        }
+        Some(Holder::Lightbox) => {
+            let keymap = &state.chrome.keymap;
+            match keymap.resolve(&[Context::Lightbox], &[], &key) {
+                Step::Run(action) => lightbox::act(state, action),
+                _ => Vec::new(),
             }
         }
         Some(Holder::Adding) => match key.key.as_str() {

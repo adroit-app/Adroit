@@ -39,6 +39,8 @@ pub enum Context {
     Draft,
     /// A viewer in the focused window.
     Viewer,
+    /// The lightbox over the window, while it is open.
+    Lightbox,
     /// Files and directories: the tree's, with a file or a directory
     /// selected, before its own bindings, and the picker's.
     Filer,
@@ -48,7 +50,7 @@ pub enum Context {
 }
 
 impl Context {
-    pub const ALL: [Context; 12] = [
+    pub const ALL: [Context; 13] = [
         Context::Global,
         Context::Tree,
         Context::Filer,
@@ -57,6 +59,7 @@ impl Context {
         Context::Prompt,
         Context::Draft,
         Context::Viewer,
+        Context::Lightbox,
         Context::Agent(Agent::Claude),
         Context::Agent(Agent::Codex),
         Context::Agent(Agent::Pi),
@@ -72,6 +75,7 @@ impl Context {
             Context::Prompt => "prompt",
             Context::Draft => "draft",
             Context::Viewer => "viewer",
+            Context::Lightbox => "lightbox",
             Context::Filer => "filer",
             Context::Agent(Agent::Claude) => "console.claude",
             Context::Agent(Agent::Codex) => "console.codex",
@@ -89,6 +93,7 @@ impl Context {
             Context::Prompt => "Prompt",
             Context::Draft => "New session",
             Context::Viewer => "Viewer",
+            Context::Lightbox => "Lightbox",
             Context::Filer => "Files",
             Context::Agent(Agent::Claude) => "Console of Claude Code",
             Context::Agent(Agent::Codex) => "Console of Codex",
@@ -107,6 +112,9 @@ impl Context {
             Context::Prompt => "The prompt, before Neovim takes the key.",
             Context::Draft => "Before the area's bindings while a new session is shown.",
             Context::Viewer => "A viewer of an image, a movie, an HTML page or a PDF.",
+            Context::Lightbox => {
+                "The lightbox of a session's images, while it is open over the window."
+            }
             Context::Filer => {
                 "The tree's files and directories, before the tree's bindings, and the picker's directories."
             }

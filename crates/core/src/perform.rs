@@ -73,6 +73,16 @@ pub(crate) fn perform(
         | Action::ViewerBack
         | Action::ViewerForward
         | Action::ViewerCopyPath => Vec::new(),
+        Action::LightboxNext
+        | Action::LightboxPrev
+        | Action::LightboxZoomIn
+        | Action::LightboxZoomOut
+        | Action::LightboxZoomFit
+        | Action::LightboxPanLeft
+        | Action::LightboxPanRight
+        | Action::LightboxPanUp
+        | Action::LightboxPanDown
+        | Action::LightboxClose => step(state, Msg::LightboxAction(action)),
         Action::WindowLeft
         | Action::WindowDown
         | Action::WindowUp

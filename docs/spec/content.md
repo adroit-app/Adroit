@@ -256,8 +256,17 @@ animation shows the frame the program last showed.
 
 The images a session's console drew are listed in the Resources sheet
 of the details panel, and stay listed after the console lets them go
-([details](details.md)). Opened from there, one is shown in the image viewer
-like an image file, in a window of the content; its tab is not kept for the
-next run. A click on an image in a session's console opens it in the image
-viewer, as a click on it in Resources does, and does not reach
-the program.
+([details](details.md)). A click on an image in a session's console looks at
+it in the lightbox, as a click on it in Resources does, and does not reach the
+program. Opened in a split or a new tab from Resources, one is shown in the
+image viewer like an image file, in a window of the content; its tab is not
+kept for the next run.
+
+The **lightbox** shows one image at a time over the window, the images of
+the session's Resources before and after it a step away, going round at
+either end; an image not among them is shown alone. The image is drawn whole,
+and is zoomed and moved about by keys, the mouse's wheel and dragging; going
+to another image draws it whole again. While the lightbox is open it takes
+every key, by the actions of the `lightbox` area
+([actions](reference/keys.md#actions)), and nothing behind it acts. It closes
+by its key, its close button or a click outside it.

@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use adroit_core::content::Opening;
 use adroit_core::msg::Msg;
 use adroit_nvim::{Embedded, UiState};
 use adroit_protocol::{Answer, Ask};
@@ -197,16 +196,12 @@ pub fn ConsoleScreen(tab: Tab, frame: Signal<u64>, cell_width: f64, focused: boo
     let rows = screen.rows as f64;
     let mut frame = frame;
     let mut rest = use_signal(|| 0.0);
-    // An image the session drew is opened whole rather than clicked
+    // An image the session drew is looked at whole rather than clicked
     // through to the program, which a picture gives nothing to point at.
     let onclick = {
         let (pane, pictures) = (pane.clone(), pictures.clone());
         move |at: (usize, usize)| match drawn_at(&tab, &pictures, at) {
-            Some(thing) => app.dispatch(Msg::Show {
-                thing,
-                place: None,
-                how: Some(Opening::Existing),
-            }),
+            Some(thing) => app.dispatch(Msg::LightboxOpen(thing)),
             None => pane.click(at.0, at.1),
         }
     };

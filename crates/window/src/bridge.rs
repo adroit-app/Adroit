@@ -820,6 +820,7 @@ impl AppCtx {
                 place: None,
                 how: Some(how),
             }),
+            Effect::Lightbox(thing) => self.dispatch(Msg::LightboxOpen(thing)),
             Effect::KeepContent(kept) => {
                 let path = content_path();
                 if let Some(dir) = path.parent() {

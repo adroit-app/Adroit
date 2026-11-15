@@ -47,6 +47,8 @@ pub enum Effect {
     /// Show `thing` in the content as `how` says, the keys staying where
     /// they are.
     Show { thing: Tab, how: Opening },
+    /// Look at the image `thing` in the lightbox over the window.
+    Lightbox(Tab),
     /// Tell the user this in the status line.
     Notice(String),
     /// Ask the work host of `environment` to make `path` in `worktree`, a
