@@ -12,7 +12,9 @@ use adroit_core::config::Config;
 use adroit_protocol::FileText;
 
 use crate::actions::Action;
-use crate::components::{Button, IconButton, InlineField, Keys, SettingsError};
+use crate::components::{
+    Button, Choice, IconButton, InlineField, Keys, Select, SettingsError, choices_of,
+};
 use crate::feed::use_config;
 use crate::icons::{Icon, IconView};
 use crate::keymap::{Chord, Context, Keymap};
@@ -723,7 +725,30 @@ fn BindingForm(
             on_apply.call(next.map_err(|e| e.to_string()));
         }
     };
-    let groups = keys_by_action::sections("").unwrap_or_default();
+    let groups: Vec<(String, Vec<Choice>)> = keys_by_action::sections("")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|g| {
+            let actions = g.actions.into_iter();
+            (
+                g.title.to_string(),
+                choices_of(
+                    actions.map(|a| (a.action.clone(), format!("{} — {}", a.label, a.action))),
+                ),
+            )
+        })
+        .collect();
+    // An action with an argument no row offers, as `console.send Ctrl+q`,
+    // is kept as it was written.
+    let written = if was_action.is_empty()
+        || groups
+            .iter()
+            .any(|(_, g)| g.iter().any(|(a, _)| *a == was_action))
+    {
+        Vec::new()
+    } else {
+        vec![(was_action.clone(), was_action.clone())]
+    };
     rsx! {
         div {
             class: "binding-form",
@@ -740,21 +765,12 @@ fn BindingForm(
                     move |_| if valid && !same { save() }
                 },
             }
-            select {
+            Select {
                 class: "binding-action-select",
-                onchange: move |e| chosen.set(e.value()),
-                // An action with an argument no row offers, as
-                // `console.send Ctrl+q`, is kept as it was written.
-                if !groups.iter().any(|g| g.actions.iter().any(|a| a.action == was_action)) && !was_action.is_empty() {
-                    option { value: "{was_action}", selected: chosen() == was_action, "{was_action}" }
-                }
-                for g in groups {
-                    optgroup { key: "{g.title}", label: "{g.title}",
-                        for a in g.actions {
-                            option { key: "{a.action}", value: "{a.action}", selected: chosen() == a.action, "{a.label} — {a.action}" }
-                        }
-                    }
-                }
+                value: chosen(),
+                choices: written,
+                groups,
+                onchange: move |value| chosen.set(value),
             }
             if !new_keys.is_empty() && !valid {
                 div { class: "binding-note bad", "{new_keys} is not a key adroit knows." }

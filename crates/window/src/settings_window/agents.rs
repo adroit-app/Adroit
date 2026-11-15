@@ -7,7 +7,9 @@ use adroit_model::config::{
 use dioxus::prelude::*;
 
 use super::Edits;
-use crate::components::{Select, SettingGroup, SettingRow, TextArea, TextField, Toggle};
+use crate::components::{
+    Select, SettingGroup, SettingRow, TextArea, TextField, Toggle, choices_of,
+};
 
 /// The permission modes Claude Code takes, as it names them, with what the
 /// Settings window calls each; empty leaves it to Claude Code.
@@ -55,13 +57,13 @@ pub(super) fn CodexGroup(
             }
             SettingRow { label: "Approval policy", hint: "When Codex asks before running a command. Never ask keeps sandbox restrictions in place.",
                 Select { label: "Approval policy", value: options.approval_policy,
-                    choices: vec![("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")],
+                    choices: choices_of([("", "Codex's own"), ("on-request", "Ask when needed"), ("never", "Never ask")]),
                     onchange: edits.of(|o, value: String| o.approval_policy = value),
                 }
             }
             SettingRow { label: "Sandbox", hint: "Where commands can write. Full access removes the sandbox.",
                 Select { label: "Sandbox", value: options.sandbox_mode,
-                    choices: vec![("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")],
+                    choices: choices_of([("", "Codex's own"), ("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")]),
                     onchange: edits.of(|o, value: String| o.sandbox_mode = value),
                 }
             }
@@ -187,11 +189,9 @@ pub(super) fn SessionGroup(
                 }
             }
             SettingRow { label: "Permission mode", hint: "How they ask before they act.",
-                select {
-                    onchange: edits.of(|o, e: Event<FormData>| o.permission_mode = e.value()),
-                    for (mode , name) in MODES {
-                        option { key: "{mode}", value: "{mode}", selected: options.permission_mode == mode, "{name}" }
-                    }
+                Select { label: "Permission mode", value: options.permission_mode,
+                    choices: choices_of(MODES),
+                    onchange: edits.of(|o, value: String| o.permission_mode = value),
                 }
             }
             SettingRow { label: "Tools denied", hint: "Tools they may not use, separated by commas.",

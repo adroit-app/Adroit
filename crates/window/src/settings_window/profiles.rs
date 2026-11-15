@@ -16,7 +16,9 @@ use dioxus::prelude::*;
 
 use super::agents::{CodexGroup, OpenCodeGroup, PiGroup, SessionGroup};
 use super::{Change, LaunchGroup};
-use crate::components::{Button, SettingGroup, SettingRow, SettingsError, TextField};
+use crate::components::{
+    Button, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
+};
 use crate::icons::{Icon, IconView};
 use crate::link::{Link, failure, refusal};
 use crate::logins;
@@ -147,16 +149,15 @@ fn PageHead(title: String, #[props(default)] mark: Option<String>) -> Element {
 #[component]
 fn AgentSelect(label: String, chosen: Agent, onchange: EventHandler<Agent>) -> Element {
     rsx! {
-        select {
-            aria_label: label,
-            onchange: move |e| {
-                if let Some(a) = Agent::parse(&e.value()) {
+        Select {
+            label,
+            value: chosen.key(),
+            choices: choices_of(Agent::ALL.map(|a| (a.key(), a.label()))),
+            onchange: move |value: String| {
+                if let Some(a) = Agent::parse(&value) {
                     onchange.call(a);
                 }
             },
-            for a in Agent::ALL {
-                option { key: "{a.key()}", value: "{a.key()}", selected: chosen == a, "{a.label()}" }
-            }
         }
     }
 }
@@ -738,17 +739,17 @@ fn LoginRow(
     let (again, login) = (key.clone(), key);
     rsx! {
         SettingRow { label: "Login", hint,
-            select {
+            Select {
                 disabled: remote,
-                aria_label: "Agent login",
-                onchange: move |e: Event<FormData>| {
-                    choose_login.call(match e.value().as_str() {
+                label: "Agent login",
+                value: if home.is_some() { OWN } else { "terminal" },
+                choices: choices_of([("terminal", profiles::TERMINAL), (OWN, profiles::OWN)]),
+                onchange: move |value: String| {
+                    choose_login.call(match value.as_str() {
                         OWN => Login::Own,
                         _ => Login::Terminal,
                     });
                 },
-                option { value: "terminal", selected: home.is_none(), "{profiles::TERMINAL}" }
-                option { value: OWN, selected: home.is_some(), "{profiles::OWN}" }
             }
             span { class, role: "status", "{chip}" }
             Button {

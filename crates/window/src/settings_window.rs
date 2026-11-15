@@ -16,8 +16,8 @@ use dioxus::desktop::{
 use dioxus::prelude::*;
 
 use crate::components::{
-    Button, NumberField, SettingGroup, SettingRow, SettingsError, SettingsFileError, TextArea,
-    TextField, Toggle,
+    Button, NumberField, Select, SettingGroup, SettingRow, SettingsError, SettingsFileError,
+    TextArea, TextField, Toggle, choices_of,
 };
 use crate::feed::{root_style, use_config};
 use crate::fonts;
@@ -579,30 +579,32 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
         SettingGroup {
             SettingRow { label: "Appearance", hint: "For every environment. System follows each work machine's appearance, this one's now {system}; Light and Dark keep to one theme.",
-                select {
-                    onchange: move |e| {
+                Select {
+                    label: "Appearance",
+                    value: now.appearance.name(),
+                    choices: choices_of(APPEARANCES.map(|(a, label)| (a.name(), label))),
+                    onchange: move |value: String| {
                         let chosen = APPEARANCES
                             .iter()
-                            .find(|(a, _)| a.name() == e.value())
+                            .find(|(a, _)| a.name() == value)
                             .map_or(Appearance::System, |(a, _)| *a);
                         change(Box::new(move |s: &mut Settings| s.appearance = chosen));
                     },
-                    for (appearance, label) in APPEARANCES {
-                        option { key: "{appearance.name()}", value: "{appearance.name()}", selected: now.appearance == appearance, "{label}" }
-                    }
                 }
             }
             SettingRow { label: "Light theme", hint: "The colours while the appearance is light. A theme of your own goes in the themes folder, a file in Ghostty's theme format named as the theme.",
-                ThemeSelect {
-                    themes: light,
-                    now: now.light_theme.clone(),
+                Select {
+                    label: "Light theme",
+                    value: now.light_theme.clone(),
+                    choices: choices_of(light.iter().map(|t| (t, t))),
                     onchange: move |theme: String| change(Box::new(move |s: &mut Settings| s.light_theme = theme)),
                 }
             }
             SettingRow { label: "Dark theme", hint: "The colours while the appearance is dark.",
-                ThemeSelect {
-                    themes: dark,
-                    now: now.dark_theme.clone(),
+                Select {
+                    label: "Dark theme",
+                    value: now.dark_theme.clone(),
+                    choices: choices_of(dark.iter().map(|t| (t, t))),
                     onchange: move |theme: String| change(Box::new(move |s: &mut Settings| s.dark_theme = theme)),
                 }
             }
@@ -618,24 +620,6 @@ fn AppearancePane(now: Settings, change: Callback<Change>) -> Element {
                     IconView { icon: Icon::FolderOpen, size: 14 }
                     "Open"
                 }
-            }
-        }
-    }
-}
-
-/// A choice among `themes`, keeping `now` in view when it is not among
-/// them, as a name with no such theme or one of the other kind.
-#[component]
-fn ThemeSelect(themes: Vec<String>, now: String, onchange: Callback<String>) -> Element {
-    let known = themes.contains(&now);
-    rsx! {
-        select {
-            onchange: move |e| onchange(e.value()),
-            for t in themes {
-                option { key: "{t}", value: "{t}", selected: now == t, "{t}" }
-            }
-            if !known {
-                option { value: "{now}", selected: true, "{now}" }
             }
         }
     }
@@ -662,14 +646,14 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
     rsx! {
         SettingGroup {
             SettingRow { label: "Font", hint: "The family the console and the prompt are drawn in, among the monospace ones installed and adroit's own, which stands behind any other for Nerd Font glyphs.",
-                select {
-                    onchange: move |e| {
-                        let family = e.value();
-                        change(Box::new(move |s: &mut Settings| s.font_family = family));
-                    },
-                    for c in fonts::choices(installed.read().as_ref().and_then(|i| i.as_deref()), &now.font_family) {
-                        option { key: "{c.value}", value: "{c.value}", selected: now.font_family == c.value, "{c.label}" }
-                    }
+                Select {
+                    label: "Font",
+                    value: now.font_family.clone(),
+                    choices: fonts::choices(installed.read().as_ref().and_then(|i| i.as_deref()), &now.font_family)
+                        .into_iter()
+                        .map(|c| (c.value, c.label))
+                        .collect::<Vec<_>>(),
+                    onchange: move |family: String| change(Box::new(move |s: &mut Settings| s.font_family = family)),
                 }
             }
             SettingRow { label: "Size", hint: "In points; a line is as tall as the size needs.",
@@ -682,9 +666,12 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
             SettingRow { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
-                select {
-                    onchange: move |e| {
-                        let as_alt = match e.value().as_str() {
+                Select {
+                    label: "Option as Alt",
+                    value: now.console.option_as_alt.name(),
+                    choices: choices_of([("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")]),
+                    onchange: move |value: String| {
+                        let as_alt = match value.as_str() {
                             "left" => OptionAsAlt::Left,
                             "right" => OptionAsAlt::Right,
                             "none" => OptionAsAlt::None,
@@ -692,9 +679,6 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                         };
                         change(Box::new(move |s: &mut Settings| s.console.option_as_alt = as_alt));
                     },
-                    for (value , name) in [("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")] {
-                        option { key: "{value}", value: "{value}", selected: now.console.option_as_alt.name() == value, "{name}" }
-                    }
                 }
             }
             SettingRow { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
@@ -704,15 +688,15 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
             SettingRow { label: "Weight", hint: "Bold text is drawn heavier than this.",
-                select {
-                    onchange: move |e| {
-                        if let Ok(w) = e.value().parse::<u16>() {
+                Select {
+                    label: "Weight",
+                    value: now.font_weight.to_string(),
+                    choices: choices_of(WEIGHTS),
+                    onchange: move |value: String| {
+                        if let Ok(w) = value.parse::<u16>() {
                             change(Box::new(move |s: &mut Settings| s.font_weight = w));
                         }
                     },
-                    for (w , name) in WEIGHTS {
-                        option { key: "{w}", value: "{w}", selected: now.font_weight == w, "{name}" }
-                    }
                 }
             }
         }
@@ -833,15 +817,17 @@ fn LaunchGroup(
 fn WindowPane(now: Settings, change: Callback<Change>) -> Element {
     rsx! { SettingGroup {
             SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
-                select {
-                    onchange: move |e| {
-                        if let Ok(z) = e.value().parse::<f64>() {
+                Select {
+                    label: "Zoom",
+                    // The level the zoom is at, whose digits may differ from
+                    // the zoom's own in their last place.
+                    value: LEVELS.iter().find(|l| (*l - now.zoom).abs() < 1e-9).unwrap_or(&now.zoom).to_string(),
+                    choices: choices_of(LEVELS.map(|l| (l, format!("{}%", (l * 100.0).round())))),
+                    onchange: move |value: String| {
+                        if let Ok(z) = value.parse::<f64>() {
                             change(Box::new(move |s: &mut Settings| s.zoom = z));
                         }
                     },
-                    for l in LEVELS {
-                        option { key: "{l}", value: "{l}", selected: (l - now.zoom).abs() < 1e-9, "{(l * 100.0).round()}%" }
-                    }
                 }
             }
             SettingRow { label: "Notify when a session waits", hint: "A notification when a session starts waiting on you while the window is not in front.",

@@ -8,7 +8,9 @@ use adroit_model::EnvironmentId;
 use dioxus::prelude::*;
 
 use super::Edited;
-use crate::components::{Button, SettingGroup, SettingRow, SettingsError, TextField};
+use crate::components::{
+    Button, Select, SettingGroup, SettingRow, SettingsError, TextField, choices_of,
+};
 use crate::environments::{self, fresh_name};
 
 /// What `target` is called where a connection is chosen.
@@ -83,21 +85,20 @@ pub(super) fn EnvironmentPane() -> Element {
                 }
             }
             SettingRow { label: "Connection", hint: "Agents and working files stay on this computer or on the work machine.",
-                select {
-                    aria_label: "Environment connection",
+                Select {
+                    label: "Environment connection",
                     disabled: busy(),
+                    value: connections(&kept.target).iter().position(|t| *t == shown).unwrap_or_default().to_string(),
+                    choices: choices_of(connections(&kept.target).iter().enumerate().map(|(i, t)| (i, connection_name(t)))),
                     onchange: {
                         let choices = connections(&kept.target);
-                        move |e: Event<FormData>| {
+                        move |value: String| {
                             notice.set(None);
-                            if let Some(target) = e.value().parse::<usize>().ok().and_then(|i| choices.get(i)) {
+                            if let Some(target) = value.parse::<usize>().ok().and_then(|i| choices.get(i)) {
                                 chosen.set(Some(target.clone()));
                             }
                         }
                     },
-                    for (i , target) in connections(&kept.target).into_iter().enumerate() {
-                        option { value: "{i}", selected: shown == target, "{connection_name(&target)}" }
-                    }
                 }
             }
             if matches!(kept.target, Target::Local) {
