@@ -248,9 +248,38 @@ pub struct Repository {
     pub pulls: Option<Read>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issues: Option<Read>,
+    /// How many are open, as GitHub counted them; read whether or not a
+    /// listing is, and none until first read or while GitHub cannot say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<Counts>,
+}
+
+/// How many pull requests and issues a repository has open.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Counts {
+    pub pulls: u64,
+    pub issues: u64,
+}
+
+impl Counts {
+    pub fn of(self, listing: Listing) -> u64 {
+        match listing {
+            Listing::Pulls => self.pulls,
+            Listing::Issues => self.issues,
+        }
+    }
 }
 
 impl Repository {
+    /// How many of `listing` are open: as GitHub counted them, which goes
+    /// past what a listing reads, or else as many as it read.
+    pub fn count(&self, listing: Listing) -> Option<u64> {
+        self.open.map(|open| open.of(listing)).or_else(|| {
+            let read = self.read(listing)?.as_ref().ok()?;
+            Some(read.len() as u64)
+        })
+    }
+
     pub fn new(slug: impl Into<String>) -> Self {
         Repository {
             slug: slug.into(),
@@ -319,6 +348,22 @@ mod tests {
         assert_eq!(checks(3, 0, 1).standing(), Some(Standing::Pending));
         assert_eq!(checks(3, 0, 0).standing(), Some(Standing::Passed));
         assert_eq!(checks(0, 0, 0).standing(), None);
+    }
+
+    #[test]
+    fn a_listing_counts_as_github_counted_it_else_as_many_as_were_read() {
+        let mut repository = Repository::new("o/r");
+        assert_eq!(repository.count(Listing::Pulls), None, "nothing read");
+        repository.issues = Some(Ok(vec![item(1), item(2)]));
+        assert_eq!(repository.count(Listing::Issues), Some(2));
+        repository.pulls = Some(Err("gh is not logged in".into()));
+        assert_eq!(repository.count(Listing::Pulls), None, "failed");
+        repository.open = Some(Counts {
+            pulls: 0,
+            issues: 41,
+        });
+        assert_eq!(repository.count(Listing::Issues), Some(41));
+        assert_eq!(repository.count(Listing::Pulls), Some(0));
     }
 
     #[test]

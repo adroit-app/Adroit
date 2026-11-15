@@ -77,7 +77,10 @@ machine; without `gh` it lists neither. Both start folded. Unfolded, each
 lists what is open on GitHub, as the login
 `gh` uses there sees it, each row by its title and who opened it, a pull
 request marked with how its checks stand and drawn dim while it is a draft.
-What is listed is read again every minute while the heading is open, and its count stays on the heading once it is folded. When
+What is listed is read again every minute while the heading is open. Each
+heading shows how many are open, all GitHub counts and not only those
+listed, folded too: that count is read again every few minutes while the
+heading is folded, and with its listing while it is open. When
 `gh` cannot answer, because it is not logged in or GitHub cannot be reached,
 the heading holds one row saying so.
 

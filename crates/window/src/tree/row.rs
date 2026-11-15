@@ -335,9 +335,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         }
         Item::GitHub(_, root, listing) => {
             let count = tree::github(work, root)
-                .and_then(|r| r.read(*listing))
-                .and_then(|read| read.as_ref().ok())
-                .map(Vec::len)
+                .and_then(|r| r.count(*listing))
                 .filter(|n| *n > 0)
                 .map(|n| n.to_string())
                 .unwrap_or_default();

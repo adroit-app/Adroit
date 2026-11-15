@@ -445,6 +445,10 @@ mod tests {
                             ..Default::default()
                         }])),
                         issues: Some(Err("gh is not logged in".into())),
+                        open: Some(adroit_model::github::Counts {
+                            pulls: 1,
+                            issues: 40,
+                        }),
                     })),
                 }),
                 Change::Tree(TreeChange::GitHub {

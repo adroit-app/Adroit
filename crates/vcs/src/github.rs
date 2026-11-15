@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::github::{Checks, Item, Label, Listing, Pull, Read, Review};
+use adroit_model::github::{Checks, Counts, Item, Label, Listing, Pull, Read, Review};
 use serde::Deserialize;
 
 use crate::{Backend, Error, run};
@@ -60,6 +60,54 @@ pub async fn list(root: &Path, slug: &str, listing: Listing) -> Read {
         Err(Error::Failed { stderr, .. }) => Err(reason(&stderr)),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// How many pull requests and issues the repository `slug` has open, asked
+/// in `root`: in one query, as GitHub counts them, past the most a listing
+/// reads.
+pub async fn count(root: &Path, slug: &str) -> Result<Counts, String> {
+    let (owner, name) = slug
+        .split_once('/')
+        .ok_or_else(|| format!("{slug} names no repository on GitHub"))?;
+    let query = "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount} issues(states:OPEN){totalCount}}}";
+    let owner = format!("owner={owner}");
+    let name = format!("name={name}");
+    let args = ["api", "graphql", "-f", query, "-F", &owner, "-F", &name];
+    match run("gh", &args, Some(root)).await {
+        Ok(out) => counted(&out),
+        Err(Error::Failed { stderr, .. }) => Err(reason(&stderr)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// The counts `gh api graphql` printed for [`count`]'s query.
+fn counted(out: &str) -> Result<Counts, String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Total {
+        total_count: u64,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Open {
+        pull_requests: Total,
+        issues: Total,
+    }
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Open,
+    }
+    #[derive(Deserialize)]
+    struct Printed {
+        data: Data,
+    }
+    let printed: Printed =
+        serde_json::from_str(out).map_err(|e| format!("gh printed what cannot be read: {e}"))?;
+    let open = printed.data.repository;
+    Ok(Counts {
+        pulls: open.pull_requests.total_count,
+        issues: open.issues.total_count,
+    })
 }
 
 /// A new worktree of the repository at `root` for its pull request `number`
@@ -630,6 +678,20 @@ mod tests {
     #[test]
     fn output_that_is_not_a_listing_is_a_failed_read() {
         assert!(items("not json").is_err());
+    }
+
+    #[test]
+    fn open_counts_are_read_from_what_gh_api_graphql_printed() {
+        let out = r#"{"data":{"repository":{"pullRequests":{"totalCount":1},"issues":{"totalCount":42}}}}"#;
+        assert_eq!(
+            counted(out),
+            Ok(Counts {
+                pulls: 1,
+                issues: 42
+            })
+        );
+        assert!(counted(r#"{"data":{"repository":null}}"#).is_err());
+        assert!(counted("not json").is_err());
     }
 
     #[test]
