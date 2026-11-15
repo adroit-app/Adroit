@@ -8,10 +8,8 @@ use adroit_model::time::now_ms;
 use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
-use crate::content::{fresh_name, label_from, label_of};
 use crate::scratch;
-use crate::sessions;
-use crate::starting::{self, Failure as Failed, Stage};
+use crate::starting;
 
 const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--background] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
 
@@ -75,42 +73,24 @@ fn parse(args: &[String]) -> Option<Asked> {
     (asked.worktree || asked.base.is_none()).then_some(asked)
 }
 
-/// The name the session goes by: the one given, or one made from its prompt,
-/// numbered when taken.
-pub(crate) fn name_for(given: Option<&str>, prompt: &str, taken: &[&str]) -> String {
-    let label = given
-        .and_then(label_of)
-        .unwrap_or_else(|| label_from(prompt));
-    fresh_name(&label, taken)
-}
-
-/// Starts the session `asked` for as the user's own, beside the agent
-/// sessions named `taken`.
+/// Starts the session `asked` for as the user's own, beside the sessions
+/// `listed`.
 async fn start(
     daemon: &Daemon,
     settings: &crate::settings::Settings,
     asked: &Asked,
     dir: PathBuf,
     prompt: &str,
-    taken: &[&str],
+    listed: &[adroit_term::Session],
 ) -> Result<String, String> {
     // Refused before a worktree is made for it.
     let chosen = crate::programs::starting(settings, asked.agent, asked.profile.as_ref())?;
-    let name = name_for(asked.name.as_deref(), prompt, taken);
-    let worktree = if asked.worktree {
-        let summary = prompt.lines().next().unwrap_or_default();
-        Some(adroit_vcs::worktree::create(&dir, &name, asked.base.as_deref(), summary).await?)
-    } else {
-        None
-    };
-    let cwd = worktree.as_ref().map_or(dir, |made| made.path.clone());
     let request = crate::execution::StartRequest {
         agent: chosen.agent(),
         profile: Some(chosen.profile),
         model: asked.model.clone(),
-        name: name.clone(),
+        name: starting::name_for(asked.name.as_deref(), prompt, listed),
         name_given: asked.name.is_some(),
-        cwd,
         permissions: asked.permissions.clone(),
         prompt: prompt.into(),
         env: crate::daemon::agent_env(),
@@ -118,48 +98,20 @@ async fn start(
         show: !asked.background,
         ..Default::default()
     };
-    let launched = async {
-        let refused = |error| Failed::new(Stage::Refused, error);
-        let program = crate::work_host::adroit_program();
-        let (resolved, recorded) = crate::delegation::app::prepare(
-            &crate::delegation::app::root(),
-            settings,
-            request,
-            None,
-            &program,
-        )
+    let place = starting::Place {
+        dir,
+        worktree: asked.worktree,
+        base: asked.base.clone(),
+    };
+    let host = starting::Host {
+        daemon,
+        root: &crate::delegation::app::root(),
+        program: &crate::work_host::adroit_program(),
+    };
+    starting::start(host, settings, None, place, request)
         .await
-        .map_err(refused)?;
-        let mut spawn = resolved.spawn;
-        spawn.cols = crate::execution::COLS;
-        spawn.rows = crate::execution::ROWS;
-        let palette = crate::themes::palette_in_force(settings).map_err(refused)?;
-        let attach = recorded.clone();
-        let started = crate::execution::spawn_headless_prepared(
-            daemon,
-            spawn,
-            &palette,
-            move |id| async move { attach.attach(id).await },
-        )
-        .await;
-        let Err(error) = started else {
-            return Ok(());
-        };
-        let message = format!(
-            "cannot start {name}: {}",
-            crate::execution::spawn_failure(&error)
-        );
-        if crate::remote::active() && crate::execution::spawn_may_have_happened(&error) {
-            return Err(Failed::new(Stage::MayHaveRun, message));
-        }
-        recorded.failed().await;
-        Err(Failed::new(Stage::NotStarted, message))
-    }
-    .await;
-    starting::settled(worktree, launched)
-        .await
-        .map_err(|failure| failure.message)?;
-    Ok(name)
+        .map(|started| started.name)
+        .map_err(|failure| failure.message)
 }
 
 /// Asks the work host to start the session `asked` for as the session that
@@ -400,15 +352,13 @@ pub(crate) async fn run(
             .sessions()
             .await
             .map_err(|e| format!("cannot reach the daemon: {e}"))?;
-        let names: Vec<String> = sessions::agents(&listed).map(|s| s.name).collect();
-        let taken: Vec<&str> = names.iter().map(String::as_str).collect();
         start(
             &daemon,
             &crate::settings::current(),
             &prepared.asked,
             prepared.dir,
             &prepared.prompt,
-            &taken,
+            &listed,
         )
         .await
     }
@@ -574,15 +524,6 @@ mod tests {
         assert_eq!(parse(&args(&["--dir"])), None);
     }
 
-    #[test]
-    fn a_session_is_named_from_its_prompt_unless_given_one() {
-        assert_eq!(
-            name_for(None, "Find why the login test is flaky", &[]),
-            "find-login-test"
-        );
-        assert_eq!(name_for(Some("Review API"), "anything", &[]), "review-api");
-    }
-
     fn worktrees(source: &std::path::Path) -> usize {
         let listed = std::process::Command::new("git")
             .args(["worktree", "list", "--porcelain"])
@@ -622,13 +563,5 @@ mod tests {
 
         assert!(refused.contains("/nonexistent/claude"), "{refused}");
         assert_eq!(worktrees(&source), 1);
-    }
-
-    #[test]
-    fn a_name_already_taken_gets_a_number() {
-        assert_eq!(
-            name_for(Some("review"), "anything", &["review"]),
-            "review-2"
-        );
     }
 }

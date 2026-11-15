@@ -9,11 +9,11 @@ use adroit_term::tags;
 
 use crate::delegation::launch::{CODE_TAG, PARENT_TAG, SESSION_TAG, SHOW_TAG};
 
-const KIND: &str = "adroit.kind";
+pub(crate) const KIND: &str = "adroit.kind";
 pub const NAME: &str = "adroit.name";
 /// The directory a session was started in, which the daemon does not list
 /// (felis-terminal/felis#7).
-const CWD: &str = "adroit.cwd";
+pub(crate) const CWD: &str = "adroit.cwd";
 const STARTED: &str = "adroit.started";
 /// The file a Neovim was started on.
 const FILE: &str = "adroit.file";

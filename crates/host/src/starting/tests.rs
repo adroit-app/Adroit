@@ -73,3 +73,46 @@ async fn a_started_session_keeps_its_new_worktree() {
 
     assert!(path.is_dir());
 }
+
+/// An agent session the terminal host runs in terminal `id`, called `name`.
+fn agent(id: u128, name: &str) -> adroit_term::Session {
+    use adroit_term::tags::tagged;
+    adroit_term::Session {
+        id,
+        tags: [
+            tagged(crate::sessions::KIND, "claude"),
+            tagged(crate::sessions::CWD, "/repo"),
+            tagged(crate::sessions::NAME, name),
+        ]
+        .concat(),
+        title: None,
+        exited: false,
+        status: None,
+        sequence: 1,
+    }
+}
+
+#[test]
+fn a_session_is_named_from_its_prompt_unless_given_one() {
+    assert_eq!(
+        name_for(None, "Find why the login test is flaky", &[]),
+        "find-login-test"
+    );
+    assert_eq!(name_for(Some("Review API"), "anything", &[]), "review-api");
+}
+
+#[test]
+fn a_name_another_agent_session_goes_by_gets_a_number() {
+    assert_eq!(
+        name_for(Some("review"), "anything", &[agent(1, "review")]),
+        "review-2"
+    );
+}
+
+#[test]
+fn a_session_keeps_the_name_it_already_goes_by() {
+    let listed = [agent(1, "review"), agent(2, "review-2")];
+
+    assert_eq!(fresh_name("review", &listed, Some(1)), "review");
+    assert_eq!(fresh_name("review", &listed, Some(3)), "review-3");
+}

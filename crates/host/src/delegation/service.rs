@@ -24,7 +24,7 @@ use super::{
 };
 use crate::restore::Fate;
 use crate::settings::{RestoreSessions, Settings};
-use crate::starting::{Failure, Stage};
+use crate::starting::Stage;
 
 type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Send + Sync>;
 
@@ -379,12 +379,7 @@ async fn rename(context: &Context, caller: &Session, asked: protocol::Rename) ->
         .terminal
         .ok_or_else(|| Error::new(Code::Refused, "the session has no terminal yet"))?;
     let listed = context.daemon.sessions().await.map_err(Error::storage)?;
-    let names: Vec<String> = crate::sessions::agents(&listed)
-        .filter(|s| crate::sessions::id_of(&s.id) != Some(terminal))
-        .map(|s| s.name)
-        .collect();
-    let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-    let name = crate::content::fresh_name(&label, &taken);
+    let name = crate::starting::fresh_name(&label, &listed, Some(terminal));
     let held = listed
         .iter()
         .find(|s| s.id == terminal)
@@ -497,34 +492,18 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         .ok()
         .filter(|dir| dir.is_dir())
         .ok_or_else(|| Error::new(Code::Invalid, format!("{} is no directory", dir.display())))?;
-    let name = {
-        let listed = context.daemon.sessions().await.map_err(Error::storage)?;
-        let names: Vec<String> = crate::sessions::agents(&listed).map(|s| s.name).collect();
-        let taken: Vec<&str> = names.iter().map(String::as_str).collect();
-        crate::start::name_for(start.name.as_deref(), &prompt, &taken)
-    };
-    let worktree = match (start.worktree, &start.base) {
-        (true, base) => {
-            let summary = prompt.lines().next().unwrap_or_default();
-            let made = adroit_vcs::worktree::create(&dir, &name, base.as_deref(), summary)
-                .await
-                .map_err(|error| Error::new(Code::Invalid, error))?;
-            Some(made)
-        }
-        (false, Some(_)) => {
-            return Err(Error::new(
-                Code::Invalid,
-                "a base revision needs a new worktree (worktree: true)",
-            ));
-        }
-        (false, None) => None,
-    };
+    if start.base.is_some() && !start.worktree {
+        return Err(Error::new(
+            Code::Invalid,
+            "a base revision needs a new worktree (worktree: true)",
+        ));
+    }
+    let listed = context.daemon.sessions().await.map_err(Error::storage)?;
     let request = crate::execution::StartRequest {
         agent,
         profile: Some(profile),
         model: start.model,
-        name,
-        cwd: worktree.as_ref().map_or(dir, |made| made.path.clone()),
+        name: crate::starting::name_for(start.name.as_deref(), &prompt, &listed),
         prompt,
         permissions: start.permissions.unwrap_or_default(),
         env: crate::daemon::agent_env(),
@@ -532,8 +511,17 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
         show: !start.background,
         ..Default::default()
     };
-    let launched = launch(context, caller.id, &settings, request).await;
-    crate::starting::settled(worktree, launched)
+    let place = crate::starting::Place {
+        dir,
+        worktree: start.worktree,
+        base: start.base,
+    };
+    let host = crate::starting::Host {
+        daemon: &context.daemon,
+        root: &context.root,
+        program: &context.program,
+    };
+    let started = crate::starting::start(host, &settings, Some(caller.id), place, request)
         .await
         .map_err(|failure| {
             let code = match failure.stage {
@@ -541,50 +529,13 @@ async fn start(context: &Context, caller: &Session, start: protocol::Start) -> R
                 Stage::NotStarted | Stage::MayHaveRun => Code::Storage,
             };
             Error::new(code, failure.message)
-        })
-}
-
-async fn launch(
-    context: &Context,
-    opener: SessionId,
-    settings: &Settings,
-    request: crate::execution::StartRequest,
-) -> std::result::Result<Value, Failure> {
-    let (name, cwd) = (request.name.clone(), request.cwd.clone());
-    let palette = crate::themes::palette_in_force(settings)
-        .map_err(|error| Failure::new(Stage::Refused, error))?;
-    let (resolved, recorded) = super::app::prepare(
-        &context.root,
-        settings,
-        request,
-        Some(opener),
-        &context.program,
-    )
-    .await
-    .map_err(|error| Failure::new(Stage::Refused, error))?;
-    let mut spawn = resolved.spawn;
-    spawn.cols = crate::execution::COLS;
-    spawn.rows = crate::execution::ROWS;
-    let attach = recorded.clone();
-    let started = crate::execution::spawn_headless_prepared(
-        &context.daemon,
-        spawn,
-        &palette,
-        move |terminal| async move { attach.attach(terminal).await },
-    )
-    .await;
-    if let Err(error) = started {
-        let message = format!(
-            "cannot start {name}: {}",
-            crate::execution::spawn_failure(&error)
-        );
-        if crate::remote::active() && crate::execution::spawn_may_have_happened(&error) {
-            return Err(Failure::new(Stage::MayHaveRun, message));
-        }
-        recorded.failed().await;
-        return Err(Failure::new(Stage::NotStarted, message));
-    }
-    Ok(json!({"id": recorded.id, "code": recorded.code, "name": name, "dir": cwd}))
+        })?;
+    Ok(json!({
+        "id": started.recorded.id,
+        "code": started.recorded.code,
+        "name": started.name,
+        "dir": started.dir,
+    }))
 }
 
 /// The sessions that have not ended, narrowed as `filter` asks.
