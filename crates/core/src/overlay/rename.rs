@@ -1,6 +1,13 @@
 //! A session's name, or an environment's, being edited where it is shown.
 
 use adroit_model::{EnvironmentId, Session};
+use adroit_protocol::Request;
+
+use crate::chrome::status_line;
+use crate::content::Tab;
+use crate::effect::Effect;
+use crate::state::ViewState;
+use crate::tree::nav::Item;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
@@ -77,6 +84,125 @@ impl Rename {
     /// Whether the name was emptied, which hands naming back to its agent.
     pub fn emptied(&self) -> bool {
         self.text.trim().is_empty()
+    }
+}
+
+/// Start typing a new name for the session `id` of `environment` where
+/// `place` shows it, or for `environment` itself on its heading; a session
+/// waiting on an answer is answered first.
+pub(crate) fn start_rename(
+    state: &mut ViewState,
+    environment: &EnvironmentId,
+    id: &str,
+    place: Place,
+) -> Vec<Effect> {
+    if place == Place::Heading {
+        let name = state.hosts.name(environment);
+        state.overlays.rename = Some(Rename::of_environment(environment, &name));
+        return Vec::new();
+    }
+    match state.hosts.session(environment, id).map(|(_, s)| s) {
+        Some(s) if s.state.takes_every_key() => {
+            let text = format!("Answer {} first, then rename it", s.name);
+            status_line::notice(&mut state.chrome.status, text)
+        }
+        Some(s) => {
+            state.overlays.rename = Some(Rename::of(environment, s, place));
+            Vec::new()
+        }
+        None => Vec::new(),
+    }
+}
+
+/// The name typed so far in the field for `id` of `environment` where
+/// `place` shows it.
+pub(crate) fn type_name(
+    state: &mut ViewState,
+    environment: &EnvironmentId,
+    id: &str,
+    place: Place,
+    text: String,
+) -> Vec<Effect> {
+    if let Some(r) = state
+        .overlays
+        .rename
+        .as_mut()
+        .filter(|r| r.is_for(environment, id, place))
+    {
+        r.text = text;
+    }
+    Vec::new()
+}
+
+/// The field for `id` of `environment` where `place` shows it left, the
+/// name typed kept or given up; an older field leaving takes nothing from a
+/// newer one.
+pub(crate) fn end_rename(
+    state: &mut ViewState,
+    environment: &EnvironmentId,
+    id: &str,
+    place: Place,
+    commit: bool,
+) -> Vec<Effect> {
+    match Rename::take(&mut state.overlays.rename, environment, id, place) {
+        Some(r) if commit && r.place == Place::Heading => r
+            .name()
+            .map(|name| Effect::RenameEnvironment {
+                environment: r.environment,
+                name,
+            })
+            .into_iter()
+            .collect(),
+        Some(r) if commit => match r.name() {
+            Some(name) => {
+                let tab = Tab::Session(r.environment.clone(), r.id.clone());
+                let agent = crate::content::agent_of(state, Some(&tab));
+                vec![Effect::Host {
+                    environment: r.environment,
+                    request: Request::Rename {
+                        id: r.id,
+                        name,
+                        was: r.was,
+                        agent,
+                    },
+                }]
+            }
+            None if r.emptied() => vec![Effect::Host {
+                environment: r.environment,
+                request: Request::HandBackName { id: r.id },
+            }],
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// A name being typed goes when its row or its tab is no longer shown.
+pub(crate) fn keep_rename(state: &mut ViewState) {
+    let Some(r) = &state.overlays.rename else {
+        return;
+    };
+    let shown = match r.place {
+        Place::Sidebar => state.chrome.panels.layout.show_sidebar
+            && state.tree.rows().iter().any(
+                |item| matches!(item.own(), Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
+            ),
+        Place::Heading => {
+            state.chrome.panels.layout.show_sidebar
+                && state
+                    .tree
+                    .rows()
+                    .contains(&Item::Environment(r.environment.clone()))
+        }
+        Place::Tab => state
+            .content
+            .windows
+            .tabs()
+            .iter()
+            .any(|t| matches!(&t.focused().shows, Tab::Session(e, id) if *e == r.environment && *id == r.id)),
+    };
+    if !shown {
+        state.overlays.rename = None;
     }
 }
 

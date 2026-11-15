@@ -1,6 +1,7 @@
 use crate::testing::here;
 use adroit_model::{Key, Process, Wait};
 
+use super::rename::Place as RenamePlace;
 use super::*;
 use crate::actions::Action;
 use crate::chrome::panels::layout::Side;

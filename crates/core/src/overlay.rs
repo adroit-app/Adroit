@@ -2,25 +2,22 @@
 //! opened on a row, a tab or a link, a question to answer, a session's new
 //! name being typed, the sheet adding an environment, and the banner about the sessions' daemon.
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use adroit_model::{BroughtBack, EnvironmentId, Interrupted, Key, Session};
+use adroit_model::{EnvironmentId, Key, Session};
 use adroit_protocol::Request;
 
 use crate::actions::Action;
-use crate::chrome::{self, Chrome, status_line};
+use crate::chrome::{self, Chrome};
 use crate::content::{Area, Tab};
 use crate::effect::Effect;
-use crate::host::Hosts;
 use crate::keymap::help::{self, Press};
 use crate::keymap::{Context, Step};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
-use crate::settings::{RestoreSessions, Settings};
 use crate::state::ViewState;
 use crate::tree::nav::Item;
 use crate::update::step;
 
+mod banner;
 pub mod confirm;
 pub mod context_menu;
 pub mod lightbox;
@@ -29,11 +26,14 @@ pub mod rename;
 #[cfg(test)]
 mod tests;
 
+pub use banner::*;
 use confirm::Ask;
 use context_menu::Target;
 use lightbox::Lightbox;
-use naming::{Kind, Naming};
-use rename::{Place as RenamePlace, Rename};
+use naming::Naming;
+pub(crate) use naming::{end_naming, keep_naming, start_naming, type_naming};
+use rename::Rename;
+pub(crate) use rename::{end_rename, keep_rename, start_rename, type_name};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Overlays {
@@ -55,28 +55,6 @@ pub struct Menu {
     pub x: f64,
     pub y: f64,
     pub target: Target,
-}
-
-/// What the banner says of each environment's daemon the window cannot
-/// work with, and those put away.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Banner {
-    notes: BTreeMap<EnvironmentId, String>,
-    closed: BTreeSet<EnvironmentId>,
-    /// By the environment, what the terminal host took with it that the
-    /// banner was put away on.
-    later: BTreeMap<EnvironmentId, BTreeSet<String>>,
-}
-
-impl Banner {
-    /// The environment whose daemon the banner speaks of while it is shown,
-    /// and what it says.
-    pub fn shown(&self) -> Option<(&EnvironmentId, &str)> {
-        self.notes
-            .iter()
-            .find(|(environment, _)| !self.closed.contains(*environment))
-            .map(|(environment, note)| (environment, note.as_str()))
-    }
 }
 
 /// What holds the keys over the window.
@@ -298,288 +276,4 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 .collect()
         }
     }
-}
-
-/// Start typing a new name for the session `id` of `environment` where
-/// `place` shows it, or for `environment` itself on its heading; a session
-/// waiting on an answer is answered first.
-pub(crate) fn start_rename(
-    state: &mut ViewState,
-    environment: &EnvironmentId,
-    id: &str,
-    place: RenamePlace,
-) -> Vec<Effect> {
-    if place == RenamePlace::Heading {
-        let name = state.hosts.name(environment);
-        state.overlays.rename = Some(Rename::of_environment(environment, &name));
-        return Vec::new();
-    }
-    match state.hosts.session(environment, id).map(|(_, s)| s) {
-        Some(s) if s.state.takes_every_key() => {
-            let text = format!("Answer {} first, then rename it", s.name);
-            status_line::notice(&mut state.chrome.status, text)
-        }
-        Some(s) => {
-            state.overlays.rename = Some(Rename::of(environment, s, place));
-            Vec::new()
-        }
-        None => Vec::new(),
-    }
-}
-
-/// The name typed so far in the field for `id` of `environment` where
-/// `place` shows it.
-pub(crate) fn type_name(
-    state: &mut ViewState,
-    environment: &EnvironmentId,
-    id: &str,
-    place: RenamePlace,
-    text: String,
-) -> Vec<Effect> {
-    if let Some(r) = state
-        .overlays
-        .rename
-        .as_mut()
-        .filter(|r| r.is_for(environment, id, place))
-    {
-        r.text = text;
-    }
-    Vec::new()
-}
-
-/// The field for `id` of `environment` where `place` shows it left, the
-/// name typed kept or given up; an older field leaving takes nothing from a
-/// newer one.
-pub(crate) fn end_rename(
-    state: &mut ViewState,
-    environment: &EnvironmentId,
-    id: &str,
-    place: RenamePlace,
-    commit: bool,
-) -> Vec<Effect> {
-    match Rename::take(&mut state.overlays.rename, environment, id, place) {
-        Some(r) if commit && r.place == RenamePlace::Heading => r
-            .name()
-            .map(|name| Effect::RenameEnvironment {
-                environment: r.environment,
-                name,
-            })
-            .into_iter()
-            .collect(),
-        Some(r) if commit => match r.name() {
-            Some(name) => {
-                let tab = Tab::Session(r.environment.clone(), r.id.clone());
-                let agent = crate::content::agent_of(state, Some(&tab));
-                vec![Effect::Host {
-                    environment: r.environment,
-                    request: Request::Rename {
-                        id: r.id,
-                        name,
-                        was: r.was,
-                        agent,
-                    },
-                }]
-            }
-            None if r.emptied() => vec![Effect::Host {
-                environment: r.environment,
-                request: Request::HandBackName { id: r.id },
-            }],
-            None => Vec::new(),
-        },
-        _ => Vec::new(),
-    }
-}
-
-/// A name being typed goes when its row or its tab is no longer shown.
-pub(crate) fn keep_rename(state: &mut ViewState) {
-    let Some(r) = &state.overlays.rename else {
-        return;
-    };
-    let shown = match r.place {
-        RenamePlace::Sidebar => state.chrome.panels.layout.show_sidebar
-            && state.tree.rows().iter().any(
-                |item| matches!(item.own(), Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
-            ),
-        RenamePlace::Heading => {
-            state.chrome.panels.layout.show_sidebar
-                && state
-                    .tree
-                    .rows()
-                    .contains(&Item::Environment(r.environment.clone()))
-        }
-        RenamePlace::Tab => state
-            .content
-            .windows
-            .tabs()
-            .iter()
-            .any(|t| matches!(&t.focused().shows, Tab::Session(e, id) if *e == r.environment && *id == r.id)),
-    };
-    if !shown {
-        state.overlays.rename = None;
-    }
-}
-
-/// Start typing the name of a new entry of `kind` from the tree's row
-/// `row`, its directory opened to hold the field. A row outside the files
-/// names none.
-pub(crate) fn start_naming(state: &mut ViewState, row: &Item, kind: Kind) -> Vec<Effect> {
-    let Some(naming) = Naming::at(row, kind) else {
-        return Vec::new();
-    };
-    state.tree.folds.set(&naming.under(), true);
-    state.overlays.naming = Some(naming);
-    Vec::new()
-}
-
-pub(crate) fn type_naming(state: &mut ViewState, text: String) -> Vec<Effect> {
-    if let Some(naming) = state.overlays.naming.as_mut() {
-        naming.text = text;
-    }
-    Vec::new()
-}
-
-/// The field naming a new entry left: the work host is asked to make the
-/// name typed, unless it was given up, or says why it cannot be made.
-pub(crate) fn end_naming(state: &mut ViewState, commit: bool) -> Vec<Effect> {
-    let Some(naming) = state.overlays.naming.take().filter(|_| commit) else {
-        return Vec::new();
-    };
-    match naming.made() {
-        Ok(Some(made)) => vec![Effect::MakeEntry {
-            environment: naming.environment,
-            worktree: naming.worktree,
-            path: made.path,
-            dir: made.dir,
-        }],
-        Ok(None) => Vec::new(),
-        Err(text) => status_line::notice(&mut state.chrome.status, text),
-    }
-}
-
-/// A new entry being named goes when the row it is drawn under is no
-/// longer shown.
-pub(crate) fn keep_naming(state: &mut ViewState) {
-    let Some(naming) = &state.overlays.naming else {
-        return;
-    };
-    let shown =
-        state.chrome.panels.layout.show_sidebar && state.tree.rows().contains(&naming.under());
-    if !shown {
-        state.overlays.naming = None;
-    }
-}
-
-/// How `environment`'s daemon stands, as the banner says it; one put away
-/// stays away until that daemon is restarted.
-pub(crate) fn daemon_standing(
-    state: &mut ViewState,
-    environment: EnvironmentId,
-    note: Option<String>,
-) -> Vec<Effect> {
-    let notes = &mut state.overlays.banner.notes;
-    match note {
-        Some(note) => notes.insert(environment, note),
-        None => notes.remove(&environment),
-    };
-    Vec::new()
-}
-
-pub(crate) fn daemon_restarted(
-    state: &mut ViewState,
-    environment: EnvironmentId,
-    note: Option<String>,
-) -> Vec<Effect> {
-    state.overlays.banner.closed.remove(&environment);
-    daemon_standing(state, environment, note)
-}
-
-/// Forget what the banner says of `environment`'s daemon, one the window
-/// no longer shows.
-pub(crate) fn forget_daemon(state: &mut ViewState, environment: &EnvironmentId) {
-    let banner = &mut state.overlays.banner;
-    banner.notes.remove(environment);
-    banner.closed.remove(environment);
-}
-
-/// The environment whose terminal host took what the banner offers to
-/// bring back, and what it offers: while `settings` ask, what `hosts` list
-/// as waiting that `banner` was not put away on.
-pub fn interrupted_banner<'a>(
-    settings: &Settings,
-    hosts: &'a Hosts,
-    banner: &Banner,
-) -> Option<(EnvironmentId, Vec<&'a Interrupted>)> {
-    if settings.restore_sessions != RestoreSessions::Ask {
-        return None;
-    }
-    hosts.each().find_map(|(environment, _)| {
-        let waiting = picker::interrupted::waiting(hosts, environment);
-        let later = banner.later.get(environment);
-        let new = waiting
-            .iter()
-            .any(|i| later.is_none_or(|later| !later.contains(&i.id)));
-        new.then(|| (environment.clone(), waiting.iter().collect()))
-    })
-}
-
-fn banner_of(state: &ViewState) -> Option<(EnvironmentId, Vec<String>)> {
-    interrupted_banner(&state.config.settings, &state.hosts, &state.overlays.banner).map(
-        |(environment, waiting)| {
-            (
-                environment,
-                waiting.into_iter().map(|i| i.id.clone()).collect(),
-            )
-        },
-    )
-}
-
-/// Bring back, or let go of, everything the banner offers.
-pub(crate) fn bring_back_all(state: &mut ViewState, let_go: bool) -> Vec<Effect> {
-    let Some((environment, ids)) = banner_of(state) else {
-        return Vec::new();
-    };
-    vec![if let_go {
-        Effect::LetGo { environment, ids }
-    } else {
-        Effect::BringBack { environment, ids }
-    }]
-}
-
-/// Put the banner offering what the terminal host took away, until it takes
-/// more.
-pub(crate) fn interrupted_later(state: &mut ViewState) -> Vec<Effect> {
-    if let Some((environment, ids)) = banner_of(state) {
-        state
-            .overlays
-            .banner
-            .later
-            .insert(environment, ids.into_iter().collect());
-    }
-    Vec::new()
-}
-
-/// What came of bringing back what the terminal host took: each refused,
-/// with why.
-pub(crate) fn brought_back(state: &mut ViewState, outcomes: &[BroughtBack]) -> Vec<Effect> {
-    let refused: Vec<String> = outcomes
-        .iter()
-        .filter_map(|o| {
-            o.refused
-                .as_ref()
-                .map(|why| format!("{} did not come back: {why}", o.name))
-        })
-        .collect();
-    if refused.is_empty() {
-        return Vec::new();
-    }
-    status_line::notice(&mut state.chrome.status, refused.join("; "))
-}
-
-/// Put away the banner shown, leaving another environment's to show.
-pub(crate) fn close_banner(state: &mut ViewState) -> Vec<Effect> {
-    let banner = &mut state.overlays.banner;
-    if let Some(environment) = banner.shown().map(|(environment, _)| environment.clone()) {
-        banner.closed.insert(environment);
-    }
-    Vec::new()
 }

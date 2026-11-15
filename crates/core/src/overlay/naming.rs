@@ -5,6 +5,9 @@ use std::path::{Component, Path, PathBuf};
 
 use adroit_model::EnvironmentId;
 
+use crate::chrome::status_line;
+use crate::effect::Effect;
+use crate::state::ViewState;
 use crate::tree::nav::{Heading, Item};
 
 /// What a name typed makes.
@@ -111,6 +114,56 @@ impl Naming {
             path: self.dir.join(name),
             dir,
         }))
+    }
+}
+
+/// Start typing the name of a new entry of `kind` from the tree's row
+/// `row`, its directory opened to hold the field. A row outside the files
+/// names none.
+pub(crate) fn start_naming(state: &mut ViewState, row: &Item, kind: Kind) -> Vec<Effect> {
+    let Some(naming) = Naming::at(row, kind) else {
+        return Vec::new();
+    };
+    state.tree.folds.set(&naming.under(), true);
+    state.overlays.naming = Some(naming);
+    Vec::new()
+}
+
+pub(crate) fn type_naming(state: &mut ViewState, text: String) -> Vec<Effect> {
+    if let Some(naming) = state.overlays.naming.as_mut() {
+        naming.text = text;
+    }
+    Vec::new()
+}
+
+/// The field naming a new entry left: the work host is asked to make the
+/// name typed, unless it was given up, or says why it cannot be made.
+pub(crate) fn end_naming(state: &mut ViewState, commit: bool) -> Vec<Effect> {
+    let Some(naming) = state.overlays.naming.take().filter(|_| commit) else {
+        return Vec::new();
+    };
+    match naming.made() {
+        Ok(Some(made)) => vec![Effect::MakeEntry {
+            environment: naming.environment,
+            worktree: naming.worktree,
+            path: made.path,
+            dir: made.dir,
+        }],
+        Ok(None) => Vec::new(),
+        Err(text) => status_line::notice(&mut state.chrome.status, text),
+    }
+}
+
+/// A new entry being named goes when the row it is drawn under is no
+/// longer shown.
+pub(crate) fn keep_naming(state: &mut ViewState) {
+    let Some(naming) = &state.overlays.naming else {
+        return;
+    };
+    let shown =
+        state.chrome.panels.layout.show_sidebar && state.tree.rows().contains(&naming.under());
+    if !shown {
+        state.overlays.naming = None;
     }
 }
 
