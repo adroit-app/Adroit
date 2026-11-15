@@ -171,6 +171,16 @@ pub fn link_sections(
                 n.tag(now_ms),
                 n.body.clone(),
             )),
+            Entry::Prompt(p) => Some(LinkRow::plain(
+                at,
+                Icon::Message,
+                p.summary().to_owned(),
+                p.prompt
+                    .at_ms
+                    .map(|at_ms| adroit_model::time::ago(now_ms.saturating_sub(at_ms)))
+                    .unwrap_or_default(),
+                p.prompt.text.clone(),
+            )),
             Entry::Agent(a) => {
                 let (label, tag) = shown_agent(a, now_ms);
                 let (tone, icon) = agent_glyph(a.standing);

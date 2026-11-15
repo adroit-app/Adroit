@@ -41,6 +41,8 @@ pub struct Collector {
     reading: HashSet<String>,
     /// The sessions messaged or heard from, by name, with when last.
     peers: HashMap<String, (u64, Peer)>,
+    /// What was said to the session, oldest first.
+    prompts: Vec<Prompt>,
 }
 
 impl Collector {
@@ -57,6 +59,7 @@ impl Collector {
             sending: HashMap::new(),
             reading: HashSet::new(),
             peers: HashMap::new(),
+            prompts: Vec::new(),
         }
     }
 
@@ -100,6 +103,9 @@ impl Collector {
         // command's, is not what was said.
         if v["isMeta"].as_bool() == Some(true) {
             return;
+        }
+        if !assistant && origin["kind"].as_str() != Some("peer") {
+            self.prompted(&v["message"]["content"]);
         }
         match &v["message"]["content"] {
             Value::String(s) => self.text(s, assistant, exists),
@@ -160,7 +166,34 @@ impl Collector {
         let mut peers: Vec<&(u64, Peer)> = self.peers.values().collect();
         peers.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
         out.peers = peers.into_iter().map(|(_, p)| p.clone()).collect();
+        out.prompts = self.prompts.iter().rev().take(KEPT).cloned().collect();
         out
+    }
+
+    /// What the user said in a turn of `content`, kept as a prompt; a turn
+    /// of tool results alone, or of what a command printed, says nothing.
+    fn prompted(&mut self, content: &Value) {
+        let said: Vec<&str> = match content {
+            Value::String(s) => vec![s.as_str()],
+            Value::Array(items) => items
+                .iter()
+                .filter(|i| i["type"].as_str() == Some("text"))
+                .filter_map(|i| i["text"].as_str())
+                .collect(),
+            _ => Vec::new(),
+        };
+        let text = without_reminders(&said.join("\n"));
+        let text = text.trim();
+        // Claude Code writes the commands typed, and what they printed, in
+        // the user's turn, wrapped in tags of its own.
+        if text.is_empty() || text.starts_with("<command-") || text.starts_with("<local-command") {
+            return;
+        }
+        self.prompts.push(Prompt {
+            turn: self.prompts.len() as u64 + 1,
+            text: text.to_string(),
+            at_ms: self.now_ms,
+        });
     }
 
     fn text(&mut self, text: &str, assistant: bool, exists: &dyn Fn(&Path) -> bool) {
@@ -465,6 +498,23 @@ pub(crate) mod tests {
             title: None,
             line,
         }
+    }
+
+    #[test]
+    fn what_was_said_to_the_session_is_kept_newest_first_without_what_adroit_or_its_agent_put_there() {
+        let got = read(
+            &[
+                user(json!("fix the login")),
+                said("Done."),
+                user(json!([{"type": "text", "text": "now <system-reminder>x</system-reminder>add a test"}])),
+                result("t1", json!("tool output")),
+                json!({"type": "user", "isMeta": true, "message": {"content": "Caveat: meta"}}).to_string(),
+                user(json!("<command-name>/clear</command-name>")),
+            ],
+            &[],
+        );
+        let texts: Vec<(u64, &str)> = got.prompts.iter().map(|p| (p.turn, p.text.as_str())).collect();
+        assert_eq!(texts, [(2, "now add a test"), (1, "fix the login")]);
     }
 
     #[test]

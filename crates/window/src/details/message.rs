@@ -27,3 +27,29 @@ pub fn MessageView(
         }
     }
 }
+
+/// A prompt opened, told at `now_ms`; `on_back` goes back to its list, as
+/// `back_keys` do.
+#[component]
+pub fn PromptView(
+    prompt: adroit_model::links::Prompt,
+    now_ms: u64,
+    back_keys: String,
+    on_back: EventHandler<()>,
+) -> Element {
+    let summary = prompt.text.lines().next().unwrap_or_default().to_owned();
+    let when = prompt
+        .at_ms
+        .map(|at| adroit_model::time::ago(now_ms.saturating_sub(at)))
+        .unwrap_or_default();
+    rsx! {
+        Breadcrumbs {
+            title: "Back to the list ({back_keys})",
+            crumbs: vec![summary],
+            onback: move |_| on_back.call(()),
+        }
+        Section { label: "Turn {prompt.turn} · {when}",
+            div { class: "message-text", "{prompt.text}" }
+        }
+    }
+}

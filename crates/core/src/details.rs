@@ -496,6 +496,7 @@ pub enum Group {
     Changed,
     /// The changes leading to the worktree.
     Log,
+    Prompts,
 }
 
 impl Group {
@@ -521,6 +522,7 @@ impl Group {
             Group::Timeline => "Timeline",
             Group::Changed => "Changes",
             Group::Log => "Log",
+            Group::Prompts => "Prompts",
         }
     }
 }
@@ -550,6 +552,8 @@ pub enum Entry {
     Changed(Change),
     /// A change of the log, which opens the files it changed.
     Commit(Commit),
+    /// What was said to the session in a turn, which opens it whole.
+    Prompt(PromptRow),
     /// The row standing for a group's links not shown, which shows them all.
     More {
         group: Group,
@@ -575,6 +579,7 @@ impl Entry {
                 Group::Timeline => "\0timeline",
                 Group::Changed => "\0changed",
                 Group::Log => "\0log",
+                Group::Prompts => "\0prompts",
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Message(n) => n.id.as_str(),
@@ -588,6 +593,7 @@ impl Entry {
             Entry::Task(line) => line.id.as_str(),
             Entry::Changed(c) => c.path.as_str(),
             Entry::Commit(c) => c.id.as_str(),
+            Entry::Prompt(p) => p.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
@@ -601,6 +607,7 @@ impl Entry {
                 Group::Timeline => "\0more timeline",
                 Group::Changed => "\0more changed",
                 Group::Log => "\0more log",
+                Group::Prompts => "\0more prompts",
             },
         }
     }
@@ -619,8 +626,37 @@ impl Entry {
             Entry::Progress(_) | Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
             Entry::Changed(_) => Group::Changed,
             Entry::Commit(_) => Group::Log,
+            Entry::Prompt(_) => Group::Prompts,
             Entry::More { group, .. } => *group,
         }
+    }
+}
+
+/// A prompt as a row lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptRow {
+    /// What tells it apart from every other row.
+    pub key: String,
+    pub prompt: adroit_model::links::Prompt,
+}
+
+impl PromptRow {
+    pub fn new(prompt: adroit_model::links::Prompt) -> Self {
+        // No address, path or session name starts with a NUL.
+        Self {
+            key: format!("\0prompt {}", prompt.turn),
+            prompt,
+        }
+    }
+
+    /// The turn the row of `key` is of.
+    fn turn_of(key: &str) -> Option<u64> {
+        key.strip_prefix("\0prompt ")?.parse().ok()
+    }
+
+    /// Its first line.
+    pub fn summary(&self) -> &str {
+        self.prompt.text.lines().next().unwrap_or_default()
     }
 }
 
@@ -905,6 +941,8 @@ enum Opened {
     Process(String, String),
     /// A task of the timeline, by its id, and its title.
     Task(String, String),
+    /// A prompt, by its row's key, and its first line.
+    Prompt(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -958,6 +996,14 @@ impl Drill {
         }
     }
 
+    /// The prompt opened, by its turn.
+    pub fn prompt(&self) -> Option<u64> {
+        match self.opened.last() {
+            Some(Opened::Prompt(key, _)) => PromptRow::turn_of(key),
+            _ => None,
+        }
+    }
+
     /// The task opened, by its id.
     pub fn task(&self) -> Option<&str> {
         match self.opened.last() {
@@ -970,7 +1016,13 @@ impl Drill {
     pub fn shows_row(&self) -> bool {
         matches!(
             self.opened.last(),
-            Some(Opened::Agent(..) | Opened::Message(..) | Opened::Process(..) | Opened::Task(..))
+            Some(
+                Opened::Agent(..)
+                    | Opened::Message(..)
+                    | Opened::Process(..)
+                    | Opened::Task(..)
+                    | Opened::Prompt(..)
+            )
         )
     }
 
@@ -1000,6 +1052,7 @@ impl Drill {
                 Opened::Message(_, summary) => summary.clone(),
                 Opened::Process(_, name) => name.clone(),
                 Opened::Task(_, title) => title.clone(),
+                Opened::Prompt(_, summary) => summary.clone(),
             })
             .collect()
     }
@@ -1069,6 +1122,7 @@ impl Drill {
                 Entry::Task(t) => Opened::Task(t.id.clone(), t.title.clone()),
                 Entry::Changed(c) => Opened::File(c.clone()),
                 Entry::Commit(c) => Opened::Commit(c.clone()),
+                Entry::Prompt(p) => Opened::Prompt(p.key.clone(), p.summary().to_owned()),
                 _ => return false,
             },
             Listing::Diff(_) | Listing::Error(_) => return false,
@@ -1100,6 +1154,7 @@ impl Drill {
             Opened::Message(id, _) => id,
             Opened::Process(key, _) => key,
             Opened::Task(id, _) => id,
+            Opened::Prompt(key, _) => key,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's
         // first row stands in.

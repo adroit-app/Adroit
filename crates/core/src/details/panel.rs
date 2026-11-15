@@ -179,6 +179,7 @@ fn group_of(component: Component) -> Option<Group> {
         Component::Files => Group::Files,
         Component::Changes => Group::Changed,
         Component::Log => Group::Log,
+        Component::Prompts => Group::Prompts,
         _ => return None,
     })
 }
@@ -499,7 +500,8 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Ve
         | Entry::Process(_)
         | Entry::Task(_)
         | Entry::Changed(_)
-        | Entry::Commit(_) => {
+        | Entry::Commit(_)
+        | Entry::Prompt(_) => {
             details.drill.open(l);
             Vec::new()
         }
@@ -623,6 +625,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
         Entry::Changed(c) => copied(how, &c.path, format!("Copied {}", c.path)),
         Entry::Commit(c) => copied(how, &c.short, format!("Copied {}", c.short)),
+        Entry::Prompt(p) => copied(how, &p.prompt.text, "Copied the prompt".into()),
         Entry::Heading { .. } | Entry::More { .. } => Vec::new(),
     }
 }
@@ -842,6 +845,15 @@ fn rows_of(
                 first(d.links_shown),
             )
         }
+        Component::Prompts => {
+            let rows = links
+                .prompts
+                .iter()
+                .cloned()
+                .map(|p| Entry::Prompt(super::PromptRow::new(p)))
+                .collect();
+            grouped(Group::Prompts, rows, &folded, opened, first(d.links_shown))
+        }
         Component::Images => {
             let mut shots = shots(&details.shown.drawn, links, read);
             shots.truncate(d.links_kept);
@@ -1015,6 +1027,21 @@ pub fn opened_process(details: &Details, work: Option<&WorkSnapshot>) -> Option<
         .cloned()
 }
 
+/// The prompt opened.
+pub fn opened_prompt(
+    details: &Details,
+    work: Option<&WorkSnapshot>,
+) -> Option<adroit_model::links::Prompt> {
+    let turn = details.drill.prompt()?;
+    session_read(details, work)?
+        .links
+        .as_ref()?
+        .prompts
+        .iter()
+        .find(|p| p.turn == turn)
+        .cloned()
+}
+
 /// The task opened.
 pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<TaskDetail> {
     let id = details.drill.task()?;
@@ -1078,6 +1105,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
     let of_window = shown.subject() == Subject::Session;
     let has = |c| of_window && shows(details, c);
     let reads_entries = [
+        Component::Prompts,
         Component::Running,
         Component::Sessions,
         Component::Messages,
@@ -2547,5 +2575,46 @@ pub(crate) mod tests {
             Some(pulls)
         );
         assert_eq!(reads(""), Some(Default::default()));
+    }
+    #[test]
+    fn the_prompts_sent_open_whole_and_copy_their_text() {
+        let prompt = |turn: u64, text: &str| adroit_model::links::Prompt {
+            turn,
+            text: text.into(),
+            at_ms: None,
+        };
+        let links = Links {
+            prompts: vec![prompt(2, "add a test\nfor the login"), prompt(1, "fix the login")],
+            ..Default::default()
+        };
+        let run = Scenario::new()
+            .event(crate::config::testing::configured(
+                "[[panel.session.tabs]]\ntitle = \"P\"\ncomponents = [\"prompts\"]\n",
+            ))
+            .event(work(read("a", with_links(links))))
+            .send(shown(Some("a"), None));
+        let Some(Listing::Entries(entries)) = entries_of(&run) else {
+            panic!("rows listed");
+        };
+        let summaries: Vec<&str> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Prompt(p) => Some(p.summary()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(summaries, ["add a test", "fix the login"]);
+        let opened = run.send(Msg::DetailsKey(Key::Open));
+        let work = opened.state().hosts.own().work.as_ref();
+        assert_eq!(
+            opened_prompt(&opened.state().details, work).map(|p| p.turn),
+            Some(2)
+        );
+        let back = opened.send(Msg::DetailsBack).send(Msg::DetailsKey(Key::Down));
+        let copied = back.send(Msg::DetailsKey(Key::Copy));
+        assert!(copied.effects().iter().any(|e| matches!(
+            e,
+            Effect::Copy { text, .. } if text == "fix the login"
+        )));
     }
 }

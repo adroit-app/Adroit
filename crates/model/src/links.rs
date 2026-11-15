@@ -91,6 +91,20 @@ pub struct Links {
     pub images: Vec<ImageFile>,
     pub peers: Vec<Peer>,
     pub agents: Vec<Agent>,
+    /// What was said to the session in its turns, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts: Vec<Prompt>,
+}
+
+/// What was said to a session in one of its turns.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Prompt {
+    /// Which turn it was, counted from the conversation's first.
+    pub turn: u64,
+    pub text: String,
+    /// When it was sent, in milliseconds since the Unix epoch, as the
+    /// transcript tells.
+    pub at_ms: Option<u64>,
 }
 
 impl Links {
@@ -101,6 +115,7 @@ impl Links {
             && self.images.is_empty()
             && self.peers.is_empty()
             && self.agents.is_empty()
+            && self.prompts.is_empty()
     }
 
     /// Every link, artifacts first, then the other addresses, then files.

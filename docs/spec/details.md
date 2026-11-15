@@ -76,6 +76,10 @@ window or such a row is described.
   brought up. The images are those the session's console drew and the image
   files it came across that still exist, together, each beside a small
   picture of it.
+- **prompts** — what was said to the session in its turns, newest first, for
+  Claude Code, Codex, Pi and OpenCode alike, each with how long ago; opening
+  one shows it whole, and copying it copies its text. What Adroit or the
+  agent put into a turn, as a command's output, is not a prompt.
 - **changes** — the current jj change's full description, or the HEAD
   commit's full message in Git, alongside the files the worktree changes.
   Opening a file shows its diff.

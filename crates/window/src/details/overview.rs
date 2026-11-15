@@ -8,7 +8,7 @@ use adroit_core::msg::Msg;
 use adroit_model::{Process, Session};
 use dioxus::prelude::*;
 
-use super::message::MessageView;
+use super::message::{MessageView, PromptView};
 use super::process::ProcessView;
 use super::subagent::SubagentView;
 use super::timeline::TaskView;
@@ -16,7 +16,7 @@ use crate::bridge::AppCtx;
 use crate::components::{Fact, Facts, ListRow, Section};
 use crate::details::{
     Component, Entry, Group, change_line, entry_listing, link_sections, opened_agent, opened_note,
-    opened_process, opened_task, overview_facts, shown_session, stats, working_copy,
+    opened_process, opened_prompt, opened_task, overview_facts, shown_session, stats, working_copy,
 };
 use crate::icons::{Icon, IconView};
 
@@ -123,6 +123,14 @@ pub(super) fn OpenedRow(back_keys: String, on_kill: EventHandler<(Session, Proce
         if let Some(agent) = opened_agent(&details, work) {
             SubagentView {
                 agent,
+                now_ms,
+                back_keys: back_keys.clone(),
+                on_back: move |_| app.dispatch(Msg::DetailsBack),
+            }
+        }
+        if let Some(prompt) = opened_prompt(&details, work) {
+            PromptView {
+                prompt,
                 now_ms,
                 back_keys: back_keys.clone(),
                 on_back: move |_| app.dispatch(Msg::DetailsBack),
