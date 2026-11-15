@@ -416,12 +416,14 @@ async fn close(context: &Context, caller: &Session) -> Result<Value> {
     crate::environment::spawn(async move {
         tokio::time::sleep(CLOSING).await;
         if let Err(error) = context.daemon.end(terminal).await {
-            eprintln!("adroit: cannot end the session {id}, which closed itself: {error}");
+            tracing::warn!(%id, %error, "cannot end a session that closed itself");
             return;
         }
         if let Err(error) = context.call(move |store| store.end(id)).await {
-            eprintln!(
-                "adroit: cannot record the session {id}, which closed itself, as ended: {error}"
+            tracing::warn!(
+                %id,
+                %error,
+                "cannot record a session that closed itself as ended"
             );
         }
     });
