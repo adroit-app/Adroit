@@ -483,6 +483,19 @@ pub(crate) fn open_row(
     effects
 }
 
+/// A row clicked: one with rows under it folds or unfolds, a worktree's too,
+/// which a key opens once it is unfolded, for a click has no other way to
+/// fold it; any other row opens in place and takes the keys.
+pub(crate) fn click_row(state: &mut ViewState, item: Item) -> Vec<Effect> {
+    if !nav::holds(&item) {
+        return open_row(state, item, Some(Opening::Existing), true);
+    }
+    let view = &mut state.tree;
+    view.folds.toggle(&item);
+    view.selected = Some(item);
+    Vec::new()
+}
+
 /// The window `id` clicked, which takes the focus.
 pub(crate) fn focus_window(state: &mut ViewState, id: super::WindowId) -> Vec<Effect> {
     if state.content.windows.focused_window() != Some(id) {

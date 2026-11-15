@@ -36,7 +36,7 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
             "A workspace: a git repository or a directory sessions run in. Enter folds it; n starts a session there"
         }
         Item::Worktree(_, _) => {
-            "A worktree: a checkout of the repository, on a branch of its own. Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
+            "A worktree: a checkout of the repository, on a branch of its own. A click folds or unfolds it; Enter or l unfolds it while folded, else opens its session; n starts a session in it, s a shell"
         }
         Item::Session(_, _) | Item::Waiting(_, _) => "A session. Enter opens it",
         Item::Terminal(_, _) => {

@@ -56,7 +56,8 @@ or previous session, workspace or waiting session opens it so too.
 From the tree, the key says how a row opens and the row says what: opened,
 in a new window split below or beside the focused one, or in a new
 tab though a window shows it already ([keys](reference/keys.md#actions)). A
-row clicked is opened. A file opened from the tree opens by its kind, in a
+row clicked is opened, but for one with rows under it, which a click folds or
+unfolds: a worktree too, which a key opens once it is unfolded. A file opened from the tree opens by its kind, in a
 viewer or in Neovim ([viewers](#viewers)).
 
 ## Closing

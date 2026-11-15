@@ -674,6 +674,53 @@ fn a_row_clicked_opens_as_cursor_go_opens_it() {
 }
 
 #[test]
+fn a_worktree_s_row_clicked_folds_and_unfolds_it_and_opens_nothing() {
+    let run = listed_with([session("a").cwd("/r")]);
+    let row = Item::Worktree(
+        here(),
+        crate::tree::listed(run.state().hosts.work(&here()))
+            .worktrees()
+            .next()
+            .unwrap()
+            .worktree
+            .path
+            .clone(),
+    );
+    let unfolded = run.send(Msg::RowClicked(row.clone()));
+    assert!(unfolded.state().tree.folds.is_open(&row));
+    let folded = unfolded.send(Msg::RowClicked(row.clone()));
+    assert!(!folded.state().tree.folds.is_open(&row));
+    assert_eq!(active(&folded), None);
+    assert_eq!(folded.state().tree.selected, Some(row));
+}
+
+#[test]
+fn going_into_an_unfolded_worktree_s_row_opens_its_session() {
+    let run = listed_with([session("a").cwd("/r")]);
+    let row = Item::Worktree(
+        here(),
+        crate::tree::listed(run.state().hosts.work(&here()))
+            .worktrees()
+            .next()
+            .unwrap()
+            .worktree
+            .path
+            .clone(),
+    );
+    let gone = run
+        .send(Msg::TreeFold {
+            row: row.clone(),
+            open: true,
+        })
+        .send(Msg::OpenRow {
+            item: row,
+            how: Some(Opening::Existing),
+            take_keys: true,
+        });
+    assert_eq!(active(&gone), Some(Tab::Session(here(), "a".into())));
+}
+
+#[test]
 fn opening_a_file_s_row_starts_a_neovim_on_it() {
     let file = Item::File {
         environment: here(),
