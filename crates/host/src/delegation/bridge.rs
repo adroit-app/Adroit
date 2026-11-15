@@ -331,9 +331,8 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
 }
 
 /// What a Claude Code hook `event` is answered with: what the work host
-/// says of the session's name, as a prompt arrives or once the conversation
-/// was cleared; nothing for any other event, or while the work host cannot
-/// say.
+/// tells the agent as a prompt arrives or once the conversation was cleared;
+/// nothing for any other event, or while the work host cannot say.
 async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
     let name = event["hook_event_name"].as_str()?;
     let cleared = match name {
@@ -341,7 +340,7 @@ async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
         "SessionStart" if event["source"] == "clear" => true,
         _ => return None,
     };
-    let answer = daemon.ask(Command::Naming { cleared }, None).await.ok()?;
+    let answer = daemon.ask(Command::Prompted { cleared }, None).await.ok()?;
     let note = answer["note"].as_str()?;
     Some(json!({"hookSpecificOutput": {"hookEventName": name, "additionalContext": note}}))
 }
@@ -451,7 +450,7 @@ mod tests {
                 Command::Context => json!({"opened_by": null}),
                 Command::Next => self.waiting.lock().unwrap().pop().unwrap_or(Value::Null),
                 Command::Send(send) => json!({"sent_to": send.to}),
-                Command::Naming { cleared } => json!({"note": format!("cleared={cleared}")}),
+                Command::Prompted { cleared } => json!({"note": format!("cleared={cleared}")}),
                 Command::Timeline => json!("(no tasks)\nline two"),
                 _ => Value::Null,
             })

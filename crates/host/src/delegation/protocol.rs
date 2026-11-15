@@ -62,9 +62,11 @@ pub enum Command {
     Rename(Rename),
     /// End the caller's own session, once its user agreed.
     Close,
-    /// What the caller's agent is to weigh of its session's name as a prompt
-    /// arrives, or once its conversation was cleared.
-    Naming {
+    /// What the caller's agent is to weigh as a prompt arrives, or once its
+    /// conversation was cleared. Still read under its former name, which
+    /// hooks of an Adroit installed before send to a work host started since.
+    #[serde(alias = "naming")]
+    Prompted {
         cleared: bool,
     },
     /// Record changes to the caller's timeline.

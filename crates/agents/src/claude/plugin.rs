@@ -21,8 +21,8 @@ pub fn install(program: &Path, dir: &Path) -> std::io::Result<()> {
     std::fs::write(hooks.join("hooks.json"), self::hooks(program))
 }
 
-/// The hooks that ask `program` what to tell Claude of its session's name:
-/// once a conversation is cleared and as each prompt arrives.
+/// The hooks that ask `program` what to tell Claude: once a conversation is
+/// cleared and as each prompt arrives.
 fn hooks(program: &Path) -> String {
     let asked = serde_json::json!([{
         "type": "command",

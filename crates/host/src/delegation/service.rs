@@ -198,7 +198,7 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         Command::StartSession(start) => self::start(context, &caller, start).await,
         Command::Rename(asked) => rename(context, &caller, asked).await,
         Command::Close => close(context, &caller).await,
-        Command::Naming { cleared } => naming(context, &caller, cleared).await,
+        Command::Prompted { cleared } => prompted(context, &caller, cleared).await,
         Command::TimelineTasks(asked) => record_timeline(context, &caller, asked).await,
         Command::Timeline => {
             let code = caller.code.clone();
@@ -428,24 +428,42 @@ async fn close(context: &Context, caller: &Session) -> Result<Value> {
     Ok(json!({"closing": true}))
 }
 
+/// What the caller's agent is told as a prompt arrives or once its
+/// conversation was cleared: of its session's name, and, while nothing is on
+/// its timeline, to record the plan of its work there. Nothing when neither
+/// applies.
+async fn prompted(context: &Context, caller: &Session, cleared: bool) -> Result<Value> {
+    let naming = naming(context, caller, cleared).await?;
+    let code = caller.code.clone();
+    let empty = context
+        .call(move |store| store.timeline_of(&code))
+        .await?
+        .is_empty();
+    let timeline = empty.then(|| super::launch::TIMELINE_AT_PROMPT.to_owned());
+    let note = match (naming, timeline) {
+        (Some(naming), Some(timeline)) => Some(format!("{naming}\n\n{timeline}")),
+        (naming, timeline) => naming.or(timeline),
+    };
+    Ok(json!({"note": note}))
+}
+
 /// What the caller's agent is told of its session's name: once its
 /// conversation was cleared, that the name is of the work before, even one
 /// a person gave, which a clear hands back to the agent; as each prompt
 /// arrives, to weigh the name against the work. Nothing while renaming is
 /// switched off, or at a prompt while a person's name stands.
-async fn naming(context: &Context, caller: &Session, cleared: bool) -> Result<Value> {
+async fn naming(context: &Context, caller: &Session, cleared: bool) -> Result<Option<String>> {
     if !context.settings()?.rename_sessions {
-        return Ok(json!({"note": null}));
+        return Ok(None);
     }
     if cleared {
         if caller.name_given {
             let id = caller.id;
             context.call(move |store| store.hand_back_name(id)).await?;
         }
-        return Ok(json!({"note": super::launch::naming_after_clear(&caller.name)}));
+        return Ok(Some(super::launch::naming_after_clear(&caller.name)));
     }
-    let note = (!caller.name_given).then(|| super::launch::naming_at_prompt(&caller.name));
-    Ok(json!({"note": note}))
+    Ok((!caller.name_given).then(|| super::launch::naming_at_prompt(&caller.name)))
 }
 
 async fn start(context: &Context, caller: &Session, start: protocol::Start) -> Result<Value> {
@@ -1355,7 +1373,7 @@ mod tests {
     async fn after_a_clear_the_agent_is_asked_to_name_its_session_for_the_work_that_follows() {
         let (_dir, context, caller, _) = conversation_watch("review");
 
-        let note = note_of(naming(&context, &caller, true).await.unwrap()).unwrap();
+        let note = note_of(prompted(&context, &caller, true).await.unwrap()).unwrap();
 
         assert!(note.contains("`review`"), "{note}");
         assert!(note.contains("cleared"), "{note}");
@@ -1366,7 +1384,7 @@ mod tests {
     async fn at_each_prompt_the_agent_keeps_the_name_unless_the_work_turned() {
         let (_dir, context, caller, _) = conversation_watch("review");
 
-        let note = note_of(naming(&context, &caller, false).await.unwrap()).unwrap();
+        let note = note_of(prompted(&context, &caller, false).await.unwrap()).unwrap();
 
         assert!(note.contains("`review`"), "{note}");
         assert!(note.contains("`rename_session`"), "{note}");
@@ -1384,7 +1402,7 @@ mod tests {
             .unwrap();
         caller.name_given = true;
 
-        let note = note_of(naming(&context, &caller, true).await.unwrap()).unwrap();
+        let note = note_of(prompted(&context, &caller, true).await.unwrap()).unwrap();
 
         assert!(note.contains("call `rename_session`"), "{note}");
         let kept = context.store.lock().unwrap().known(caller.id).unwrap();
@@ -1395,15 +1413,43 @@ mod tests {
     async fn a_session_whose_name_its_agent_may_not_change_is_not_asked_to_name_it() {
         let (_dir, mut context, mut caller, _) = conversation_watch("review");
         caller.name_given = true;
-        assert_eq!(
-            note_of(naming(&context, &caller, false).await.unwrap()),
-            None
-        );
+        let note = note_of(prompted(&context, &caller, false).await.unwrap()).unwrap();
+        assert!(!note.contains("`rename_session`"), "{note}");
 
         caller.name_given = false;
         context.settings = Arc::new(|| Ok(Settings::parse("rename_sessions = false\n").unwrap()));
+        let note = note_of(prompted(&context, &caller, false).await.unwrap()).unwrap();
+        assert!(!note.contains("`rename_session`"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn at_each_prompt_a_session_with_nothing_on_its_timeline_is_reminded_to_record_its_plan()
+    {
+        let (_dir, context, mut caller, _) = conversation_watch("review");
+        caller.name_given = true;
+
+        let note = note_of(prompted(&context, &caller, false).await.unwrap()).unwrap();
+
+        assert!(note.contains("`timeline_tasks`"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn once_its_agent_has_recorded_a_timeline_a_prompt_no_longer_reminds_it() {
+        let (_dir, context, mut caller, _) = conversation_watch("review");
+        record_timeline(
+            &context,
+            &caller,
+            tasks(json!([{"op": "add", "id": "goal", "title": "Review"}])),
+        )
+        .await
+        .unwrap();
+
+        let note = note_of(prompted(&context, &caller, false).await.unwrap()).unwrap();
+        assert!(!note.contains("`timeline_tasks`"), "{note}");
+
+        caller.name_given = true;
         assert_eq!(
-            note_of(naming(&context, &caller, false).await.unwrap()),
+            note_of(prompted(&context, &caller, false).await.unwrap()),
             None
         );
     }

@@ -181,9 +181,13 @@ pub fn naming_after_clear(name: &str) -> String {
 pub fn naming_at_prompt(name: &str) -> String {
     format!(
         "Adroit shows this session as `{name}`. \
-         If that name does not say what the work is — it was made from the first words of a prompt, or this prompt turns the work to something else entirely — call `rename_session` once you have answered it; while the work goes on as the name says, keep the name."
+         If it does not say what the work is, or this prompt turns the work elsewhere, call `rename_session` once you have answered; otherwise keep the name."
     )
 }
+
+/// What the agent is told as each prompt arrives while nothing is on its
+/// timeline.
+pub const TIMELINE_AT_PROMPT: &str = "Your timeline is empty: if this prompt asks for work of several steps, record its plan with `timeline_tasks` before you start.";
 
 const SCRATCH: &str = "\
 You run in Adroit's scratch folder, which every scratch session shares, for talk that belongs to no project; keep what you write here small. \
@@ -198,6 +202,8 @@ Open a session with `start_session` for a line of work the user will want to ste
 When asked to work in parallel, give each such line a session and the rest to subagents. \
 Never open one for a step of your own answer, for something you would wait on, or only to have it run alongside. \
 It answers to the user, not to you: give it a first prompt that carries all it needs, and tell the user you opened it and why. \
+\n\n\
+Before work of several steps, record its plan with `timeline_tasks`, which the user follows in Adroit, and keep it current as you go, in place of a todo list. \
 \n\n\
 When the task you were given is done, or you have handed what is left of it to another session, do not just stop and wait: give the user a summary of where things stand — what was done, what is left and where it went — then ask the user whether to close this session, with your own tool for asking the user a question if you have one, otherwise in plain words at the end of your answer. \
 Call `close_session` only once the user agrees, and as the last thing you do. \
@@ -238,6 +244,15 @@ mod tests {
             assert!(told.contains("ask the user whether to close"), "{told}");
             assert!(told.contains("`close_session`"), "{told}");
             assert!(told.contains("only once the user agrees"), "{told}");
+        }
+    }
+
+    #[test]
+    fn every_session_is_told_to_record_the_plan_of_work_of_several_steps_on_its_timeline() {
+        for scratch in [false, true] {
+            let told = instructions(Path::new("/bin/adroit"), scratch);
+            assert!(told.contains("`timeline_tasks`"), "{told}");
+            assert!(told.contains("in place of a todo list"), "{told}");
         }
     }
 

@@ -131,6 +131,10 @@ what it did; it neither waits for their answer nor takes a lock. A session
 asks another that knows something rather than working it out again, and
 plans nothing on an answer coming. Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
+Before work of several steps, a session records its plan on its
+[timeline](details.md#the-timeline) and keeps it current as it goes. A Claude
+Code session whose timeline is empty is reminded of it with each prompt you
+send, until its agent records one.
 A [scratch session](tree.md#scratch-sessions) is told besides to hand work on
 a project to a session in that project's directory and to leave it there.
 
