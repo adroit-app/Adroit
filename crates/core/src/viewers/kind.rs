@@ -10,6 +10,7 @@ pub enum FileKind {
     Image,
     Movie,
     Html,
+    Markdown,
     Pdf,
 }
 
@@ -24,6 +25,7 @@ impl FileKind {
             | "avif" | "heic" => FileKind::Image,
             "mp4" | "m4v" | "mov" | "webm" => FileKind::Movie,
             "html" | "htm" => FileKind::Html,
+            "md" | "markdown" => FileKind::Markdown,
             "pdf" => FileKind::Pdf,
             _ => FileKind::Text,
         }
@@ -31,7 +33,7 @@ impl FileKind {
 
     /// Whether a viewer of the window shows the file, rather than Neovim.
     pub fn has_viewer(self) -> bool {
-        self != FileKind::Text
+        !matches!(self, FileKind::Text | FileKind::Markdown)
     }
 }
 
@@ -41,7 +43,10 @@ impl FileKind {
 pub fn is_text(path: impl AsRef<Path>) -> bool {
     let path = path.as_ref();
     !FileKind::of(path).has_viewer()
-        || matches!(extension(path).as_deref(), Some("html" | "htm" | "svg"))
+        || matches!(
+            extension(path).as_deref(),
+            Some("html" | "htm" | "svg" | "md" | "markdown")
+        )
 }
 
 fn extension(path: &Path) -> Option<String> {
@@ -123,17 +128,22 @@ mod tests {
 
     #[test]
     fn source_and_unknown_files_open_in_neovim() {
-        for name in [
-            "main.rs",
-            "README.md",
-            "data.bin",
-            "Makefile",
-            ".envrc",
-            "a.png.txt",
-        ] {
+        for name in ["main.rs", "data.bin", "Makefile", ".envrc", "a.png.txt"] {
             assert_eq!(FileKind::of(name), FileKind::Text, "{name}");
             assert!(!FileKind::of(name).has_viewer());
         }
+    }
+
+    #[test]
+    fn markdown_documents_are_their_kind_and_text_as_well() {
+        for name in ["README.md", "notes.MARKDOWN", "docs/a.Md"] {
+            assert_eq!(FileKind::of(name), FileKind::Markdown, "{name}");
+            assert!(is_text(name), "{name}");
+        }
+        assert_eq!(FileKind::of("page.mdx"), FileKind::Text);
+        // The tree opens them in Neovim until a window can switch a document
+        // between its viewer and its Neovim.
+        assert!(!FileKind::Markdown.has_viewer());
     }
 
     #[test]

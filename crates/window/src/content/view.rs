@@ -2,6 +2,7 @@
 //! where its share of the content puts it, and the borders between them.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use adroit_core::completion::Completions;
 use adroit_core::msg::Msg;
@@ -88,11 +89,18 @@ pub(crate) fn ContentPanel(
                 // A viewer is drawn the same focused or not, so it keeps its
                 // zoom, page and playback as the focus moves.
                 let body = if let Tab::Viewer(_, path) = &shows {
+                    // A document shows images from the worktree it is in,
+                    // or else from its own folder.
+                    let root = tree_view::place_of_tab(t, terms, &shows)
+                        .map(|p| p.worktree)
+                        .or_else(|| path.parent().map(PathBuf::from))
+                        .unwrap_or_default();
                     rsx! {
                         ViewerWindow {
                             key: "{id}",
                             window: id,
                             path: path.clone(),
+                            root,
                             commands: viewer_command,
                             on_close: move |_| app.dispatch(Msg::Window(Action::WindowQuit)),
                         }

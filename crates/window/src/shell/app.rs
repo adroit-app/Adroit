@@ -45,6 +45,7 @@ pub fn launch(build: crate::Build) {
 #[component]
 fn App() -> Element {
     use_bundled_font();
+    crate::viewers::use_arto_assets();
     let app = use_app();
     let local = use_local();
     let hub = use_hub(app, local);

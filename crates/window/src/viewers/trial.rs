@@ -116,6 +116,7 @@ fn TrialWindow() -> Element {
                 }
             },
             Viewer {
+                root: path.parent().map(PathBuf::from).unwrap_or_default(),
                 path,
                 command,
                 on_close: move |_| dioxus::desktop::window().close(),

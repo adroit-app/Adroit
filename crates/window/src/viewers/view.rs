@@ -10,6 +10,7 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::{Response, StatusCode, header};
 use dioxus::prelude::*;
 
+use super::markdown::{Images, Unshown, image_id, image_response, markdown_document, render};
 use super::pdf;
 use super::serve::{self, Scope};
 use adroit_core::viewers::FileKind;
@@ -30,16 +31,18 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 
 /// The file at `path` in the viewer of its kind. Actions arrive through
 /// `command`; `on_close` is called when one asks for the viewer to close.
+/// A document reads the images it shows from under `root` alone.
 #[component]
 pub fn Viewer(
     path: PathBuf,
+    root: PathBuf,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
 ) -> Element {
     let key = path.to_string_lossy().into_owned();
     match ViewerState::new(FileKind::of(&path)) {
         Some(_) => rsx! {
-            ViewerOf { key: "{key}", path, command, on_close }
+            ViewerOf { key: "{key}", path, root, command, on_close }
         },
         None => rsx! {
             div { class: "viewer",
@@ -144,6 +147,7 @@ fn answer(scope: &Scope, kind: FileKind, rel: &str, range: Option<&str>) -> Resp
 #[component]
 fn ViewerOf(
     path: PathBuf,
+    root: PathBuf,
     command: ReadSignal<Option<Command>>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -158,10 +162,12 @@ fn ViewerOf(
     let mut state = use_signal(|| ViewerState::new(kind).expect("a kind with a viewer"));
     // A command sent before the viewer opened is not for it.
     let last = use_hook(|| Rc::new(Cell::new(command.peek().map_or(0, |c| c.seq))));
+    let images: Images = use_hook(Images::default);
 
     use_asset_handler(&prefix, {
         let scope = scope.clone();
         let prefix = prefix.clone();
+        let images = images.clone();
         move |request, responder| {
             let rel = request
                 .uri()
@@ -177,16 +183,48 @@ fn ViewerOf(
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string);
             let scope = scope.clone();
+            let images = images.clone();
             std::thread::spawn(move || {
-                responder.respond(answer(&scope, kind, &rel, range.as_deref()));
+                let r = match (kind, rel.strip_prefix("img/")) {
+                    // A document is served to its frame whole; what the frame
+                    // asks of the viewer is the images it shows, and nothing
+                    // else of the disk.
+                    (FileKind::Markdown, image) => {
+                        let shown = images
+                            .lock()
+                            .ok()
+                            .and_then(|i| i.get(image_id(image?)).cloned());
+                        image_response(shown.as_ref())
+                    }
+                    _ => answer(&scope, kind, &rel, range.as_deref()),
+                };
+                responder.respond(r);
             });
         }
     });
 
     let mut page = use_signal(|| None::<Option<String>>);
+    // The frame's document is set once: a frame given another reloads and
+    // loses its scroll, so what changes later reaches it by message.
+    let mut frame_doc = use_signal(|| None::<Result<String, Unshown>>);
     use_hook(|| {
         let path = path.clone();
         match kind {
+            FileKind::Markdown => {
+                let (root, images) = (root.clone(), images.clone());
+                let base = format!("{}{prefix}/img", serve::ORIGIN);
+                spawn(async move {
+                    let rendered = tokio::task::spawn_blocking(move || render(&path, &root, base))
+                        .await
+                        .unwrap_or(Err(Unshown::Unrenderable));
+                    frame_doc.set(Some(rendered.map(|r| {
+                        if let Ok(mut i) = images.lock() {
+                            *i = r.images;
+                        }
+                        markdown_document(&r.html, r.libraries)
+                    })));
+                });
+            }
             FileKind::Pdf => {
                 spawn(async move {
                     let pages = tokio::task::spawn_blocking(move || pdf::page_count(&path))
@@ -228,7 +266,7 @@ fn ViewerOf(
             let effect = state.write().apply(cmd.action);
             let turned = matches!(cmd.action, ViewerAction::PageNext | ViewerAction::PagePrev);
             match effect {
-                Effect::Scroll(s) if kind == FileKind::Html => {
+                Effect::Scroll(s) if matches!(kind, FileKind::Html | FileKind::Markdown) => {
                     document::eval(&frame_script(&media_id, &frame_scroll(s)));
                 }
                 Effect::Scroll(s) => {
@@ -254,12 +292,15 @@ fn ViewerOf(
     use_effect({
         let media_id = media_id.clone();
         move || {
-            if let ViewerState::Html(s) = state() {
-                document::eval(&frame_script(
-                    &media_id,
-                    &format!("{{\"zoom\": {}}}", s.zoom.factor()),
-                ));
-            }
+            let zoom = match state() {
+                ViewerState::Html(s) => s.zoom,
+                ViewerState::Markdown(s) => s.zoom,
+                _ => return,
+            };
+            document::eval(&frame_script(
+                &media_id,
+                &format!("{{\"zoom\": {}}}", zoom.factor()),
+            ));
         }
     });
 
@@ -272,6 +313,7 @@ fn ViewerOf(
     let detail = match now {
         ViewerState::Image(s) => format!("{}%", s.zoom.percent()),
         ViewerState::Html(s) => format!("{}%", s.zoom.percent()),
+        ViewerState::Markdown(s) => format!("{}%", s.zoom.percent()),
         ViewerState::Pdf(s) => match s.pages {
             Some(n) => format!("{} / {} · {}%", s.page + 1, n, s.zoom.percent()),
             None => "—".into(),
@@ -348,37 +390,18 @@ fn ViewerOf(
             ViewerEmpty { "This page cannot be read" }
         },
         ViewerState::Html(s) => {
-            let (media_id, relay_id, box_id) = (media_id.clone(), media_id.clone(), box_id.clone());
-            let zoom = s.zoom.factor();
             let document = page.read().clone().flatten().unwrap_or_default();
-            rsx! {
-                iframe {
-                    id: "{media_id}",
-                    class: "viewer-frame",
-                    "srcdoc": "{document}",
-                    "sandbox": "allow-scripts allow-forms",
-                    onload: move |_| {
-                        document::eval(&frame_script(&media_id, &format!("{{\"zoom\": {zoom}}}")));
-                    },
-                    onmounted: move |_| {
-                        // Keys pressed in the page come back to the viewer,
-                        // which hands them on as if pressed on itself.
-                        document::eval(&format!(
-                            "window.addEventListener('message', (e) => {{
-                               const f = document.getElementById({relay_id:?});
-                               const b = document.getElementById({box_id:?});
-                               if (!f || !b || e.source !== f.contentWindow) return;
-                               const m = e.data;
-                               if (!m || m.adroitViewerKey !== 1) return;
-                               b.dispatchEvent(new KeyboardEvent('keydown', {{key: m.key, code: m.code,
-                                 ctrlKey: m.ctrlKey, metaKey: m.metaKey, altKey: m.altKey,
-                                 shiftKey: m.shiftKey, bubbles: true, cancelable: true}}));
-                             }});"
-                        ));
-                    },
-                }
-            }
+            page_frame(media_id.clone(), box_id.clone(), s.zoom.factor(), document)
         }
+        ViewerState::Markdown(s) => match frame_doc.read().clone() {
+            None => rsx! {},
+            Some(Err(why)) => rsx! {
+                ViewerEmpty { "{why.says()}" }
+            },
+            Some(Ok(document)) => {
+                page_frame(media_id.clone(), box_id.clone(), s.zoom.factor(), document)
+            }
+        },
     };
     rsx! {
         div { class: "viewer",
@@ -388,6 +411,39 @@ fn ViewerOf(
                 span { class: "name", "{name}" }
                 span { "{detail}" }
             }
+        }
+    }
+}
+
+/// The frame `media_id` that draws `document` apart from the window, at
+/// `zoom`, handing the keys pressed in it to the viewer's box `box_id`.
+fn page_frame(media_id: String, box_id: String, zoom: f64, document: String) -> Element {
+    let relay_id = media_id.clone();
+    rsx! {
+        iframe {
+            id: "{media_id}",
+            class: "viewer-frame",
+            "srcdoc": "{document}",
+            "sandbox": "allow-scripts allow-forms",
+            onload: move |_| {
+                document::eval(&frame_script(&media_id, &format!("{{\"zoom\": {zoom}}}")));
+            },
+            onmounted: move |_| {
+                // Keys pressed in the page come back to the viewer,
+                // which hands them on as if pressed on itself.
+                document::eval(&format!(
+                    "window.addEventListener('message', (e) => {{
+                       const f = document.getElementById({relay_id:?});
+                       const b = document.getElementById({box_id:?});
+                       if (!f || !b || e.source !== f.contentWindow) return;
+                       const m = e.data;
+                       if (!m || m.adroitViewerKey !== 1) return;
+                       b.dispatchEvent(new KeyboardEvent('keydown', {{key: m.key, code: m.code,
+                         ctrlKey: m.ctrlKey, metaKey: m.metaKey, altKey: m.altKey,
+                         shiftKey: m.shiftKey, bubbles: true, cancelable: true}}));
+                     }});"
+                ));
+            },
         }
     }
 }

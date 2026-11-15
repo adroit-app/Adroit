@@ -182,12 +182,19 @@ pub struct HtmlState {
     pub zoom: Zoom,
 }
 
+/// A Markdown document's state.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MarkdownState {
+    pub zoom: Zoom,
+}
+
 /// One viewer's state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ViewerState {
     Image(ImageState),
     Movie(MovieState),
     Html(HtmlState),
+    Markdown(MarkdownState),
     Pdf(PdfState),
 }
 
@@ -199,6 +206,7 @@ impl ViewerState {
             FileKind::Image => ViewerState::Image(ImageState::default()),
             FileKind::Movie => ViewerState::Movie(MovieState::default()),
             FileKind::Html => ViewerState::Html(HtmlState::default()),
+            FileKind::Markdown => ViewerState::Markdown(MarkdownState::default()),
             FileKind::Pdf => ViewerState::Pdf(PdfState::default()),
         })
     }
@@ -207,6 +215,7 @@ impl ViewerState {
         match self {
             ViewerState::Image(s) => Some(&mut s.zoom),
             ViewerState::Html(s) => Some(&mut s.zoom),
+            ViewerState::Markdown(s) => Some(&mut s.zoom),
             ViewerState::Pdf(s) => Some(&mut s.zoom),
             ViewerState::Movie(_) => None,
         }
@@ -316,6 +325,7 @@ mod tests {
             FileKind::Image,
             FileKind::Movie,
             FileKind::Html,
+            FileKind::Markdown,
             FileKind::Pdf,
         ] {
             assert!(ViewerState::new(kind).is_some(), "{kind:?}");
@@ -358,7 +368,7 @@ mod tests {
 
     #[test]
     fn html_pages_and_pdfs_zoom_too_but_movies_do_not() {
-        for kind in [FileKind::Html, FileKind::Pdf] {
+        for kind in [FileKind::Html, FileKind::Markdown, FileKind::Pdf] {
             let mut s = ViewerState::new(kind).unwrap();
             assert_eq!(s.apply(ViewerAction::ZoomOut), Effect::Redraw, "{kind:?}");
         }

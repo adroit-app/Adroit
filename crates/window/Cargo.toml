@@ -15,6 +15,8 @@ adroit-model.workspace = true
 adroit-nvim.workspace = true
 adroit-protocol = { workspace = true, features = ["client"] }
 adroit-term.workspace = true
+arto-frontend = "0.46.0"
+arto-markdown = "0.46.0"
 dioxus = { version = "0.7.10", features = ["desktop"] }
 fontdb = "0.24.0"
 image.workspace = true

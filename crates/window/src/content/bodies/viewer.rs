@@ -14,13 +14,14 @@ use crate::viewers;
 pub(crate) fn ViewerWindow(
     window: WindowId,
     path: PathBuf,
+    root: PathBuf,
     commands: ReadSignal<Option<(WindowId, viewers::Command)>>,
     on_close: EventHandler<()>,
 ) -> Element {
     let command = use_memo(move || commands().filter(|(w, _)| *w == window).map(|(_, c)| c));
     rsx! {
         div { class: "win-viewer",
-            viewers::Viewer { path, command, on_close }
+            viewers::Viewer { path, root, command, on_close }
         }
     }
 }
