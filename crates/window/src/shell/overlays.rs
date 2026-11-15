@@ -3,19 +3,17 @@
 //! daemon. They only draw: the view state holds them.
 
 use adroit_core::msg::Msg;
-use adroit_core::overlay::context_menu::{self, Reach, Target};
-use adroit_core::tree::listed;
+use adroit_core::overlay::context_menu::{Reach, Target};
+use adroit_core::overlay::{self, MenuEntry};
 use dioxus::prelude::*;
 
-use crate::actions::Action;
 use crate::bridge::AppCtx;
 use crate::components::{Button, Dialog, Keys, Spacer};
 use crate::icons::{Icon, IconView};
 use crate::keymap::Context;
 use crate::keys_help;
 use crate::keys_help_view::KeysHelpView;
-use crate::nav::{self, Item};
-use adroit_core::content::Tab;
+use crate::nav::Item;
 use adroit_protocol::TerminalHostStanding;
 
 /// The keys help for the areas the chrome holds it open for, with the
@@ -48,47 +46,21 @@ pub(crate) fn ContextMenu() -> Element {
     let Some(menu) = app.overlays.read().menu.clone() else {
         return rsx! {};
     };
-    let (x, y, target) = (menu.x, menu.y, menu.target);
-    let row = match &target {
-        Target::Row(row) => Target::Row(row.own().clone()),
-        other => other.clone(),
-    };
-    let session = match &row {
-        Target::Row(Item::Session(environment, id) | Item::Waiting(environment, id))
-        | Target::Tab(Tab::Session(environment, id)) => {
-            let hosts = app.hosts.read();
-            nav::find(listed(hosts.work(environment)), id).map(|(_, s)| s.clone())
-        }
-        _ => None,
-    };
-    let reach = match &target {
-        Target::Row(Item::Environment(environment)) => {
-            crate::connection::reach_of(&app, environment)
-        }
-        _ => Reach::Here,
-    };
+    let listed = overlay::menu_entries(&menu, &app.hosts.read());
+    let (x, y, target, cursor) = (menu.x, menu.y, menu.target, menu.cursor);
     // The keys that work wherever the keys are come first.
     let contexts: &[Context] = match target {
         Target::Row(_) | Target::Start(_) => &[Context::Global, Context::Tree],
         Target::Tab(_) => &[Context::Global, Context::Console, Context::Tree],
         Target::Link { .. } => &[Context::Details, Context::Tree, Context::Global],
     };
-    // Each entry with whether a separator goes above it.
-    let entries: Vec<(Action, &str, Option<String>, bool)> =
-        context_menu::groups(&target, session.as_ref(), &app.environment(), reach)
-            .into_iter()
-            .enumerate()
-            .flat_map(|(g, group)| {
-                group
-                    .into_iter()
-                    .enumerate()
-                    .map(move |(i, (a, label))| (a, label, g > 0 && i == 0))
-            })
-            .map(|(a, label, apart)| {
-                let keys = keymap.keys_in(contexts, &a);
-                (a, label, keys, apart)
-            })
-            .collect();
+    let entries: Vec<(MenuEntry, Option<String>)> = listed
+        .into_iter()
+        .map(|e| {
+            let keys = keymap.keys_in(contexts, &e.action);
+            (e, keys)
+        })
+        .collect();
     rsx! {
         div {
             class: "context-menu-shade",
@@ -101,7 +73,7 @@ pub(crate) fn ContextMenu() -> Element {
                 class: "context-menu",
                 style: placed(x, y),
                 onclick: move |e| e.stop_propagation(),
-                for (action , label , keys , apart) in entries {
+                for (i , (MenuEntry { action, label, apart }, keys)) in entries.into_iter().enumerate() {
                     {
                         let target = target.clone();
                         let act = action.clone();
@@ -111,7 +83,7 @@ pub(crate) fn ContextMenu() -> Element {
                                     div { class: "context-menu-sep" }
                                 }
                                 div {
-                                    class: "context-menu-item",
+                                    class: if cursor == Some(i) { "context-menu-item selected" } else { "context-menu-item" },
                                     onclick: move |_| app.dispatch(Msg::MenuRun { target: target.clone(), action: act.clone() }),
                                     span { class: "context-menu-icon",
                                         if let Some(icon) = action.icon() {
@@ -138,10 +110,17 @@ pub(crate) fn menu_opener(app: AppCtx, target: Target) -> EventHandler<MouseEven
     EventHandler::new(move |e: MouseEvent| {
         e.prevent_default();
         let at = e.client_coordinates();
+        let reach = match &target {
+            Target::Row(Item::Environment(environment)) => {
+                crate::connection::reach_of(&app, environment)
+            }
+            _ => Reach::Here,
+        };
         app.dispatch(Msg::MenuOpen {
             x: at.x,
             y: at.y,
             target: target.clone(),
+            reach,
         });
     })
 }

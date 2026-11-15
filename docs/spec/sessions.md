@@ -302,9 +302,8 @@ agent and profile, marked when it is kept in a login of the profile's own,
 its title or first prompt, its directory and when it was
 last talked in. `Ctrl+a` lists those of every directory instead, and pressed again only
 the directory's; with nothing open, every directory's are listed. Typing
-narrows the list by a fuzzy match on the title and the directory. `Ctrl+n`
-and `Ctrl+p` (or the arrow keys, `Tab` and `Shift+Tab`) move, `Enter` chooses,
-and `Escape` closes the list.
+narrows the list by a fuzzy match on the title and the directory. The keys
+[over the window](keys.md#over-the-window) move, choose and close the list.
 
 Choosing a conversation resumes it in a new session of its agent, in the
 directory it ran in, with the agent's own resume, in the login that

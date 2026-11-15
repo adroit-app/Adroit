@@ -123,30 +123,6 @@ impl PickerView {
     }
 }
 
-/// What a key does to a list, whichever picker draws it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ListKey {
-    Close,
-    Choose,
-    Step(isize),
-}
-
-fn list_key(key: &Key) -> Option<ListKey> {
-    let plain = !key.ctrl && !key.alt && !key.meta;
-    let ctrl = key.ctrl && !key.alt && !key.meta;
-    Some(match key.key.as_str() {
-        "Escape" if plain => ListKey::Close,
-        "c" if ctrl => ListKey::Close,
-        "Enter" => ListKey::Choose,
-        "ArrowDown" | "Tab" if !key.shift => ListKey::Step(1),
-        "Tab" => ListKey::Step(-1),
-        "n" | "j" if ctrl => ListKey::Step(1),
-        "ArrowUp" => ListKey::Step(-1),
-        "p" | "k" if ctrl => ListKey::Step(-1),
-        _ => return None,
-    })
-}
-
 /// The child directories of `dir` as the host listed them; none while it
 /// has not.
 fn listed_dirs(work: Option<&WorkSnapshot>, dir: &Path) -> Option<Vec<PathBuf>> {
@@ -308,8 +284,16 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
     let ctrl = key.ctrl && !key.alt && !key.meta;
     let browsed = browsed(state);
     let work = state.hosts.work(&browsed);
-    let list = list_key(key);
-    if list == Some(ListKey::Close) {
+    let tree = matches!(&state.picker.open, Some(Picking::Go(p)) if p.mode == Mode::Tree);
+    let contexts: &[Context] = match tree {
+        true => &[Context::Filer, Context::Overlay],
+        false => &[Context::Overlay],
+    };
+    let action = match state.chrome.keymap.resolve(contexts, &[], key) {
+        Step::Run(action) => Some(action),
+        Step::Wait | Step::Nothing => None,
+    };
+    if action == Some(Action::OverlayClose) {
         return close(&mut state.picker);
     }
     if let Some(then) = Then::of(key)
@@ -332,9 +316,8 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
             return Vec::new();
         }
         Picking::Go(p) if p.mode == Mode::Tree => {
-            let action = match state.chrome.keymap.resolve(&[Context::Filer], &[], key) {
-                Step::Run(action) => action,
-                Step::Wait | Step::Nothing => return Vec::new(),
+            let Some(action) = action else {
+                return Vec::new();
             };
             return match tree_key(p, &action, work) {
                 Some(dir) => start_in_environment(state, browsed, dir),
@@ -347,20 +330,20 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
         }
         _ => {}
     }
-    match list {
-        Some(ListKey::Choose) => {
+    let delta = match action {
+        Some(Action::OverlayChoose) => {
             let at = open.cursor();
-            choose(state, at)
+            return choose(state, at);
         }
-        Some(ListKey::Step(delta)) => {
-            let len = rows_len(&state.picker, &state.hosts, &state.tree);
-            if let Some(open) = &mut state.picker.open {
-                open.list_mut().step(delta, len);
-            }
-            Vec::new()
-        }
-        Some(ListKey::Close) | None => Vec::new(),
+        Some(Action::OverlayDown) => 1,
+        Some(Action::OverlayUp) => -1,
+        _ => return Vec::new(),
+    };
+    let len = rows_len(&state.picker, &state.hosts, &state.tree);
+    if let Some(open) = &mut state.picker.open {
+        open.list_mut().step(delta, len);
     }
+    Vec::new()
 }
 
 fn rows_len(view: &PickerView, hosts: &Hosts, tree: &TreeView) -> usize {

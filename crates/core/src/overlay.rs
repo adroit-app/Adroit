@@ -8,13 +8,15 @@ use adroit_protocol::Request;
 use crate::actions::Action;
 use crate::chrome::{self, Chrome};
 use crate::content::{Area, Tab};
+use crate::cursor;
 use crate::effect::Effect;
+use crate::host::Hosts;
 use crate::keymap::help::{self, Press};
-use crate::keymap::{Context, Step};
+use crate::keymap::{Context, Keymap, Step};
 use crate::msg::Msg;
 use crate::picker::{self, PickerView};
 use crate::state::ViewState;
-use crate::tree::nav::Item;
+use crate::tree::nav::{self, Item};
 use crate::update::step;
 
 mod banner;
@@ -28,7 +30,7 @@ mod tests;
 
 pub use banner::*;
 use confirm::Ask;
-use context_menu::Target;
+use context_menu::{Reach, Target};
 use lightbox::Lightbox;
 use naming::Naming;
 pub(crate) use naming::{end_naming, keep_naming, start_naming, type_naming};
@@ -55,6 +57,50 @@ pub struct Menu {
     pub x: f64,
     pub y: f64,
     pub target: Target,
+    /// Where the environment of a heading the menu is on works, as the
+    /// window knew when it opened.
+    pub reach: Reach,
+    /// The entry moved to by the keys, none until they move.
+    pub cursor: Option<usize>,
+}
+
+/// An entry of the menu open, and whether a separator goes above it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuEntry {
+    pub action: Action,
+    pub label: &'static str,
+    pub apart: bool,
+}
+
+/// The entries of `menu` in the order it draws them, for the session it is
+/// on as `hosts` list it.
+pub fn menu_entries(menu: &Menu, hosts: &Hosts) -> Vec<MenuEntry> {
+    let target = match &menu.target {
+        Target::Row(row) => Target::Row(row.own().clone()),
+        other => other.clone(),
+    };
+    let session = match &target {
+        Target::Row(Item::Session(environment, id) | Item::Waiting(environment, id))
+        | Target::Tab(Tab::Session(environment, id)) => {
+            let tree = crate::tree::listed(hosts.work(environment));
+            nav::find(tree, id).map(|(_, s)| s.clone())
+        }
+        _ => None,
+    };
+    context_menu::groups(&target, session.as_ref(), &hosts.environment, menu.reach)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(g, group)| {
+            group
+                .into_iter()
+                .enumerate()
+                .map(move |(i, (action, label))| MenuEntry {
+                    action,
+                    label,
+                    apart: g > 0 && i == 0,
+                })
+        })
+        .collect()
 }
 
 /// What holds the keys over the window.
@@ -119,20 +165,39 @@ pub fn holds_menu_bar(held: &[Holder]) -> bool {
     })
 }
 
+/// The areas of bindings `holder` reads its keys from, the first first.
+pub fn contexts_of(holder: Holder) -> &'static [Context] {
+    match holder {
+        Holder::Confirm => &[Context::Confirm, Context::Overlay],
+        Holder::Lightbox => &[Context::Lightbox],
+        Holder::Rename | Holder::Naming => &[],
+        Holder::Menu | Holder::KeysHelp | Holder::Picker | Holder::Adding => &[Context::Overlay],
+    }
+}
+
+/// What `key` runs while `holder` holds the keys, by `keymap`.
+pub fn action_over(keymap: &Keymap, holder: Holder, key: &Key) -> Option<Action> {
+    match keymap.resolve(contexts_of(holder), &[], key) {
+        Step::Run(action) => Some(action),
+        Step::Wait | Step::Nothing => None,
+    }
+}
+
 /// A key while an overlay holds the keys.
 pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
-    match holder(state) {
-        Some(Holder::Menu) => {
-            state.overlays.menu = None;
-            Vec::new()
-        }
-        Some(Holder::Picker) => picker::press(state, &key),
-        Some(Holder::Confirm) => match key.key.as_str() {
-            "y" | "Enter" => answer(state, true),
-            "n" | "Escape" => answer(state, false),
+    let Some(holder) = holder(state) else {
+        return Vec::new();
+    };
+    let action = action_over(&state.chrome.keymap, holder, &key);
+    match holder {
+        Holder::Menu => menu_key(state, action),
+        Holder::Picker => picker::press(state, &key),
+        Holder::Confirm => match action {
+            Some(Action::OverlayChoose) => answer(state, true),
+            Some(Action::OverlayClose) => answer(state, false),
             _ => Vec::new(),
         },
-        Some(Holder::KeysHelp) => {
+        Holder::KeysHelp => {
             let chrome = &mut state.chrome;
             let here = chrome.keys_help.as_deref().unwrap_or_default();
             match help::press(&chrome.keymap, here, &key) {
@@ -141,20 +206,51 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
                 Press::Nothing => Vec::new(),
             }
         }
-        Some(Holder::Lightbox) => {
-            let keymap = &state.chrome.keymap;
-            match keymap.resolve(&[Context::Lightbox], &[], &key) {
-                Step::Run(action) => lightbox::act(state, action),
-                _ => Vec::new(),
-            }
-        }
-        Some(Holder::Adding) => match key.key.as_str() {
-            "Escape" => adding(state, false),
+        Holder::Lightbox => match action {
+            Some(action) => lightbox::act(state, action),
+            None => Vec::new(),
+        },
+        // The sheet's options are the window's: it moves among them and
+        // chooses one itself.
+        Holder::Adding => match action {
+            Some(Action::OverlayClose) => adding(state, false),
             _ => Vec::new(),
         },
         // Renaming, the keys are its field's; none act behind it.
-        Some(Holder::Rename | Holder::Naming) | None => Vec::new(),
+        Holder::Rename | Holder::Naming => Vec::new(),
     }
+}
+
+/// The menu's keys: they move through its entries and run the one moved
+/// to; any other key closes it and does nothing else.
+fn menu_key(state: &mut ViewState, action: Option<Action>) -> Vec<Effect> {
+    let Some(menu) = state.overlays.menu.as_mut() else {
+        return Vec::new();
+    };
+    let len = menu_entries(menu, &state.hosts).len();
+    let delta = match action {
+        Some(Action::OverlayDown) => 1,
+        Some(Action::OverlayUp) => -1,
+        Some(Action::OverlayChoose) => {
+            let chosen = menu
+                .cursor
+                .and_then(|at| menu_entries(menu, &state.hosts).into_iter().nth(at));
+            return match chosen {
+                Some(entry) => {
+                    let target = menu.target.clone();
+                    run_menu(state, target, entry.action)
+                }
+                None => Vec::new(),
+            };
+        }
+        _ => return close_menu(state),
+    };
+    menu.cursor = Some(match menu.cursor {
+        Some(at) => cursor::wrap(at, delta, len),
+        None if delta > 0 => 0,
+        None => len.saturating_sub(1),
+    });
+    Vec::new()
 }
 
 pub(crate) fn open_menu(state: &mut ViewState, menu: Menu) -> Vec<Effect> {

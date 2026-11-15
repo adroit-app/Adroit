@@ -251,3 +251,25 @@
 "J" = "lightbox.pan_down"
 "Escape" = "lightbox.close"
 "q" = "lightbox.close"
+
+[overlay]
+"Escape" = "overlay.close"
+"Ctrl+c" = "overlay.close"
+"q" = "overlay.close"
+"Ctrl+n" = "overlay.down"
+"Ctrl+j" = "overlay.down"
+"ArrowDown" = "overlay.down"
+"Tab" = "overlay.down"
+"j" = "overlay.down"
+"Ctrl+p" = "overlay.up"
+"Ctrl+k" = "overlay.up"
+"ArrowUp" = "overlay.up"
+"Shift+Tab" = "overlay.up"
+"k" = "overlay.up"
+"Enter" = "overlay.choose"
+"Ctrl+d" = "scroll.half_down"
+"Ctrl+u" = "scroll.half_up"
+
+[confirm]
+"y" = "overlay.choose"
+"n" = "overlay.close"

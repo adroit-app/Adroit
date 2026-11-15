@@ -44,6 +44,11 @@ pub enum Context {
     Viewer,
     /// The lightbox over the window, while it is open.
     Lightbox,
+    /// What else is drawn over the window and holds the keys: a picker, a
+    /// menu, a question, the keys help, the sheet adding an environment.
+    Overlay,
+    /// A question to answer, before the overlay's bindings.
+    Confirm,
     /// Files and directories: the tree's, with a file or a directory
     /// selected, before its own bindings, and the picker's.
     Filer,
@@ -53,7 +58,7 @@ pub enum Context {
 }
 
 impl Context {
-    pub const ALL: [Context; 13] = [
+    pub const ALL: [Context; 15] = [
         Context::Global,
         Context::Tree,
         Context::Filer,
@@ -63,6 +68,8 @@ impl Context {
         Context::Draft,
         Context::Viewer,
         Context::Lightbox,
+        Context::Overlay,
+        Context::Confirm,
         Context::Agent(Agent::Claude),
         Context::Agent(Agent::Codex),
         Context::Agent(Agent::Pi),
@@ -79,6 +86,8 @@ impl Context {
             Context::Draft => "draft",
             Context::Viewer => "viewer",
             Context::Lightbox => "lightbox",
+            Context::Overlay => "overlay",
+            Context::Confirm => "confirm",
             Context::Filer => "filer",
             Context::Agent(Agent::Claude) => "console.claude",
             Context::Agent(Agent::Codex) => "console.codex",
@@ -97,6 +106,8 @@ impl Context {
             Context::Draft => "New session",
             Context::Viewer => "Viewer",
             Context::Lightbox => "Lightbox",
+            Context::Overlay => "Over the window",
+            Context::Confirm => "Question",
             Context::Filer => "Files",
             Context::Agent(Agent::Claude) => "Console of Claude Code",
             Context::Agent(Agent::Codex) => "Console of Codex",
@@ -118,6 +129,10 @@ impl Context {
             Context::Lightbox => {
                 "The lightbox of a session's images, while it is open over the window."
             }
+            Context::Overlay => {
+                "A picker, a menu, a question, the keys help or the sheet adding an environment, while it is open over the window; a text field there types the keys it takes."
+            }
+            Context::Confirm => "A question to answer, before the bindings over the window.",
             Context::Filer => {
                 "The tree's files and directories, before the tree's bindings, and the picker's directories."
             }

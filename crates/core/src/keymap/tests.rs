@@ -401,6 +401,46 @@ fn a_viewer_scrolls_zooms_turns_pages_plays_and_closes_by_its_own_keys() {
 }
 
 #[test]
+fn what_is_over_the_window_closes_moves_and_chooses_by_one_set_of_keys() {
+    let map = Keymap::defaults();
+    let over = [Context::Overlay];
+    for (keys, action) in [
+        ("Escape", Action::OverlayClose),
+        ("Ctrl+c", Action::OverlayClose),
+        ("q", Action::OverlayClose),
+        ("Ctrl+n", Action::OverlayDown),
+        ("Ctrl+j", Action::OverlayDown),
+        ("ArrowDown", Action::OverlayDown),
+        ("Tab", Action::OverlayDown),
+        ("j", Action::OverlayDown),
+        ("Ctrl+p", Action::OverlayUp),
+        ("Ctrl+k", Action::OverlayUp),
+        ("ArrowUp", Action::OverlayUp),
+        ("Shift+Tab", Action::OverlayUp),
+        ("k", Action::OverlayUp),
+        ("Enter", Action::OverlayChoose),
+        ("Ctrl+d", Action::ScrollHalfDown),
+        ("Ctrl+u", Action::ScrollHalfUp),
+    ] {
+        assert_eq!(step(&map, &over, &[], keys), Step::Run(action), "{keys}");
+    }
+    let question = [Context::Confirm, Context::Overlay];
+    for (keys, action) in [
+        ("y", Action::OverlayChoose),
+        ("Enter", Action::OverlayChoose),
+        ("n", Action::OverlayClose),
+        ("Escape", Action::OverlayClose),
+    ] {
+        assert_eq!(
+            step(&map, &question, &[], keys),
+            Step::Run(action),
+            "{keys}"
+        );
+    }
+    assert_eq!(step(&map, &over, &[], "y"), Step::Nothing);
+}
+
+#[test]
 fn w_in_the_sidebar_opens_the_one_picker_and_cmd_o_opens_a_past_conversation() {
     let map = Keymap::defaults();
     assert_eq!(

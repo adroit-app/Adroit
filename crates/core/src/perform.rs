@@ -86,7 +86,11 @@ pub(crate) fn perform(
         | Action::ViewerPlay
         | Action::ViewerBack
         | Action::ViewerForward
-        | Action::ViewerCopyPath => Vec::new(),
+        | Action::ViewerCopyPath
+        | Action::OverlayClose
+        | Action::OverlayDown
+        | Action::OverlayUp
+        | Action::OverlayChoose => Vec::new(),
         Action::LightboxNext
         | Action::LightboxPrev
         | Action::LightboxZoomIn

@@ -102,8 +102,8 @@ changes them ([keys](../keys.md)).
 | `worktrees.toggle` | Toggle All Worktrees | list every worktree git knows, those without sessions too, or only those with sessions again | `tree`: `!` |
 | `scroll.down` |  | scroll the details panel down a step; bound in the console, scroll it: Claude Code and other programs that read the mouse are sent the wheel, others are scrolled back through what scrolled off; bound in a viewer, scroll what it shows | `viewer`: `j`, `ArrowDown` |
 | `scroll.up` |  | scroll up a step, what `scroll.down` scrolls | `viewer`: `k`, `ArrowUp` |
-| `scroll.half_down` |  | scroll down half a page, what `scroll.down` scrolls | `details`: `Ctrl+d`<br>`viewer`: `Ctrl+d` |
-| `scroll.half_up` |  | scroll up half a page, what `scroll.down` scrolls | `details`: `Ctrl+u`<br>`viewer`: `Ctrl+u` |
+| `scroll.half_down` |  | scroll down half a page, what `scroll.down` scrolls | `details`: `Ctrl+d`<br>`viewer`: `Ctrl+d`<br>`overlay`: `Ctrl+d` |
+| `scroll.half_up` |  | scroll up half a page, what `scroll.down` scrolls | `details`: `Ctrl+u`<br>`viewer`: `Ctrl+u`<br>`overlay`: `Ctrl+u` |
 | `scroll.top` |  | scroll to the top, what `scroll.down` scrolls | `viewer`: `g g` |
 | `scroll.bottom` |  | scroll to the bottom, what `scroll.down` scrolls | `viewer`: `G` |
 | `console.send_next` |  | send the next key as it is, whatever it is bound to | `console`: `Ctrl+g Ctrl+o` |
@@ -143,6 +143,10 @@ changes them ([keys](../keys.md)).
 | `lightbox.pan_up` |  | in the lightbox, move the view of the image up | `lightbox`: `K` |
 | `lightbox.pan_down` |  | in the lightbox, move the view of the image down | `lightbox`: `J` |
 | `lightbox.close` |  | close the lightbox | `lightbox`: `Escape`, `q` |
+| `overlay.close` |  | close what is open over the window: a picker, a menu, the keys help or the sheet adding an environment; a question is answered no ([keys](../keys.md#over-the-window)) | `overlay`: `Escape`, `Ctrl+c`, `q`<br>`confirm`: `n` |
+| `overlay.down` |  | over the window, move to the next row of a picker's list, a menu or the sheet adding an environment, going round at the end; scroll the keys help down a line | `overlay`: `Ctrl+n`, `Ctrl+j`, `ArrowDown`, `Tab`, `j` |
+| `overlay.up` |  | over the window, move to the previous row, as `overlay.down` moves to the next; scroll the keys help up a line | `overlay`: `Ctrl+p`, `Ctrl+k`, `ArrowUp`, `Shift+Tab`, `k` |
+| `overlay.choose` |  | over the window, choose the row moved to in a picker's list, a menu or the sheet adding an environment; a question is answered yes | `overlay`: `Enter`<br>`confirm`: `y` |
 | `console.send [<key>]` |  | send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead | `global`: `Ctrl+q .` (`console.send Ctrl+q`)<br>`console`: `Enter`, `Ctrl+Enter` (`console.send Enter`), `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`, `F2`, `Ctrl+l`, `Ctrl+o`, `Ctrl+t`, `Ctrl+_`, `Ctrl+-` (`console.send Ctrl+_`), `Ctrl+c` (`console.send Escape`), `g Ctrl+c` (`console.send Ctrl+c`) |
 | `tab.go <n>` |  | show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are | `global`: `Ctrl+q 1` (`tab.go 1`), `Ctrl+q 2` (`tab.go 2`), `Ctrl+q 3` (`tab.go 3`), `Ctrl+q 4` (`tab.go 4`), `Ctrl+q 5` (`tab.go 5`), `Ctrl+q 6` (`tab.go 6`), `Ctrl+q 7` (`tab.go 7`), `Ctrl+q 8` (`tab.go 8`), `Ctrl+q 9` (`tab.go 9`), `Mod+1` (`tab.go 1`), `Mod+2` (`tab.go 2`), `Mod+3` (`tab.go 3`), `Mod+4` (`tab.go 4`), `Mod+5` (`tab.go 5`), `Mod+6` (`tab.go 6`), `Mod+7` (`tab.go 7`), `Mod+8` (`tab.go 8`), `Mod+9` (`tab.go 9`) |
 | `tab.merge <n>` |  | merge the content's tab shown into the tab numbered `n`, as `tab.merge_last` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are | `global`: `Ctrl+q m 1` (`tab.merge 1`), `Ctrl+q m 2` (`tab.merge 2`), `Ctrl+q m 3` (`tab.merge 3`), `Ctrl+q m 4` (`tab.merge 4`), `Ctrl+q m 5` (`tab.merge 5`), `Ctrl+q m 6` (`tab.merge 6`), `Ctrl+q m 7` (`tab.merge 7`), `Ctrl+q m 8` (`tab.merge 8`), `Ctrl+q m 9` (`tab.merge 9`) |
@@ -403,4 +407,26 @@ changes them ([keys](../keys.md)).
 "J" = "lightbox.pan_down"
 "Escape" = "lightbox.close"
 "q" = "lightbox.close"
+
+[overlay]
+"Escape" = "overlay.close"
+"Ctrl+c" = "overlay.close"
+"q" = "overlay.close"
+"Ctrl+n" = "overlay.down"
+"Ctrl+j" = "overlay.down"
+"ArrowDown" = "overlay.down"
+"Tab" = "overlay.down"
+"j" = "overlay.down"
+"Ctrl+p" = "overlay.up"
+"Ctrl+k" = "overlay.up"
+"ArrowUp" = "overlay.up"
+"Shift+Tab" = "overlay.up"
+"k" = "overlay.up"
+"Enter" = "overlay.choose"
+"Ctrl+d" = "scroll.half_down"
+"Ctrl+u" = "scroll.half_up"
+
+[confirm]
+"y" = "overlay.choose"
+"n" = "overlay.close"
 ```

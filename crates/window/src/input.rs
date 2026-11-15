@@ -94,6 +94,10 @@ impl Ui {
         // What is drawn over the window holds the keys while it is.
         if let Some(holder) = app.held().first().copied() {
             keys::trace(|| format!("to the {holder:?}"));
+            if holder == overlay::Holder::Adding {
+                crate::adding::take_key(app, key);
+                return;
+            }
             app.dispatch(Msg::HeldKey(key));
             return;
         }

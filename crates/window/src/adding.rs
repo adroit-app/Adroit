@@ -4,8 +4,11 @@
 
 use adroit_connect::environments::{Catalog, Environment};
 use adroit_connect::{Heard, PairingStep, Target};
+use adroit_core::actions::Action;
 use adroit_core::msg::Msg;
+use adroit_core::overlay::{self, Holder};
 use adroit_model::EnvironmentId;
+use adroit_model::Key;
 use adroit_protocol::ServedEnvironment;
 use dioxus::core::{Runtime, ScopeId, Task, current_scope_id};
 use dioxus::prelude::*;
@@ -171,6 +174,54 @@ fn name_of(target: &Target) -> String {
     match target {
         Target::Native { address, .. } => machine_name(address),
         Target::Local => "This computer".into(),
+    }
+}
+
+/// A key while the sheet holds the keys: its options are the sheet's own, so
+/// moving among them and choosing one is done here, as the bindings over the
+/// window say; every other key is the view state's.
+pub(crate) fn take_key(app: AppCtx, key: Key) {
+    let keymap = app.chrome.read().keymap.clone();
+    match overlay::action_over(&keymap, Holder::Adding, &key) {
+        Some(Action::OverlayDown) => step_option(1),
+        Some(Action::OverlayUp) => step_option(-1),
+        Some(Action::OverlayChoose) => {
+            document::eval(
+                "document.querySelector('.adding-sheet .adding-option.selected')?.click();",
+            );
+        }
+        _ => app.dispatch(Msg::HeldKey(key)),
+    }
+}
+
+/// Mark the option `delta` from the one marked, going round at either end.
+fn step_option(delta: i32) {
+    document::eval(&format!(
+        "(() => {{
+           const all = [...document.querySelectorAll('.adding-sheet .adding-option:not([disabled])')];
+           if (!all.length) return;
+           const at = all.findIndex((o) => o.classList.contains('selected'));
+           all.forEach((o) => o.classList.remove('selected'));
+           const next = at < 0 ? ({delta} > 0 ? 0 : all.length - 1) : (at + {delta} + all.length) % all.length;
+           all[next].classList.add('selected');
+           all[next].scrollIntoView({{ block: 'nearest' }});
+         }})();"
+    ));
+}
+
+/// A key in one of the sheet's text fields: `Enter` does what the field is
+/// for, and a key that does not type is the sheet's.
+fn field_key(app: AppCtx, e: &Event<KeyboardData>, mut enter: impl FnMut()) {
+    let Some(k) = keys::of_field(e) else {
+        return;
+    };
+    if k.key == "Enter" {
+        e.prevent_default();
+        enter();
+    } else if !keys::edits_text(&k) {
+        // Tab and the arrows would move the focus or the caret.
+        e.prevent_default();
+        take_key(app, k);
     }
 }
 
@@ -342,14 +393,6 @@ fn Sheet() -> Element {
                 role: "dialog",
                 aria_label: "Add environment",
                 onclick: move |e| e.stop_propagation(),
-                // A key on a button of the sheet is the sheet's, not the
-                // window's; Escape there closes it as it does elsewhere.
-                onkeydown: move |e: Event<KeyboardData>| {
-                    if keys::of_field(&e).is_some_and(|k| k.key == "Escape") {
-                        e.prevent_default();
-                        adding.close();
-                    }
-                },
                 div { class: "adding-head",
                     h3 { "{title}" }
                     div { class: "adding-steps",
@@ -471,12 +514,7 @@ fn Where(adding: Adding) -> Element {
                 "autocapitalize": "off",
                 value: "{address}",
                 oninput: move |e: Event<FormData>| address.set(e.value()),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    if keys::of_field(&e).is_some_and(|k| k.key == "Enter") {
-                        e.prevent_default();
-                        pair_typed();
-                    }
-                },
+                onkeydown: move |e: Event<KeyboardData>| field_key(adding.app, &e, pair_typed),
             }
             Button { kind: "primary", onclick: move |_| pair_typed(), "Pair" }
         }
@@ -735,12 +773,7 @@ fn Name(
                 let _ = e.data().set_focus(true).await;
             },
             oninput: move |e: Event<FormData>| typed.set(e.value()),
-            onkeydown: move |e: Event<KeyboardData>| {
-                if keys::of_field(&e).is_some_and(|k| k.key == "Enter") {
-                    e.prevent_default();
-                    add();
-                }
-            },
+            onkeydown: move |e: Event<KeyboardData>| field_key(adding.app, &e, add),
         }
         div { class: "dialog-actions",
             Button { onclick: move |_| adding.back(), "Back" }

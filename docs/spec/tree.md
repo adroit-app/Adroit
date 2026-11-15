@@ -211,9 +211,8 @@ directories however well either answers, and the scratch row stays on top
 while what is typed matches its words. A word `@` followed by a state, or the
 start of one, keeps only the sessions in that state, `@w` those waiting on
 the user, and offers nothing else. While the rows move as sessions change, the
-cursor stays on the row it is on. `Ctrl+n` and `Ctrl+p` (or the arrow
-keys, `Tab` and `Shift+Tab`) move, `Enter` chooses, and `Escape` closes the
-picker.
+cursor stays on the row it is on. The keys [over the window](keys.md#over-the-window)
+move, choose and close the picker.
 
 Choosing a session opens it as its row in the tree would, leaving the keys
 where they were. Choosing a directory opens a new session there: the first
@@ -232,8 +231,8 @@ scratch row are of the environment of the selected row or the tab shown.
 `Ctrl+f` turns the picker into a [file tree](#file-trees) for a directory the
 list does not offer. It shows the directories under the home directory of the work machine it
 browses, under each ghq root and under each folder the settings list, side by side, and
-choosing one with the filer's open key starts a session there. `Ctrl+f` goes back to the list and
-`Escape` closes the picker.
+choosing one with the filer's open key starts a session there. `Ctrl+f` goes back to the list, and
+the filer's keys come before those over the window.
 
 Instead of choosing a row, in the list or the file tree, `Ctrl+s` opens a
 shell and `Ctrl+e` Neovim in its directory: a directory's own, the worktree a

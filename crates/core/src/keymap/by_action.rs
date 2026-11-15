@@ -45,6 +45,7 @@ const SECTIONS: &[(&str, &[&str])] = &[
     ("Console", &["console."]),
     ("Details", &["details."]),
     ("Scrolling", &["scroll."]),
+    ("Over the window", &["overlay."]),
     ("Viewer", &["viewer."]),
 ];
 

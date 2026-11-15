@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use adroit_core::msg::Msg;
-use adroit_core::overlay::context_menu::Target;
+use adroit_core::overlay::context_menu::{Reach, Target};
 use adroit_core::settings::Settings;
 use adroit_core::tree;
 use adroit_model::github::{Listing, Standing};
@@ -130,6 +130,7 @@ fn start_menu(app: AppCtx, item: Item) -> EventHandler<MouseEvent> {
             x: at.x,
             y: at.y,
             target: Target::Start(item.clone()),
+            reach: Reach::Here,
         });
     })
 }

@@ -281,9 +281,14 @@ pub fn held_alone(key: &Key) -> bool {
 
 /// Whether a text field types or edits with `key` itself, rather than the
 /// key being a command: Enter, Escape, Tab, the up and down arrows and any
-/// held Control or Option are commands.
+/// held Control or Option are commands. Command with a key the menu keeps,
+/// such as paste, is the field's too, so the menu still gets it.
 pub fn edits_text(key: &Key) -> bool {
-    !key.ctrl
+    let menu = key.meta
+        && !key.ctrl
+        && !key.alt
+        && adroit_core::keymap::MENU_KEYS.contains(&key.key.to_lowercase().as_str());
+    menu || !key.ctrl
         && !key.alt
         && !key.meta
         && !matches!(
@@ -333,6 +338,15 @@ mod tests {
         }
         assert!(!edits_text(&Key::new("n").ctrl()));
         assert!(!edits_text(&Key::new("f").alt()));
+    }
+
+    #[test]
+    fn a_text_field_leaves_copy_paste_and_the_other_menu_keys_to_the_menu() {
+        for menu in ["c", "v", "x", "a", "z", "V"] {
+            assert!(edits_text(&Key::new(menu).meta()), "Command+{menu}");
+        }
+        assert!(!edits_text(&Key::new("k").meta()));
+        assert!(!edits_text(&Key::new("v").meta().ctrl()));
     }
 
     fn read(json: &str) -> Message {

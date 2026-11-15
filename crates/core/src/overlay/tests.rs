@@ -29,6 +29,7 @@ fn menu_on(target: Target) -> Msg {
         x: 1.0,
         y: 2.0,
         target,
+        reach: Reach::Here,
     }
 }
 
@@ -85,12 +86,84 @@ fn what_is_drawn_over_the_window_holds_the_keys_the_text_and_the_menu_bar() {
 }
 
 #[test]
-fn a_key_closes_a_menu_left_open_and_does_nothing_else() {
+fn a_key_the_menu_does_not_take_closes_it_and_does_nothing_else() {
+    for key in ["y", "Escape", "q"] {
+        let run = window()
+            .send(menu_on(Target::Tab(session_tab("a"))))
+            .send(held(key));
+        assert_eq!(run.state().overlays.menu, None, "{key}");
+        assert!(run.last_effects().is_empty(), "{key}");
+    }
     let run = window()
         .send(menu_on(Target::Tab(session_tab("a"))))
-        .send(held("y"));
+        .send(Msg::HeldKey(Key::new("c").ctrl()));
     assert_eq!(run.state().overlays.menu, None);
-    assert!(run.last_effects().is_empty());
+}
+
+fn menu_cursor(run: &Scenario) -> Option<usize> {
+    run.state().overlays.menu.as_ref().and_then(|m| m.cursor)
+}
+
+#[test]
+fn the_menu_is_moved_through_round_its_ends_by_the_keys_that_move_in_a_list() {
+    let open = || window().send(menu_on(Target::Tab(session_tab("a"))));
+    let len = {
+        let run = open();
+        let state = run.state();
+        menu_entries(state.overlays.menu.as_ref().unwrap(), &state.hosts).len()
+    };
+    assert!(len > 1);
+    // (keys pressed, the entry moved to)
+    let cases: [(&[&str], Option<usize>); 5] = [
+        (&[], None),
+        (&["j"], Some(0)),
+        (&["ArrowDown", "ArrowDown"], Some(1)),
+        (&["k"], Some(len - 1)),
+        (&["j", "k"], Some(len - 1)),
+    ];
+    for (keys, at) in cases {
+        let run = keys.iter().fold(open(), |run, k| run.send(held(k)));
+        assert_eq!(menu_cursor(&run), at, "{keys:?}");
+    }
+    let ctrl = open().send(Msg::HeldKey(Key::new("n").ctrl()));
+    assert_eq!(menu_cursor(&ctrl), Some(0));
+}
+
+#[test]
+fn enter_runs_the_menu_entry_moved_to_on_what_the_menu_was_opened_on() {
+    let target = Target::Tab(session_tab("a"));
+    let open = window().send(menu_on(target.clone()));
+    let second = {
+        let state = open.state();
+        menu_entries(state.overlays.menu.as_ref().unwrap(), &state.hosts)[1]
+            .action
+            .clone()
+    };
+    let run = open.send(held("j")).send(held("j")).send(held("Enter"));
+    assert_eq!(run.state().overlays.menu, None);
+    assert_eq!(run.last_effects().last(), Some(&Effect::Perform(second)));
+    let unmoved = window().send(menu_on(target)).send(held("Enter"));
+    assert!(unmoved.last_effects().is_empty());
+}
+
+#[test]
+fn a_key_bound_to_close_over_the_window_closes_every_overlay() {
+    let text = "[overlay]\n\"Ctrl+g\" = \"overlay.close\"\n";
+    let opens = [
+        menu_on(Target::Tab(session_tab("a"))),
+        Msg::KeysHelpOpen(vec![Context::Global]),
+        Msg::PickerOpen,
+        Msg::ResumeOpen,
+        Msg::AddingOpen,
+        Msg::Confirm(Box::new(Ask::RestartDaemon(here()))),
+    ];
+    for open in opens {
+        let run = window()
+            .send(Msg::KeysRead(crate::config::testing::keys_file(text)))
+            .send(open.clone())
+            .send(Msg::HeldKey(Key::new("g").ctrl()));
+        assert_eq!(held_by(&run).0, None, "{open:?}");
+    }
 }
 
 fn stop_a() -> Effect {
@@ -135,6 +208,7 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
         ),
         (stop.clone(), "n", None, false),
         (stop.clone(), "Escape", None, false),
+        (stop.clone(), "q", None, false),
         (stop, "x", None, true),
     ];
     for (ask, key, want, asked) in cases {
@@ -151,12 +225,18 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
 }
 
 #[test]
-fn the_sheet_adding_an_environment_closes_on_escape_and_on_no_other_key() {
-    let kept = window().send(Msg::AddingOpen).send(held("y"));
-    assert!(kept.state().overlays.adding);
-    assert!(kept.last_effects().is_empty());
-    let closed = kept.send(held("Escape"));
+fn the_sheet_adding_an_environment_closes_by_the_keys_that_close_over_the_window() {
+    for key in ["y", "j", "Enter"] {
+        let kept = window().send(Msg::AddingOpen).send(held(key));
+        assert!(kept.state().overlays.adding, "{key}");
+        assert!(kept.last_effects().is_empty(), "{key}");
+    }
+    let closed = window().send(Msg::AddingOpen).send(held("Escape"));
     assert!(!closed.state().overlays.adding);
+    let ctrl = window()
+        .send(Msg::AddingOpen)
+        .send(Msg::HeldKey(Key::new("c").ctrl()));
+    assert!(!ctrl.state().overlays.adding);
     let cancelled = window().send(Msg::AddingOpen).send(Msg::AddingClose);
     assert!(!cancelled.state().overlays.adding);
 }

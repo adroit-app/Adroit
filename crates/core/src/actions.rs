@@ -145,6 +145,10 @@ pub enum Action {
     LightboxPanUp,
     LightboxPanDown,
     LightboxClose,
+    OverlayClose,
+    OverlayDown,
+    OverlayUp,
+    OverlayChoose,
     /// Send a key to the session: the one named, or the one pressed.
     ConsoleSend(Option<Chord>),
     /// Show the content's tab of this number, counted from 1.
@@ -451,6 +455,10 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::LightboxPanUp, "lightbox.pan_up", "in the lightbox, move the view of the image up").says("Move up"),
     S::new(A::LightboxPanDown, "lightbox.pan_down", "in the lightbox, move the view of the image down").says("Move down"),
     S::new(A::LightboxClose, "lightbox.close", "close the lightbox").says("Close"),
+    S::new(A::OverlayClose, "overlay.close", "close what is open over the window: a picker, a menu, the keys help or the sheet adding an environment; a question is answered no ([keys](keys.md#over-the-window))").says("Close"),
+    S::new(A::OverlayDown, "overlay.down", "over the window, move to the next row of a picker's list, a menu or the sheet adding an environment, going round at the end; scroll the keys help down a line").says("Move down"),
+    S::new(A::OverlayUp, "overlay.up", "over the window, move to the previous row, as `overlay.down` moves to the next; scroll the keys help up a line").says("Move up"),
+    S::new(A::OverlayChoose, "overlay.choose", "over the window, choose the row moved to in a picker's list, a menu or the sheet adding an environment; a question is answered yes").says("Choose"),
     S::new(A::ConsoleSend(None), "console.send", "send the key pressed to the session; with a key named after it, as in `console.send Escape`, send that key instead").says("Send the key to the console"),
     S::new(A::TabGo(1), "tab.go", "show the content's tab numbered `n`, from 1 to 8, or the last when there are fewer; 9 shows the last however many there are").says("Go to tab"),
     S::new(A::TabMerge(1), "tab.merge", "merge the content's tab shown into the tab numbered `n`, as `tab.merge_last` does, from 1 to 8, or the last when there are fewer; 9 is the last however many there are").says("Merge the tab into tab"),
@@ -720,6 +728,10 @@ mod tests {
             LightboxPanUp,
             LightboxPanDown,
             LightboxClose,
+            OverlayClose,
+            OverlayDown,
+            OverlayUp,
+            OverlayChoose,
         ]
     }
 

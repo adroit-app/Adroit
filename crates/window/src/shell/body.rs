@@ -7,7 +7,7 @@ use adroit_core::content::{Area, Axis};
 use adroit_core::keymap::Context;
 use adroit_core::msg::Msg;
 use adroit_core::overlay::confirm::Ask;
-use adroit_core::overlay::context_menu::Target;
+use adroit_core::overlay::context_menu::{Reach, Target};
 use adroit_model::{Process, Session};
 use dioxus::prelude::*;
 
@@ -219,7 +219,7 @@ fn DetailsSide(focused: bool, shown: bool) -> Element {
                         }
                     },
                     on_menu: move |m: details::LinkMenu| {
-                        app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file } });
+                        app.dispatch(Msg::MenuOpen { x: m.x, y: m.y, target: Target::Link { at: m.at, file: m.file }, reach: Reach::Here });
                     },
                 }
         }

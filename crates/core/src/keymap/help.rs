@@ -189,6 +189,9 @@ pub enum Press {
     Nothing,
 }
 
+/// How many lines half a page of the keys help scrolls.
+const HALF: i32 = 10;
+
 /// What `key` does while the keys help is shown, opened from `contexts`.
 pub fn press(keymap: &Keymap, contexts: &[Context], key: &Key) -> Press {
     let opens =
@@ -196,14 +199,12 @@ pub fn press(keymap: &Keymap, contexts: &[Context], key: &Key) -> Press {
     if opens(contexts) || opens(&[Context::Global]) {
         return Press::Close;
     }
-    let plain = !key.ctrl && !key.alt && !key.meta;
-    let ctrl = key.ctrl && !key.alt && !key.meta;
-    match key.key.as_str() {
-        "Escape" | "q" if plain => Press::Close,
-        "j" | "ArrowDown" if plain => Press::Scroll(1),
-        "k" | "ArrowUp" if plain => Press::Scroll(-1),
-        "d" if ctrl => Press::Scroll(10),
-        "u" if ctrl => Press::Scroll(-10),
+    match keymap.resolve(&[Context::Overlay], &[], key) {
+        Step::Run(Action::OverlayClose) => Press::Close,
+        Step::Run(Action::OverlayDown) => Press::Scroll(1),
+        Step::Run(Action::OverlayUp) => Press::Scroll(-1),
+        Step::Run(Action::ScrollHalfDown) => Press::Scroll(HALF),
+        Step::Run(Action::ScrollHalfUp) => Press::Scroll(-HALF),
         _ => Press::Nothing,
     }
 }

@@ -14,7 +14,7 @@ use crate::content::{Area, Border, DraftOptions, DropAt, Opening, Tab, WindowId}
 use crate::details::{self, Component};
 use crate::keymap::Context;
 use crate::overlay::confirm::Ask;
-use crate::overlay::context_menu::Target;
+use crate::overlay::context_menu::{Reach, Target};
 use crate::overlay::rename::Place as RenamePlace;
 use crate::prompt::send::Taken;
 use crate::tree;
@@ -411,6 +411,8 @@ pub enum Msg {
         x: f64,
         y: f64,
         target: Target,
+        /// Where the environment of a heading it is on works.
+        reach: Reach,
     },
     MenuClose,
     /// Run `action` on `target`, as its key would there.

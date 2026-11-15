@@ -49,6 +49,7 @@ fn leaving_the_sidebar_or_opening_a_menu_stops_typing_into_the_filter() {
             x: 0.0,
             y: 0.0,
             target: Target::Row(Item::Session(here(), "a".into())),
+            reach: crate::overlay::context_menu::Reach::Here,
         },
     ];
     for msg in left {

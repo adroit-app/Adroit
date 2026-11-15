@@ -2,11 +2,9 @@
 
 Every key Adroit handles itself runs a named action. Adroit ships bindings of
 its own, and a file you write changes, adds to or takes away from them. The
-prompt's keys are Neovim's and are set up in Neovim; a dialog that asks
-before ending something always answers to `y`, `Enter`, `n` and `Escape`, and
-attachment selection, the picker and the list of past conversations have their
-own keys ([the tree](tree.md#going-to-a-session-or-starting-one),
-[sessions](sessions.md#resuming-a-past-conversation)).
+prompt's keys are Neovim's and are set up in Neovim, and attachment selection
+has keys of its own. What is drawn over the window answers to bindings too
+([over the window](#over-the-window)).
 `F1` shows every binding in force wherever the keys are.
 
 ## In the menu bar
@@ -35,6 +33,22 @@ the buttons beside the tree's filter list every worktree and start a session.
 A click on the console, live or read, reaches a program that reads the mouse,
 as Claude Code does, at the cell clicked; a program that does not read it is
 told nothing.
+
+## Over the window
+
+A picker, the list of past conversations, a menu opened by a right click, a
+question asked before ending something, the keys help and the sheet adding an
+environment hold the keys while they are open, and nothing behind them acts.
+They share the bindings of the `overlay` area: the same keys close each of
+them, move through what it lists and choose what is moved to. A question
+answers yes to what chooses and no to what closes, and to the keys of its own
+`confirm` area besides, `y` and `n`. The keys help scrolls by what moves. A
+menu closes on a key it does not take, and does nothing else. A text field
+over the window, such as the picker's query, types the keys that type and
+leaves the others to these bindings, so `j` and `k` type there. The keys a
+picker takes besides, such as `Ctrl+f` for its file tree, are its own
+([the tree](tree.md#going-to-a-session-or-starting-one),
+[sessions](sessions.md#resuming-a-past-conversation)).
 
 ## Where the keys go
 
@@ -129,6 +143,8 @@ takes the keys away, so they do nothing there.
 | `prompt` | the prompt, before Neovim |
 | `draft` | before the area's bindings while a new session is shown, including the prompt in insert mode |
 | `viewer` | a viewer in the focused window |
+| `overlay` | what is drawn over the window: a picker, a menu, a question, the keys help, the sheet adding an environment |
+| `confirm` | a question to answer, before `overlay` |
 
 Adroit binds keys in an agent's area where that agent takes a key otherwise
 than the prompt beside it would: Tab in Claude Code's console writes in the
