@@ -236,7 +236,11 @@ pub(crate) fn ServingPane() -> Element {
         if let Some(Some(now)) = &*serving.read() {
             SettingGroup { title: "How to reach it",
                 SettingRow { label: "Addresses", hint: "Type one of these on the other computer, or find this computer on the local network.",
-                    span { class: "serving-detail", "{now.addresses.join(\", \")}" }
+                    ul { class: "serving-detail serving-addresses",
+                        for address in now.addresses.iter() {
+                            li { key: "{address}", "{address}" }
+                        }
+                    }
                 }
                 SettingRow { label: "This computer's key", hint: "Paired computers check it every time they connect.",
                     code { class: "serving-detail", title: "{now.server}", "{short(&now.server)}" }
