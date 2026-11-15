@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use adroit_core::config::Config;
+use adroit_core::details::DetailsLayout;
 use adroit_core::settings::{Appearance, ConsoleSettings, Settings, UsageSettings};
 use adroit_model::EnvironmentId;
 use adroit_protocol::{ConfigFile, ConfigWork, FileText};
@@ -25,6 +26,8 @@ pub(crate) struct Preferences {
     appearance: Appearance,
     light_theme: String,
     dark_theme: String,
+    #[serde(default)]
+    pub(crate) panel: DetailsLayout,
 }
 
 /// The appearance and its themes, which every environment's work host is
@@ -67,6 +70,7 @@ impl Preferences {
             appearance: settings.appearance,
             light_theme: settings.light_theme.clone(),
             dark_theme: settings.dark_theme.clone(),
+            panel: settings.panel.clone(),
         }
     }
     pub fn apply(&self, settings: &mut Settings) {
@@ -79,6 +83,7 @@ impl Preferences {
         settings.notify_waiting = self.notify_waiting;
         settings.console = self.console.clone();
         settings.usage = self.usage;
+        settings.panel = self.panel.clone();
         self.looks().apply(settings);
     }
 
@@ -231,12 +236,21 @@ mod tests {
                 memory: true,
                 ..UsageSettings::NONE
             },
+            panel: DetailsLayout {
+                github: Some(adroit_core::details::Surface {
+                    foot: vec![adroit_core::details::Placed::new(
+                        adroit_core::details::Component::Machine,
+                    )],
+                    ..adroit_core::details::Surface::github()
+                }),
+                ..DetailsLayout::default()
+            },
             ..Settings::default()
         }
     }
 
     #[test]
-    fn the_appearance_and_the_machine_s_resources_shown_are_the_client_s_over_any_environment_s() {
+    fn the_appearance_the_machine_s_resources_and_the_panel_shown_are_the_client_s_over_any_environment_s() {
         let preferences = Preferences::of(&mine());
         let mut work = Settings {
             keep_awake: true,
@@ -247,6 +261,7 @@ mod tests {
         assert_eq!(work.light_theme, "Dayfox");
         assert_eq!(work.dark_theme, "Nord");
         assert_eq!(work.usage, mine().usage);
+        assert_eq!(work.panel, mine().panel);
         assert!(work.keep_awake);
     }
 

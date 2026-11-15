@@ -16,12 +16,14 @@ use adroit_protocol::RepositoryRead;
 pub use adroit_model::Note;
 
 mod environment;
+mod layout;
 pub(crate) mod panel;
 mod rows;
 mod system;
 mod timeline;
 
 pub use environment::*;
+pub use layout::*;
 pub use panel::*;
 pub use rows::*;
 pub use system::*;

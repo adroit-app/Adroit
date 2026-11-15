@@ -219,6 +219,9 @@ pub struct Settings {
     /// Machine resources sampled for a window that does not say which it
     /// shows; the Settings window chooses them once for every environment.
     pub usage: UsageSettings,
+    /// What the details panel is made of, chosen once for every environment;
+    /// see [details](details.md#components).
+    pub panel: crate::details::DetailsLayout,
 }
 
 /// `settings.toml` as it is read: the settings, and what files written
@@ -261,6 +264,7 @@ struct SettingsFile {
     console: ConsoleSettings,
     details: DetailsSettings,
     usage: UsageSettings,
+    panel: crate::details::DetailsLayout,
 }
 
 impl Default for SettingsFile {
@@ -298,6 +302,7 @@ impl Default for SettingsFile {
             console: s.console,
             details: s.details,
             usage: s.usage,
+            panel: s.panel,
         }
     }
 }
@@ -396,6 +401,7 @@ impl TryFrom<SettingsFile> for Settings {
             console: file.console,
             details: file.details,
             usage: file.usage,
+            panel: file.panel,
         })
     }
 }
@@ -491,6 +497,7 @@ impl Default for Settings {
             console: ConsoleSettings::default(),
             details: DetailsSettings::default(),
             usage: UsageSettings::default(),
+            panel: crate::details::DetailsLayout::default(),
         }
     }
 }
@@ -1134,6 +1141,13 @@ model = "chosen-model"
                 diff_lines: 300,
                 links_kept: 20,
                 links_shown: 3,
+            },
+            panel: crate::details::DetailsLayout {
+                environment: Some(crate::details::Surface {
+                    foot: Vec::new(),
+                    ..crate::details::Surface::environment()
+                }),
+                ..Default::default()
             },
         };
         assert_eq!(written_and_read(&s), s);

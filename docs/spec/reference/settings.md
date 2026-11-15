@@ -64,6 +64,67 @@ How a Neovim tab's Neovim starts, as an agent does; an empty command runs `nvim`
 | `neovim.env` | table of strings | `{}` | Variables set for it. |
 | `neovim.via_shell` | boolean | `false` | Whether your shell starts it, as an interactive login shell, so that what its startup files set reaches it. |
 
+## `[panel]`
+
+What the details panel is made of, chosen once for every environment; see [details](../details.md#components).
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+
+### `[panel.environment]`
+
+What an environment's heading shows.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.environment.foot` | array of strings | `[]` | Shown under every tab, top first: each a component's name, or a table naming it with how it shows. |
+
+### `[[panel.environment.tabs]]`
+
+The tabs, in order; the keys that show a tab name it by its place.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.environment.tabs.components` | array of strings |  | What it shows, top first: each a component's name, or a table naming it with how it shows. |
+| `panel.environment.tabs.icon` | string |  | The Tabler icon beside its name, by its name in Tabler; none when unset. |
+| `panel.environment.tabs.title` | string |  | Its name on the tab. |
+
+### `[panel.github]`
+
+What a pull request's or an issue's row shows.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.github.foot` | array of strings | `[]` | Shown under every tab, top first: each a component's name, or a table naming it with how it shows. |
+
+### `[[panel.github.tabs]]`
+
+The tabs, in order; the keys that show a tab name it by its place.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.github.tabs.components` | array of strings |  | What it shows, top first: each a component's name, or a table naming it with how it shows. |
+| `panel.github.tabs.icon` | string |  | The Tabler icon beside its name, by its name in Tabler; none when unset. |
+| `panel.github.tabs.title` | string |  | Its name on the tab. |
+
+### `[panel.session]`
+
+What a session, draft, shell or file shows.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.session.foot` | array of strings | `[]` | Shown under every tab, top first: each a component's name, or a table naming it with how it shows. |
+
+### `[[panel.session.tabs]]`
+
+The tabs, in order; the keys that show a tab name it by its place.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `panel.session.tabs.components` | array of strings |  | What it shows, top first: each a component's name, or a table naming it with how it shows. |
+| `panel.session.tabs.icon` | string |  | The Tabler icon beside its name, by its name in Tabler; none when unset. |
+| `panel.session.tabs.title` | string |  | Its name on the tab. |
+
 ## `[picker]`
 
 Where the picker looks for directories to start a session in.
