@@ -72,6 +72,9 @@ pub fn entries(
     let close_tab = offer(Action::TabClose);
     let stop_terminal = offer(Action::TerminalStop);
     match target {
+        Target::Row(Item::Gathered(row)) => {
+            entries(&Target::Row((**row).clone()), session, own, reach)
+        }
         Target::Row(Item::Session(_, _) | Item::Waiting(_, _)) => opens
             .into_iter()
             .chain(rename)
@@ -106,7 +109,9 @@ pub fn entries(
         Target::Row(Item::File { dir: true, .. }) => {
             [fold, copy_path].into_iter().chain(here).collect()
         }
-        Target::Row(Item::Heading(..)) => [fold].into_iter().chain(here).collect(),
+        Target::Row(Item::Across(..) | Item::Heading(..)) => {
+            [fold].into_iter().chain(here).collect()
+        }
         Target::Row(Item::Environment(environment)) => {
             let machine = matches!(reach, Reach::Machine { .. });
             let retry = matches!(reach, Reach::Machine { retryable: true });

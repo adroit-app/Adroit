@@ -192,7 +192,7 @@ pub(crate) fn ask(state: &mut ViewState, ask: Ask) -> Vec<Effect> {
 /// Ask to end a session: the selected row's, from the tree, or else the
 /// one the console shows.
 pub(crate) fn ask_stop(state: &mut ViewState, selection: bool) -> Vec<Effect> {
-    let chosen = match &state.tree.selected {
+    let chosen = match state.tree.selected.as_ref().map(Item::own) {
         Some(Item::Session(environment, id) | Item::Waiting(environment, id)) if selection => {
             Some((environment, id))
         }
@@ -373,7 +373,7 @@ pub(crate) fn keep_rename(state: &mut ViewState) {
     let shown = match r.place {
         RenamePlace::Sidebar => state.chrome.panels.layout.show_sidebar
             && state.tree.rows.iter().any(
-                |item| matches!(item, Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
+                |item| matches!(item.own(), Item::Session(e, id) | Item::Waiting(e, id) if *e == r.environment && *id == r.id),
             ),
         RenamePlace::Heading => {
             state.chrome.panels.layout.show_sidebar

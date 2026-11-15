@@ -169,11 +169,16 @@ fn listed_in(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> 
         if tab.environment() == environment
             && let Some(next) = successor(now, &tab)
         {
-            if let (Tab::Session(..), Some(Item::Session(e, id))) = (&tab, &state.tree.selected)
+            if let (Tab::Session(..), Some(selected)) = (&tab, state.tree.selected.clone())
+                && let Item::Session(e, id) = selected.own()
                 && Tab::Session(e.clone(), id.clone()) == tab
                 && let Tab::Session(e, id) = &next
             {
-                state.tree.selected = Some(Item::Session(e.clone(), id.clone()));
+                let row = Item::Session(e.clone(), id.clone());
+                state.tree.selected = Some(match selected {
+                    Item::Gathered(_) => Item::Gathered(Box::new(row)),
+                    _ => row,
+                });
             }
             super::replace(view, &tab, next);
         }

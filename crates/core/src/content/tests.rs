@@ -162,7 +162,7 @@ fn the_tab_kept_from_the_last_run_comes_back_once_listed() {
             assert_eq!(run.state().content.place, place("/r/a"));
             assert_eq!(
                 run.state().tree.selected,
-                Some(Item::Session(here(), "a".into()))
+                Some(Item::Gathered(Box::new(Item::Session(here(), "a".into()))))
             );
         }
     }
@@ -185,7 +185,7 @@ fn a_content_kept_before_environments_comes_back_in_the_window_s_environment() {
     assert_eq!(active(&run), Some(Tab::Session(here.clone(), "a".into())));
     assert_eq!(
         run.state().tree.selected,
-        Some(Item::Session(here, "a".into()))
+        Some(Item::Gathered(Box::new(Item::Session(here, "a".into()))))
     );
 }
 
@@ -711,7 +711,7 @@ fn a_session_is_shown_wherever_it_runs_and_its_row_selected() {
     assert_eq!(run.state().content.place, place("/r/b"));
     assert_eq!(
         run.state().tree.selected,
-        Some(Item::Session(here(), "b".into()))
+        Some(Item::Gathered(Box::new(Item::Session(here(), "b".into()))))
     );
     let next = run.send(Msg::Window(Action::SessionNext));
     assert_eq!(active(&next), Some(Tab::Session(here(), "a".into())));

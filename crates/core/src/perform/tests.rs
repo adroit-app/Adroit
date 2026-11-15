@@ -355,14 +355,14 @@ fn going_to_the_next_session_looks_at_it_in_the_preview() {
 #[test]
 fn looking_at_a_row_that_folds_goes_into_it_rather_than_folding_it() {
     use crate::tree::nav::Heading;
-    let heading = Item::Heading(here(), "/r/a".into(), Heading::Sessions);
+    let heading = Item::Across(here(), "/r".into(), Heading::Sessions);
     let run = showing(Area::Sidebar)
         .send(Msg::TreeSelect(Some(heading.clone())))
         .send(perform(Action::CursorShow, None, Probe::default()));
     assert!(run.state().tree.folds.is_open(&heading));
     assert_eq!(
         run.state().tree.selected,
-        Some(Item::Session(here(), "a".into()))
+        Some(Item::Gathered(Box::new(Item::Session(here(), "a".into()))))
     );
 }
 

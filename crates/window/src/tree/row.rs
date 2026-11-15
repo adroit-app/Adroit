@@ -41,6 +41,10 @@ pub(crate) fn row_tip(item: &Item) -> &'static str {
         Item::Terminal(_, _) => {
             "A terminal adroit runs. Enter shows it; closing its tab leaves it running"
         }
+        Item::Across(..) => {
+            "What runs in every worktree of the repository, of one kind. Enter folds it"
+        }
+        Item::Gathered(own) => row_tip(own),
         Item::Heading(..) => "What runs in the worktree, of one kind. Enter folds it",
         Item::File { dir: true, .. } => {
             "A directory of the worktree. l goes into it, h folds it or the one it is in, Enter folds or unfolds it"
@@ -122,6 +126,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     let content_now = &content.windows;
     let shows = content_now.focused().cloned();
     let it = item;
+    let own = it.own().clone();
     let is_sel = view.selected.as_ref() == Some(&it);
     let open = view.folds.is_open(&it);
     // The rows of the environments the tree is not at stand back; those
@@ -231,11 +236,11 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
         };
     }
-    let mark = match &it {
+    let mark = match &own {
         Item::Session(_, id) => nav::find(t, id).and_then(|(_, s)| session_mark(s.reads_only())),
         _ => None,
     };
-    let (kind, text, meta, glyph_class) = match &it {
+    let (kind, text, meta, glyph_class) = match &own {
         Item::Workspace(_, root) => {
             let name = t
                 .workspace_of(root)
@@ -270,6 +275,22 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             };
             ("group", heading.name().to_string(), count, None)
         }
+        Item::Across(_, root, heading) => {
+            let shown = view.narrowed(it.environment());
+            let count: usize = shown
+                .workspaces
+                .iter()
+                .filter(|ws| &ws.root == root)
+                .flat_map(|ws| ws.worktrees.iter())
+                .map(|w| nav::under(it.environment(), w, *heading).len())
+                .sum();
+            let count = if count > 0 {
+                count.to_string()
+            } else {
+                String::new()
+            };
+            ("group", heading.name().to_string(), count, None)
+        }
         Item::Session(_, id) => {
             let s = nav::find(t, id).map(|(_, s)| s.clone());
             (
@@ -291,13 +312,13 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
                 terminal.and_then(|s| context.completions.read().terminal_state(s).map(glyph));
             ("", name, String::new(), state)
         }
-        Item::Environment(_) | Item::File { .. } | Item::Waiting(_, _) => {
+        Item::Environment(_) | Item::File { .. } | Item::Waiting(_, _) | Item::Gathered(_) => {
             ("", String::new(), String::new(), None)
         }
     };
     let indent = 14 * view.depth(&it);
     // The tabs of the content that show it.
-    let chips = match &it {
+    let chips = match &own {
         Item::Session(environment, id) => {
             content_now.tabs_showing(&Tab::Session(environment.clone(), id.clone()))
         }
@@ -311,7 +332,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
     .collect::<Vec<_>>()
     .join(" ");
     let row_title = row_tip(&it).to_owned();
-    let terminal = match &it {
+    let terminal = match &own {
         Item::Terminal(_, id) => Some(runs_of(terminals, *id)),
         _ => None,
     };
@@ -322,12 +343,12 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Workspace(_, _) if !open => Some(Icon::Folder),
         Item::Workspace(_, _) => Some(Icon::FolderOpen),
         Item::Worktree(_, _) => Some(Icon::GitBranch),
-        Item::Heading(..) if open => Some(Icon::ChevronDown),
-        Item::Heading(..) => Some(Icon::ChevronRight),
+        Item::Across(..) | Item::Heading(..) if open => Some(Icon::ChevronDown),
+        Item::Across(..) | Item::Heading(..) => Some(Icon::ChevronRight),
         _ => None,
     };
     // What the console shows stands out wherever the selection is.
-    let kind = match &it {
+    let kind = match &own {
         Item::Session(environment, id)
             if shows == Some(Tab::Session(environment.clone(), id.clone())) =>
         {
@@ -359,14 +380,19 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             .map(|_| "Close: end what runs here"),
         _ => None,
     };
-    let has_draft = match &it {
+    let has_draft = match &own {
         Item::Session(environment, id) | Item::Waiting(environment, id) => context
             .drafted
             .read()
             .contains(&Tab::Session(environment.clone(), id.clone())),
         _ => false,
     };
-    let badge = row_badge(t, &app.config.read().settings, &it);
+    // A session listed twice takes its new name on one row: the selected
+    // one, or else its worktree's.
+    let renames_here = is_sel
+        || (!matches!(it, Item::Gathered(_))
+            && view.selected.as_ref().map(Item::own) != Some(&own));
+    let badge = row_badge(t, &app.config.read().settings, &own);
     let here = it.clone();
     let start = it.clone();
     let close = it.clone();
@@ -386,7 +412,9 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             }
             if let Some(runs) = terminal { TerminalMark { runs } }
             span { class: "list-row-name",
-                if let Item::Session(environment, id) = &it {
+                if let Item::Session(environment, id) = &own
+                    && renames_here
+                {
                     SessionName {
                         environment: environment.clone(), id: id.clone(), name: text.clone(), place: RenamePlace::Sidebar,
                     }

@@ -49,7 +49,11 @@ pub(crate) fn ContextMenu() -> Element {
         return rsx! {};
     };
     let (x, y, target) = (menu.x, menu.y, menu.target);
-    let session = match &target {
+    let row = match &target {
+        Target::Row(row) => Target::Row(row.own().clone()),
+        other => other.clone(),
+    };
+    let session = match &row {
         Target::Row(Item::Session(environment, id) | Item::Waiting(environment, id))
         | Target::Tab(Tab::Session(environment, id)) => {
             let hosts = app.hosts.read();

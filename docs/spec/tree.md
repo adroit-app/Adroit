@@ -29,13 +29,25 @@ program reports how it stands, as a session's does
 ([how a session stands](sessions.md#how-a-session-stands)), is marked with
 that state as a session is, done until it is viewed; one whose program
 reports nothing carries no such mark. A heading folds, and the row of one for
-what runs counts what it holds. Terminals never sit
-straight under a workspace: where a workspace has no worktree row, the
+what runs counts what it holds. Where a workspace has no worktree row, the
 headings are its checkout's.
+
+A workspace with worktree rows lists, above them, its own Sessions and
+Terminals: every session and terminal of all its worktrees, so what runs in
+the repository is seen without opening each worktree. The worktree rows start
+folded, each still holding its own Files, Sessions and Terminals. The row of
+what a window shows is the one under the workspace's heading, or, while that
+is folded, the one under its worktree's.
 
 ```text
 api                        ← a git repository with sessions in two worktrees
-├── main                   ← a worktree
+├── Sessions               ← every session of every worktree of api
+│   ├── auth-revamp
+│   ├── review-api
+│   └── implement
+├── Terminals
+│   └── $ dev-server
+├── main                   ← a worktree, folded until opened
 │   ├── Files
 │   ├── Sessions
 │   │   ├── auth-revamp
@@ -44,8 +56,9 @@ api                        ← a git repository with sessions in two worktrees
 │       └── $ dev-server
 └── feat/oauth
     ├── Files
-    └── Sessions
-        └── implement
+    ├── Sessions
+    │   └── implement
+    └── Terminals
 notes                      ← a directory outside git: no worktree row
 ├── Files
 └── Sessions

@@ -199,8 +199,8 @@ pub(crate) fn perform(
         // a session there ends the shell rather than asking of the session
         // shown.
         Action::TerminalStop | Action::SessionStop
-            if let Some(row @ Item::Terminal(environment, id)) =
-                cur.as_ref().filter(|_| on_list) =>
+            if let Some(row) = cur.as_ref().filter(|_| on_list)
+                && let Item::Terminal(environment, id) = row.own() =>
         {
             let end = Effect::EndShell {
                 environment: environment.clone(),
@@ -213,7 +213,7 @@ pub(crate) fn perform(
         }
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
         Action::SessionRename => {
-            let chosen = match &cur {
+            let chosen = match cur.as_ref().map(Item::own) {
                 Some(Item::Session(environment, id) | Item::Waiting(environment, id))
                     if on_list =>
                 {
@@ -334,7 +334,7 @@ pub(crate) fn perform(
         // Only the overview's files are revealed.
         Action::CursorReveal => Vec::new(),
         Action::WaitingNext | Action::WaitingPrev => {
-            let current = match &cur {
+            let current = match cur.as_ref().map(Item::own) {
                 Some(Item::Waiting(environment, id) | Item::Session(environment, id)) => {
                     Some((environment, id.as_str()))
                 }

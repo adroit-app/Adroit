@@ -607,7 +607,7 @@ mod tests {
         ]));
         let got = rows(&run);
         assert!(got.contains(&Item::Workspace(here(), "/r".into())));
-        assert!(got.contains(&Item::Session(here(), "a".into())));
+        assert!(got.contains(&Item::Gathered(Box::new(Item::Session(here(), "a".into())))));
         assert_eq!(got.last(), Some(&Item::Waiting(here(), "b".into())));
         assert_eq!(run.state().tree.waiting.len(), 1);
     }
