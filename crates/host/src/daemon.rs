@@ -177,7 +177,9 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
             let build = build();
             say_when_listening(&daemon, &build, adroit_term::SPEAKS).await;
             let _published = crate::remote::Publication::create("terminal", Some(&socket()))
-                .inspect_err(|e| eprintln!("adroit: paired clients cannot find this host: {e}"));
+                .inspect_err(
+                    |e| tracing::warn!(error = %e, "paired clients cannot find this host"),
+                );
             keep_saying(&daemon, &build, adroit_term::SPEAKS, SAY_AGAIN).await
         });
         let monitor = async {

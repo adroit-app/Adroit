@@ -392,7 +392,7 @@ async fn delegation() {
             Ok(service) => break service,
             Err(error) => {
                 if !told {
-                    eprintln!("adroit: sessions cannot start or message sessions yet: {error}");
+                    tracing::warn!(%error, "sessions cannot start or message sessions yet");
                     told = true;
                 }
                 tokio::time::sleep(CLAIM_AGAIN).await;
@@ -408,7 +408,7 @@ async fn delegation() {
 async fn serve(socket: &Path) -> Result<()> {
     let mut server = WorkHostServer::bind(socket).await?;
     if let Err(e) = server.publish() {
-        eprintln!("adroit: paired clients cannot find this host: {e}");
+        tracing::warn!(error = %e, "paired clients cannot find this host");
     }
     let host = crate::work::Host::new(crate::work::Work::configured(crate::config::read()));
     let judged = std::sync::Arc::new(tokio::sync::watch::Sender::new(None));

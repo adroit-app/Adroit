@@ -251,7 +251,7 @@ async fn rename(
     })
     .await;
     if let Err(e) = kept {
-        eprintln!("adroit: keeping the name {name} of {was}: {e}");
+        tracing::warn!(%name, %was, error = %e, "cannot keep a terminal's name");
     }
     watched.relist();
     if let Some(command) = adroit_agents::adapter(agent).rename_command(&name) {

@@ -1154,10 +1154,12 @@ fn gatewayed(hosts: &Hosts, advertise: bool) -> Gatewayed {
         .find_map(|_| {
             let text = std::fs::read_to_string(&log).unwrap_or_default();
             let found = text
-                .split_whitespace()
-                .skip_while(|word| *word != "gateway")
-                .nth(1)
-                .filter(|_| text.contains("listening on"))
+                .lines()
+                .find(|line| line.contains("gateway listening"))
+                .and_then(|line| {
+                    line.split_whitespace()
+                        .find_map(|word| word.strip_prefix("server="))
+                })
                 .map(str::to_string);
             if found.is_none() {
                 std::thread::sleep(Duration::from_millis(20));

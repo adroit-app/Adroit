@@ -100,7 +100,7 @@ async fn keep_hosts_up() {
         if standing(&socket()).await == adroit_protocol::WorkHost::Absent
             && let Err(e) = start(&socket(), &adroit_program(), &serve_args()).await
         {
-            eprintln!("adroit: cannot start the work host: {e}");
+            tracing::warn!(error = %e, "cannot start the work host");
         }
         tokio::time::sleep(LOOK_AGAIN).await;
     }
@@ -168,10 +168,10 @@ async fn serve(
         running => running?,
     };
     let listening: Vec<String> = running.listening.iter().map(ToString::to_string).collect();
-    eprintln!(
-        "adroit: gateway {} listening on {}",
-        running.server,
-        listening.join(", ")
+    tracing::info!(
+        server = %running.server,
+        listening = %listening.join(", "),
+        "gateway listening"
     );
     // Kept for as long as the gateway serves; dropping it withdraws it.
     let _announced = if advertise {
@@ -183,7 +183,7 @@ async fn serve(
                 Some(announced)
             }
             Err(error) => {
-                eprintln!("adroit: cannot announce the gateway on the local network: {error}");
+                tracing::warn!(%error, "cannot announce the gateway on the local network");
                 None
             }
         }
@@ -205,8 +205,16 @@ async fn watch_announcing() {
         let now = tokio::task::spawn_blocking(adroit_net::can_multicast)
             .await
             .unwrap_or_else(|error| Err(std::io::Error::other(error)));
-        if let Some(told) = announcing(was, &now) {
-            eprintln!("{told}");
+        match announcing(was, &now) {
+            Some(Announcing::Failing(error)) => tracing::warn!(
+                %error,
+                hint = LOCAL_NETWORK_HINT,
+                "the gateway cannot announce itself on the local network"
+            ),
+            Some(Announcing::Again) => {
+                tracing::info!("the gateway announces itself on the local network now")
+            }
+            None => {}
         }
         if now.is_ok() {
             return;
@@ -216,22 +224,26 @@ async fn watch_announcing() {
     }
 }
 
+/// What a user does to let the gateway reach the local network.
+const LOCAL_NETWORK_HINT: &str = if cfg!(target_os = "macos") {
+    "allow Adroit to find devices on local networks in System Settings > Privacy & Security > Local Network"
+} else {
+    ""
+};
+
+/// What the operator is told when announcing changed.
+enum Announcing<'a> {
+    Failing(&'a std::io::Error),
+    Again,
+}
+
 /// What to tell the operator when the announcement could last leave this
 /// machine as `was` says and now does as `now` says.
-fn announcing(was: Option<bool>, now: &std::io::Result<()>) -> Option<String> {
-    let hint = if cfg!(target_os = "macos") {
-        "; allow Adroit to find devices on local networks in System Settings > Privacy & Security > Local Network"
-    } else {
-        ""
-    };
+fn announcing(was: Option<bool>, now: &std::io::Result<()>) -> Option<Announcing<'_>> {
     match (was, now) {
         (Some(false), Err(_)) | (Some(true) | None, Ok(())) => None,
-        (_, Err(error)) => Some(format!(
-            "adroit: the gateway cannot announce itself on the local network: {error}{hint}"
-        )),
-        (Some(false), Ok(())) => {
-            Some("adroit: the gateway announces itself on the local network now".into())
-        }
+        (_, Err(error)) => Some(Announcing::Failing(error)),
+        (Some(false), Ok(())) => Some(Announcing::Again),
     }
 }
 
@@ -429,11 +441,11 @@ impl Served {
                         .unwrap_or_default();
                     match self.pairing.approve(id, code).await {
                         Ok(client) => {
-                            eprintln!("adroit: paired \"{name}\" ({client})");
+                            tracing::info!(%name, %client, "paired");
                             AdminAnswer::Paired(client)
                         }
                         Err(error) => {
-                            eprintln!("adroit: did not pair \"{name}\": {error}");
+                            tracing::info!(%name, %error, "did not pair");
                             AdminAnswer::Failed(error.to_string())
                         }
                     }
@@ -446,7 +458,7 @@ impl Served {
             },
             Admin::Revoke { fingerprint } => match self.peers.revoke(&fingerprint) {
                 Ok(_) => {
-                    eprintln!("adroit: revoked {fingerprint} and ended its connections");
+                    tracing::info!(%fingerprint, "revoked and ended its connections");
                     self.gateway.disconnect(&fingerprint);
                     AdminAnswer::Done
                 }
@@ -494,15 +506,17 @@ mod tests {
     #[test]
     fn the_operator_is_told_once_when_announcing_fails_and_once_when_it_works_again() {
         let failed = || Err(std::io::Error::other("No route to host"));
-        assert_eq!(announcing(None, &Ok(())), None);
-        let told = announcing(None, &failed()).unwrap();
-        assert!(told.contains("cannot announce") && told.contains("No route to host"));
-        assert_eq!(announcing(Some(false), &failed()), None);
-        assert!(
-            announcing(Some(false), &Ok(()))
-                .unwrap()
-                .contains("announces")
-        );
+        assert!(announcing(None, &Ok(())).is_none());
+        let failing = failed();
+        assert!(matches!(
+            announcing(None, &failing),
+            Some(Announcing::Failing(error)) if error.to_string() == "No route to host"
+        ));
+        assert!(announcing(Some(false), &failed()).is_none());
+        assert!(matches!(
+            announcing(Some(false), &Ok(())),
+            Some(Announcing::Again)
+        ));
     }
 
     #[tokio::test]

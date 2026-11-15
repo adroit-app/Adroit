@@ -362,9 +362,10 @@ async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answe
         })
         .await;
         if let Err(e) = kept {
-            eprintln!(
-                "adroit: keeping {} to open again: {e}",
-                resolved.terminal.name
+            tracing::warn!(
+                terminal = %resolved.terminal.name,
+                error = %e,
+                "cannot keep a terminal to open again"
             );
         }
     }

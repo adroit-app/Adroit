@@ -733,11 +733,8 @@ async fn supervise(context: Context) {
         interval.tick().await;
         let result = watcher.tick(&context).await;
         let error = result.err().map(|error| error.to_string());
-        if error.is_some() && error != last_error {
-            eprintln!(
-                "adroit: watching sessions: {}",
-                error.as_deref().unwrap_or_default()
-            );
+        if let Some(error) = error.as_deref().filter(|_| error != last_error) {
+            tracing::warn!(%error, "cannot watch sessions");
         }
         last_error = error;
     }
@@ -837,7 +834,7 @@ impl Watcher {
                     _ => crate::restore::let_go(chosen).await,
                 };
                 if let Err(error) = done {
-                    eprintln!("adroit: what the terminal host took with it: {error}");
+                    tracing::warn!(%error, "cannot settle what the terminal host took with it");
                 }
             });
         }

@@ -37,7 +37,7 @@ pub(super) async fn watch(mut watched: Watched) {
                     && let Err(error) =
                         crate::workspaces::keep(&crate::paths::instance_state(), started)
                 {
-                    eprintln!("adroit: cannot keep the workspaces sessions started in: {error}");
+                    tracing::warn!(%error, "cannot keep the workspaces sessions started in");
                 }
                 // Listed all the same when the store cannot be read: what waits
                 // is only offered.
@@ -83,7 +83,7 @@ fn kept_workspaces() -> Vec<PathBuf> {
     match crate::workspaces::load(&crate::paths::instance_state()) {
         Ok(kept) => kept.into_iter().filter(|dir| dir.is_dir()).collect(),
         Err(error) => {
-            eprintln!("adroit: {error}");
+            tracing::warn!(%error, "cannot read the workspaces the tree keeps");
             Vec::new()
         }
     }

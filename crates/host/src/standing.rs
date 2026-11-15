@@ -136,7 +136,7 @@ pub(crate) async fn say_when_listening(daemon: &Daemon, build: &str, speaks: &[u
                     speaks: speaks.to_vec(),
                 };
                 if let Err(e) = say(daemon.socket(), &said) {
-                    eprintln!("adroit: cannot say what the terminal host speaks: {e}");
+                    tracing::warn!(error = %e, "cannot say what the terminal host speaks");
                 }
                 return;
             }
@@ -172,7 +172,7 @@ pub(crate) async fn keep_saying(
             speaks: speaks.to_vec(),
         };
         if let Err(e) = say(daemon.socket(), &said) {
-            eprintln!("adroit: cannot say what the terminal host speaks: {e}");
+            tracing::warn!(error = %e, "cannot say what the terminal host speaks");
         }
     }
 }

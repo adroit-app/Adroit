@@ -48,7 +48,7 @@ fn load_path(path: &Path) -> Settings {
 }
 
 pub(crate) fn recover(error: String) -> Settings {
-    eprintln!("adroit: {error}");
+    tracing::warn!(%error, "settings unreadable; delegation is off until they are fixed");
     Settings {
         delegation: DelegationSettings { enabled: false },
         ..Settings::default()
@@ -104,7 +104,7 @@ pub fn take_in(file: &adroit_protocol::ConfigFile) {
                 *s = next;
             }
         }
-        Err(error) => eprintln!("adroit: {error}"),
+        Err(error) => tracing::warn!(%error, "settings unreadable; the ones in force are kept"),
         _ => {}
     }
     let _ = CHANGED.send(());

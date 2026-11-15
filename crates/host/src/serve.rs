@@ -249,7 +249,7 @@ impl Served {
                     let id = active.environment.as_ref().map(|e| e.id.as_str());
                     let state = adroit_model::paths::instance_state();
                     if let Err(error) = crate::environment::call(&state, id, &name) {
-                        eprintln!("adroit: cannot keep the environment's name: {error}");
+                        tracing::warn!(%error, %name, "cannot keep the environment's name");
                     }
                 }
                 Request::Ask { asked, ask } => {
