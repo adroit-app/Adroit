@@ -2,6 +2,7 @@
 
 use crate::actions::Action;
 use crate::content::Tab;
+use crate::cursor;
 use crate::details;
 use crate::effect::Effect;
 use crate::state::ViewState;
@@ -37,12 +38,8 @@ impl Lightbox {
     }
 
     fn step(&mut self, forward: bool) {
-        let n = self.images.len();
-        self.at = if forward {
-            (self.at + 1) % n
-        } else {
-            (self.at + n - 1) % n
-        };
+        let delta = if forward { 1 } else { -1 };
+        self.at = cursor::wrap(self.at, delta, self.images.len());
         self.zoom = Zoom::FIT;
         self.pan = (0.0, 0.0);
     }

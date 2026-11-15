@@ -9,6 +9,7 @@ use adroit_protocol::{PastSight, PickSight, Request, WorkSnapshot};
 
 use crate::actions::Action;
 use crate::content::{self, Opening, TerminalAsk};
+use crate::cursor;
 use crate::effect::Effect;
 use crate::host::Hosts;
 use crate::keymap::{Context, Step};
@@ -346,8 +347,8 @@ pub(crate) fn press(state: &mut ViewState, key: &Key) -> Vec<Effect> {
         Some(ListKey::Step(delta)) => {
             let len = rows_len(&state.picker, &state.hosts, &state.tree);
             if let Some(open) = &mut state.picker.open {
-                let (_, cursor) = open.list();
-                *cursor = step(*cursor, len, delta);
+                let (_, at) = open.list();
+                *at = cursor::wrap(*at, delta, len);
             }
             Vec::new()
         }

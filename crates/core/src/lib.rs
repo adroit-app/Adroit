@@ -10,6 +10,7 @@ pub mod completion;
 pub mod config;
 pub mod console;
 pub mod content;
+pub mod cursor;
 pub mod details;
 pub mod effect;
 pub mod file_icons;

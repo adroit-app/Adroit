@@ -485,14 +485,6 @@ pub fn labelled_lines(
         .collect()
 }
 
-/// The cursor moved by `delta` over `len` rows, wrapping at either end.
-pub fn step(cursor: usize, len: usize, delta: isize) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    crate::tree::nav::wrap(cursor, delta, len)
-}
-
 pub use adroit_model::paths::tilde as short;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -713,16 +705,6 @@ mod tests {
         );
         // The home directory's own name is not in what is drawn.
         assert!(matching(&cs, "me/", 10).is_empty());
-    }
-
-    #[test]
-    fn the_cursor_wraps_at_either_end() {
-        assert_eq!(step(0, 3, 1), 1);
-        assert_eq!(step(2, 3, 1), 0);
-        assert_eq!(step(0, 3, -1), 2);
-        assert_eq!(step(1, 3, -1), 0);
-        assert_eq!(step(0, 0, 1), 0);
-        assert_eq!(step(0, 0, -1), 0);
     }
 
     #[test]

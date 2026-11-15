@@ -9,6 +9,8 @@ use adroit_model::{
 };
 
 use crate::content::Tab;
+use crate::cursor;
+pub use crate::cursor::wrap;
 use adroit_model::files::Entry;
 use adroit_model::github::{Listing, Repository};
 
@@ -426,16 +428,8 @@ pub fn step(items: &[Item], current: Option<&Item>, delta: isize) -> Option<Item
         return None;
     }
     let at = current.and_then(|c| items.iter().position(|i| i == c));
-    let next = match at {
-        Some(i) => (i as isize + delta).clamp(0, items.len() as isize - 1) as usize,
-        None => 0,
-    };
+    let next = at.map_or(0, |i| cursor::clamp(i, delta, items.len()));
     Some(items[next].clone())
-}
-
-/// The index `delta` places from `at` in a list of `len`, wrapping around.
-pub fn wrap(at: usize, delta: isize, len: usize) -> usize {
-    (at as isize + delta).rem_euclid(len as isize) as usize
 }
 
 /// The next (or previous) waiting session after `current`, wrapping around,
@@ -455,7 +449,7 @@ pub fn next_waiting(
             .position(|(e, i)| e == environment && i.session.id == id)
     });
     let i = match (at, forward) {
-        (Some(i), _) => wrap(i, if forward { 1 } else { -1 }, n),
+        (Some(i), _) => cursor::wrap(i, if forward { 1 } else { -1 }, n),
         (None, true) => 0,
         (None, false) => n - 1,
     };
@@ -487,16 +481,15 @@ pub fn next_session(
         _ => None,
     };
     let i = match at {
-        Some(i) if forward => i + 1,
-        Some(i) => i + n - 1,
+        Some(i) => cursor::wrap(i, if forward { 1 } else { -1 }, n),
         None => {
             let worktree =
                 place.and_then(|p| tree.worktrees().position(|w| w.worktree.path == p.worktree));
             let after = worktree.map_or(0, |wt| all.iter().filter(|(w, _)| *w <= wt).count());
-            if forward { after } else { after + n - 1 }
+            cursor::wrap(after, if forward { 0 } else { -1 }, n)
         }
     };
-    Some(all[i % n].1.id.clone())
+    Some(all[i].1.id.clone())
 }
 
 /// A session of the workspace after (or before) the one shown, in the
@@ -1690,13 +1683,6 @@ mod tests {
         assert_eq!(step(&list, Some(&session("x")), 1), Some(session("x")));
         assert_eq!(step(&list, Some(&ws("/w")), -1), Some(ws("/w")));
         assert_eq!(step(&[], None, 1), None);
-    }
-
-    #[test]
-    fn wrapping_goes_round_both_ends() {
-        assert_eq!(wrap(2, 1, 3), 0);
-        assert_eq!(wrap(0, -1, 3), 2);
-        assert_eq!(wrap(1, 4, 3), 2);
     }
 
     #[test]

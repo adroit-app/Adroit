@@ -8,6 +8,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::cursor;
+
 /// One line of the tree. Its identity is the root it is listed under and
 /// its path: one directory can be listed under two roots, open in one and
 /// shut in the other.
@@ -151,12 +153,12 @@ impl Filer {
 
     /// The row below the cursor; the cursor stays on the last row.
     pub fn down(&mut self, rows: &[Row]) {
-        self.settle_or_first(rows, |at| (at + 1).min(rows.len().saturating_sub(1)));
+        self.settle_or_first(rows, |at| cursor::clamp(at, 1, rows.len()));
     }
 
     /// The row above the cursor; the cursor stays on the first row.
     pub fn up(&mut self, rows: &[Row]) {
-        self.settle_or_first(rows, |at| at.saturating_sub(1));
+        self.settle_or_first(rows, |at| cursor::clamp(at, -1, rows.len()));
     }
 
     fn settle_or_first(&mut self, rows: &[Row], to: impl Fn(usize) -> usize) {

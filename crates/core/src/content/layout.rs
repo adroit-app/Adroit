@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::Dir;
+use crate::cursor;
 
 /// Where something opened from the tree goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -677,7 +678,7 @@ impl<T: Clone + PartialEq> Content<T> {
             return;
         }
         self.tabs.remove(self.current);
-        self.current = self.current.min(self.tabs.len().saturating_sub(1));
+        self.current = cursor::within(self.current, self.tabs.len());
         self.keep_last();
     }
 
@@ -1010,8 +1011,7 @@ impl<T: Clone + PartialEq> Content<T> {
     /// Move the shown tab `delta` places along the tabs, stopping at the
     /// first and the last.
     pub fn shift_tab(&mut self, delta: isize) {
-        let last = self.tabs.len().saturating_sub(1) as isize;
-        let to = (self.current as isize + delta).clamp(0, last.max(0)) as usize;
+        let to = cursor::clamp(self.current, delta, self.tabs.len());
         self.move_tab(self.current, to);
     }
 
@@ -1019,7 +1019,7 @@ impl<T: Clone + PartialEq> Content<T> {
     pub fn cycle_tab(&mut self, delta: isize) {
         let n = self.tabs.len();
         if n > 0 {
-            self.set_current((self.current as isize + delta).rem_euclid(n as isize) as usize);
+            self.set_current(cursor::wrap(self.current, delta, n));
         }
     }
 
@@ -1027,7 +1027,7 @@ impl<T: Clone + PartialEq> Content<T> {
     /// not that many.
     pub fn go_to_tab(&mut self, at: usize) {
         if !self.tabs.is_empty() {
-            self.set_current(at.min(self.tabs.len() - 1));
+            self.set_current(cursor::within(at, self.tabs.len()));
         }
     }
 
@@ -1152,7 +1152,7 @@ impl<T: Clone + PartialEq> Content<T> {
             kept.push(tab);
         }
         self.tabs = kept;
-        self.current = before.min(self.tabs.len().saturating_sub(1));
+        self.current = cursor::within(before, self.tabs.len());
         self.keep_last();
     }
 }
@@ -1317,7 +1317,7 @@ impl<T: Clone + PartialEq> Content<T> {
                 previous: None,
             });
         }
-        c.current = kept.current.min(c.tabs.len().saturating_sub(1));
+        c.current = cursor::within(kept.current, c.tabs.len());
         c.closed_around()
     }
 }
