@@ -25,7 +25,7 @@ pub(super) fn Interrupted(list: Waiting) -> Element {
         ("Esc", "close"),
     ];
     rsx! {
-        Dialog { kind: "picker-dialog", icon: Icon::Restore, title: "Bring back what the sessions' daemon took",
+        Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), icon: Icon::Restore, title: "Bring back what the sessions' daemon took",
             div { class: "filter-field",
                 QueryField { query: list.list.query.clone(), placeholder: "Sessions and shells" }
             }

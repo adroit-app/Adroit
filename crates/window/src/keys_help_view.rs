@@ -22,51 +22,49 @@ pub fn scroll(lines: i32) {
 #[component]
 pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
     rsx! {
-        div { onclick: move |_| onclose.call(()),
-            Dialog { kind: "keys-help-dialog", icon: Icon::Keyboard, title: "Keyboard Shortcuts",
-                div { class: "keys-help-groups",
-                    div { class: "keys-help-columns",
-                        for group in groups {
-                            section {
-                                key: "{group.context.name()}",
-                                class: if group.here { "keys-help-group here" } else { "keys-help-group" },
-                                div { class: "keys-help-head",
-                                    span { class: "keys-help-title", "{group.context.title()}" }
-                                    if group.here {
-                                        span { class: "keys-help-here", "Here" }
-                                    }
+        Dialog { kind: "keys-help-dialog", onclose, icon: Icon::Keyboard, title: "Keyboard Shortcuts",
+            div { class: "keys-help-groups",
+                div { class: "keys-help-columns",
+                    for group in groups {
+                        section {
+                            key: "{group.context.name()}",
+                            class: if group.here { "keys-help-group here" } else { "keys-help-group" },
+                            div { class: "keys-help-head",
+                                span { class: "keys-help-title", "{group.context.title()}" }
+                                if group.here {
+                                    span { class: "keys-help-here", "Here" }
                                 }
-                                div { class: "keys-help-hint", "{group.context.hint()}" }
-                                for (i, row) in group.rows.into_iter().enumerate() {
-                                    div { key: "{i}", class: "keys-help-row",
-                                        span { class: "keys-help-icon",
-                                            if let Some(icon) = row.icon {
-                                                IconView { icon, size: 14 }
+                            }
+                            div { class: "keys-help-hint", "{group.context.hint()}" }
+                            for (i, row) in group.rows.into_iter().enumerate() {
+                                div { key: "{i}", class: "keys-help-row",
+                                    span { class: "keys-help-icon",
+                                        if let Some(icon) = row.icon {
+                                            IconView { icon, size: 14 }
+                                        }
+                                    }
+                                    span { class: "keys-help-label",
+                                        "{row.label}"
+                                        if row.repeats {
+                                            span {
+                                                class: "keys-help-repeats",
+                                                title: "Repeats: press the last key again to do it again",
+                                                "↻"
                                             }
                                         }
-                                        span { class: "keys-help-label",
-                                            "{row.label}"
-                                            if row.repeats {
-                                                span {
-                                                    class: "keys-help-repeats",
-                                                    title: "Repeats: press the last key again to do it again",
-                                                    "↻"
+                                    }
+                                    span { class: "keys-help-keys",
+                                        for (j, keys) in row.keys.into_iter().enumerate() {
+                                            span { key: "{j}", class: "keys-help-seq",
+                                                for (k, chord) in keys.lead.into_iter().enumerate() {
+                                                    Keys { key: "lead-{k}", keys: chord }
                                                 }
-                                            }
-                                        }
-                                        span { class: "keys-help-keys",
-                                            for (j, keys) in row.keys.into_iter().enumerate() {
-                                                span { key: "{j}", class: "keys-help-seq",
-                                                    for (k, chord) in keys.lead.into_iter().enumerate() {
-                                                        Keys { key: "lead-{k}", keys: chord }
-                                                    }
-                                                    for (k, end) in keys.ends.into_iter().enumerate() {
-                                                        span { key: "end-{k}", class: "keys-help-end",
-                                                            if k > 0 {
-                                                                span { class: "keys-help-or", "/" }
-                                                            }
-                                                            Keys { keys: end }
+                                                for (k, end) in keys.ends.into_iter().enumerate() {
+                                                    span { key: "end-{k}", class: "keys-help-end",
+                                                        if k > 0 {
+                                                            span { class: "keys-help-or", "/" }
                                                         }
+                                                        Keys { keys: end }
                                                     }
                                                 }
                                             }
@@ -77,13 +75,13 @@ pub fn KeysHelpView(groups: Vec<Group>, onclose: EventHandler<()>) -> Element {
                         }
                     }
                 }
-                div { class: "keys-help-footer",
-                    KeyHint { keys: "j/k", does: "scroll" }
-                    KeyHint { keys: "Esc", does: "close" }
-                    span { class: "keys-help-legend",
-                        span { class: "keys-help-repeats", "↻" }
-                        "the last key repeats it"
-                    }
+            }
+            div { class: "keys-help-footer",
+                KeyHint { keys: "j/k", does: "scroll" }
+                KeyHint { keys: "Esc", does: "close" }
+                span { class: "keys-help-legend",
+                    span { class: "keys-help-repeats", "↻" }
+                    "the last key repeats it"
                 }
             }
         }

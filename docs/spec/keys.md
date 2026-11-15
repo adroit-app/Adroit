@@ -29,6 +29,9 @@ right-clicking it, each entry with the keys bound to it. A tab closes with its
 `×`, a window takes the keys when clicked, a border between windows is dragged
 to resize them, a workspace's or worktree's row starts a session there with its `+`, and
 the buttons beside the tree's filter list every worktree and start a session.
+A click on the shade around what is drawn over the window, a picker, a
+question, the keys help or the sheet adding an environment, closes it as
+`overlay.close` does, answering a question no; so does a click outside a menu.
 
 A click on the console, live or read, reaches a program that reads the mouse,
 as Claude Code does, at the cell clicked; a program that does not read it is

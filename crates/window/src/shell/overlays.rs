@@ -144,7 +144,7 @@ pub(crate) fn ConfirmDialog() -> Element {
     };
     let (icon, title, body, act) = ask.dialog();
     rsx! {
-        Dialog { icon, title,
+        Dialog { icon, title, onclose: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
             div { "{body}" }
             div { class: "dialog-actions",
                 Button { onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),

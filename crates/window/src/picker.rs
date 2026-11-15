@@ -29,13 +29,10 @@ pub(crate) fn Picker() -> Element {
     });
     rsx! {
         if let Some(open) = open {
-            div {
-                onclick: move |_| app.dispatch(Msg::PickerClose),
-                match open {
-                    Picking::Go(picker) => rsx! { go::Go { picker: *picker } },
-                    Picking::Resume(list) => rsx! { resume::Resume { list } },
-                    Picking::Interrupted(list) => rsx! { interrupted::Interrupted { list } },
-                }
+            match open {
+                Picking::Go(picker) => rsx! { go::Go { picker: *picker } },
+                Picking::Resume(list) => rsx! { resume::Resume { list } },
+                Picking::Interrupted(list) => rsx! { interrupted::Interrupted { list } },
             }
         }
     }

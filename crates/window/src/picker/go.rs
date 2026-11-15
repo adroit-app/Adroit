@@ -73,7 +73,7 @@ pub(super) fn Go(picker: GoPicker) -> Element {
         }
     };
     rsx! {
-        Dialog { kind: "picker-dialog", title: "{title}",
+        Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), title: "{title}",
             match picker.mode {
                 Mode::List => {
                     let query = Query::new(&Narrowing::new(&picker.list.query).text);

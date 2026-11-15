@@ -14,7 +14,7 @@ use dioxus::core::{Runtime, ScopeId, Task, current_scope_id};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::Button;
+use crate::components::{Button, Dialog};
 use crate::environments::{Joining, fresh_name, machine_name, of_machine, of_served, retarget};
 use crate::icons::{Icon, IconView};
 use crate::keys;
@@ -387,30 +387,24 @@ fn Sheet() -> Element {
     };
     let error = adding.error.read().clone();
     rsx! {
-        div { class: "dialog-scrim", onclick: move |_| adding.close(),
-            div {
-                class: "dialog adding-sheet",
-                role: "dialog",
-                aria_label: "Add environment",
-                onclick: move |e| e.stop_propagation(),
-                div { class: "adding-head",
-                    h3 { "{title}" }
-                    div { class: "adding-steps",
-                        for (i , label) in ["Where", "Pair", "Join", "Name"].into_iter().enumerate() {
-                            span { class: if i == at { "on" } else { "" }, "{label}" }
-                        }
+        Dialog { kind: "adding-sheet", label: "Add environment", escapes: true, onclose: move |_| adding.close(),
+            div { class: "adding-head",
+                h3 { "{title}" }
+                div { class: "adding-steps",
+                    for (i , label) in ["Where", "Pair", "Join", "Name"].into_iter().enumerate() {
+                        span { class: if i == at { "on" } else { "" }, "{label}" }
                     }
                 }
-                div { class: "adding-body",
-                    match step {
-                        Step::Where => rsx! { Where { adding } },
-                        Step::Pair { name, .. } => rsx! { Pair { adding, name } },
-                        Step::Join { target, name, paired } => rsx! { Join { adding, target, name, paired } },
-                        Step::Name { target, name, paired, joining } => rsx! { Name { adding, target, name, paired, joining } },
-                    }
-                    if let Some(why) = error {
-                        p { class: "adding-error", role: "alert", "{why}" }
-                    }
+            }
+            div { class: "adding-body",
+                match step {
+                    Step::Where => rsx! { Where { adding } },
+                    Step::Pair { name, .. } => rsx! { Pair { adding, name } },
+                    Step::Join { target, name, paired } => rsx! { Join { adding, target, name, paired } },
+                    Step::Name { target, name, paired, joining } => rsx! { Name { adding, target, name, paired, joining } },
+                }
+                if let Some(why) = error {
+                    p { class: "adding-error", role: "alert", "{why}" }
                 }
             }
         }

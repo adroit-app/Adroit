@@ -30,7 +30,7 @@ pub(super) fn Resume(list: List) -> Element {
         ("Esc", "close"),
     ];
     rsx! {
-        Dialog { kind: "picker-dialog", icon: Icon::TransferIn, title: "Resume a conversation",
+        Dialog { kind: "picker-dialog", onclose: move |_| app.dispatch(Msg::PickerClose), icon: Icon::TransferIn, title: "Resume a conversation",
             div { class: "filter-field",
                 QueryField { query: list.list.query.clone(), placeholder: "Conversations of {scope}" }
                 if list.dir.is_some() {
