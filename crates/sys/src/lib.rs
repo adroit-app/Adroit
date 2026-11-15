@@ -9,6 +9,7 @@
 
 pub mod fs;
 pub mod local;
+pub mod path;
 pub mod process;
 
 /// The real user of this process.

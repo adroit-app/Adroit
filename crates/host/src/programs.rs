@@ -86,7 +86,7 @@ pub fn ready(
         .cloned()
         .chain(context.launch.env.clone())
         .collect();
-    match adroit_term::runnable(&program, cwd, &env) {
+    match adroit_sys::path::runnable(&program, cwd, &env) {
         true => Ok(()),
         false => Err(format!(
             "{}'s program `{program}` is not installed or not on the path; install it, or set profile `{}`'s launch command under {WHERE}",

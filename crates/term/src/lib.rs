@@ -22,7 +22,7 @@ pub use daemon::{
 };
 pub use input::{Input, Key};
 pub use palette::{Palette, Rgb};
-pub use pane::{Drawn, Pane, Picture, Size, resolved, runnable};
+pub use pane::{Drawn, Pane, Picture, Size};
 #[cfg(windows)]
 pub use pane::{HOLD, hold};
 pub use permission::InputPermission;

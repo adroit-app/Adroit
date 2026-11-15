@@ -41,7 +41,7 @@ pub fn login_shell() -> Option<String> {
 #[cfg(not(unix))]
 pub fn login_shell() -> Option<String> {
     let here = std::path::Path::new(".");
-    Some(if adroit_term::runnable("pwsh", here, &[]) {
+    Some(if adroit_sys::path::runnable("pwsh", here, &[]) {
         "pwsh".into()
     } else {
         "powershell".into()
