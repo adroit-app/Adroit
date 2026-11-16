@@ -149,6 +149,24 @@ fn chosen(
     })
 }
 
+/// Whether `served`, of the work host `target` reaches, may be deleted there:
+/// not the machine's own, no session running in it, and not listed in this
+/// computer's tree.
+fn deletable(catalog: &Catalog, target: &Target, served: &ServedEnvironment) -> bool {
+    served.id.is_some()
+        && served.running == 0
+        && !of_served(catalog, target, &served.id).is_some_and(|kept| !kept.archived)
+}
+
+/// What the list calls `served`, of the machine named `machine`.
+fn served_label(served: &ServedEnvironment, machine: &str) -> String {
+    match (&served.name, &served.id) {
+        (Some(name), _) => name.clone(),
+        (None, None) => format!("{machine}'s own environment"),
+        (None, Some(_)) => "An environment not named yet".into(),
+    }
+}
+
 fn name_of(target: &Target) -> String {
     match target {
         Target::Native { address, .. } => machine_name(address),
@@ -521,6 +539,11 @@ fn Pair(adding: Adding, name: String) -> Element {
 #[component]
 fn Join(adding: Adding, target: Target, name: String, paired: Option<String>) -> Element {
     let mut listed = use_signal(|| None::<Result<Vec<ServedEnvironment>, String>>);
+    // The environment whose deletion is being asked about, and why the last
+    // one asked for was not deleted.
+    let mut confirming = use_signal(|| None::<String>);
+    let mut refused = use_signal(|| None::<String>);
+    let mut deleting = use_signal(|| false);
     use_hook({
         let target = target.clone();
         move || {
@@ -531,11 +554,37 @@ fn Join(adding: Adding, target: Target, name: String, paired: Option<String>) ->
             });
         }
     });
+    let delete = {
+        let target = target.clone();
+        move |id: String| {
+            let target = target.clone();
+            deleting.set(true);
+            refused.set(None);
+            spawn(async move {
+                let forgotten =
+                    crate::link::forget_served(&target, crate::bridge::work_host, id).await;
+                if let Err(why) = forgotten {
+                    refused.set(Some(why));
+                }
+                confirming.set(None);
+                listed.set(Some(
+                    crate::link::served(&target, crate::bridge::work_host).await,
+                ));
+                deleting.set(false);
+            });
+        }
+    };
     let catalog = adding.catalog.read().clone().unwrap_or_default();
-    let choices: Vec<(ServedEnvironment, Next)> = match &*listed.read() {
+    let choices: Vec<(ServedEnvironment, Next, bool)> = match &*listed.read() {
         Some(Ok(served)) => served
             .iter()
-            .map(|s| (s.clone(), chosen(&catalog, &target, paired.as_deref(), s)))
+            .map(|s| {
+                (
+                    s.clone(),
+                    chosen(&catalog, &target, paired.as_deref(), s),
+                    deletable(&catalog, &target, s),
+                )
+            })
             .collect(),
         _ => Vec::new(),
     };
@@ -552,38 +601,78 @@ fn Join(adding: Adding, target: Target, name: String, paired: Option<String>) ->
         }
         div { class: "adding-label", "Running on {machine}" }
         div { class: "adding-options", role: "list", aria_busy: listed.read().is_none(),
-            for (served , next) in choices {
-                button {
-                    key: "{served.id:?}",
-                    r#type: "button",
-                    role: "listitem",
-                    class: "adding-option",
-                    onclick: {
-                        let next = next.clone();
-                        move |_| adding.go(next.clone())
-                    },
-                    IconView { icon: Icon::Server, size: 16 }
-                    span { class: "adding-option-text",
-                        match (&served.name, &served.id) {
-                            (Some(name), _) => rsx! { "{name}" },
-                            (None, None) => rsx! { "{machine}'s own environment" },
-                            (None, Some(_)) => rsx! { "An environment not named yet" },
+            for (served , next , can_delete) in choices {
+                div { key: "{served.id:?}", role: "listitem", class: "adding-served",
+                    div { class: "adding-served-row",
+                        button {
+                            r#type: "button",
+                            class: "adding-option",
+                            onclick: {
+                                let next = next.clone();
+                                move |_| adding.go(next.clone())
+                            },
+                            IconView { icon: Icon::Server, size: 16 }
+                            span { class: "adding-option-text",
+                                "{served_label(&served, &machine)}"
+                                small {
+                                    match served.running {
+                                        0 => "No sessions running".to_string(),
+                                        1 => "1 session running".to_string(),
+                                        n => format!("{n} sessions running"),
+                                    }
+                                }
+                            }
+                            span { class: "adding-option-go",
+                                match next {
+                                    Next::Select(_) => "Already added",
+                                    _ => "Join →",
+                                }
+                            }
                         }
-                        small {
-                            match served.running {
-                                0 => "No sessions running".to_string(),
-                                1 => "1 session running".to_string(),
-                                n => format!("{n} sessions running"),
+                        if let (true, Some(id)) = (can_delete, served.id.clone()) {
+                            button {
+                                r#type: "button",
+                                class: "adding-delete",
+                                title: "Delete it from {machine}",
+                                disabled: deleting(),
+                                onclick: move |_| {
+                                    refused.set(None);
+                                    confirming.set(Some(id.clone()));
+                                },
+                                "Delete…"
                             }
                         }
                     }
-                    span { class: "adding-option-go",
-                        match next {
-                            Next::Select(_) => "Already added",
-                            _ => "Join →",
+                    if confirming.read().is_some() && *confirming.read() == served.id {
+                        div { class: "adding-confirm", role: "alertdialog",
+                            p { class: "adding-note",
+                                "Delete “{served_label(&served, &machine)}” from {machine}? Its sessions' history, work settings and agents' logins go with it, for every computer that joined it."
+                            }
+                            div { class: "adding-confirm-actions",
+                                Button {
+                                    onclick: move |_| confirming.set(None),
+                                    "Keep it"
+                                }
+                                Button {
+                                    kind: "danger",
+                                    onclick: {
+                                        let delete = delete.clone();
+                                        let id = served.id.clone();
+                                        move |_| {
+                                            if let Some(id) = id.clone() {
+                                                delete.clone()(id);
+                                            }
+                                        }
+                                    },
+                                    if deleting() { "Deleting…" } else { "Delete" }
+                                }
+                            }
                         }
                     }
                 }
+            }
+            if let Some(why) = refused() {
+                p { class: "adding-error", role: "alert", "Not deleted: {why}" }
             }
             match &*listed.read() {
                 None => rsx! {
@@ -871,5 +960,34 @@ mod tests {
             panic!("not named");
         };
         assert_eq!(name, "box.local");
+    }
+
+    #[test]
+    fn an_environment_served_with_no_session_running_and_not_listed_here_can_be_deleted() {
+        let removed = Environment {
+            scope: Some("w".into()),
+            ..kept("aa", "Old", "box.local:47130", true)
+        };
+        let catalog = catalog([removed.clone()]);
+        let target = &removed.target;
+        assert!(deletable(&catalog, target, &served(Some("w"), None)));
+        assert!(deletable(&catalog, target, &served(Some("x"), None)));
+    }
+
+    #[test]
+    fn an_environment_served_that_is_the_machines_own_or_runs_sessions_or_is_listed_here_is_kept() {
+        let listed = Environment {
+            scope: Some("w".into()),
+            ..kept("aa", "Work", "box.local:47130", false)
+        };
+        let catalog = catalog([listed.clone()]);
+        let target = &listed.target;
+        assert!(!deletable(&catalog, target, &served(None, None)));
+        assert!(!deletable(&catalog, target, &served(Some("w"), None)));
+        let busy = ServedEnvironment {
+            running: 1,
+            ..served(Some("x"), None)
+        };
+        assert!(!deletable(&catalog, target, &busy));
     }
 }

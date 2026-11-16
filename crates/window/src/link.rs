@@ -430,6 +430,35 @@ pub(crate) async fn served(
     target: &adroit_connect::Target,
     local: impl FnOnce(PathBuf, &Path, &str) -> To,
 ) -> Result<Vec<adroit_protocol::ServedEnvironment>, String> {
+    asked_of_served(target, local, |socket| async move {
+        adroit_protocol::client::environments(&socket).await
+    })
+    .await
+}
+
+/// Have the work host `target` reaches, as [`served`] reaches it, forget the
+/// environment `id` it serves.
+pub(crate) async fn forget_served(
+    target: &adroit_connect::Target,
+    local: impl FnOnce(PathBuf, &Path, &str) -> To,
+    id: String,
+) -> Result<(), String> {
+    asked_of_served(target, local, |socket| async move {
+        adroit_protocol::client::forget_environment(&socket, &id).await
+    })
+    .await
+}
+
+/// What `ask` gets of the work host `target` reaches, given the socket it
+/// listens at, reached as [`served`] says.
+async fn asked_of_served<T, F>(
+    target: &adroit_connect::Target,
+    local: impl FnOnce(PathBuf, &Path, &str) -> To,
+    ask: impl FnOnce(PathBuf) -> F,
+) -> Result<T, String>
+where
+    F: std::future::Future<Output = std::io::Result<T>>,
+{
     let listed = match target {
         adroit_connect::Target::Local => {
             let any = adroit_connect::environments::Environment::new("served", target.clone());
@@ -451,12 +480,12 @@ pub(crate) async fn served(
             ensure(&to)
                 .await
                 .map_err(|e| format!("cannot start the work host: {e}"))?;
-            adroit_protocol::client::environments(&to.socket).await
+            ask(to.socket).await
         }
         target => {
             let remote = adroit_connect::Remote::new(target)?;
             let _tunnel = remote.connect(None).await?;
-            adroit_protocol::client::environments(&remote.work_socket()).await
+            ask(remote.work_socket()).await
         }
     };
     listed.map_err(|e| e.to_string())

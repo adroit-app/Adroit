@@ -76,7 +76,17 @@ their place.
 
 Closing a window or removing an environment's registration does not stop its
 sessions or remove its credentials and files. Removed registrations remain
-restorable from Settings. Creating another environment with the
+restorable from Settings.
+
+An environment a work machine serves can be deleted there, after asking,
+from the list adding shows when no session runs in it and this computer does
+not list it in its tree. Deleting it removes its sessions' history, its work
+settings and its agents' logins from that machine, for every computer that
+joined it; a registration of it removed earlier comes back empty. The work
+host refuses while a session runs in it, while it cannot tell whether one
+does, and while a window works in it, or has since the work host started.
+
+Creating another environment with the
 same connection does not copy credentials, dedicated login directories or
 running work.
 

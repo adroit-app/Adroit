@@ -91,6 +91,7 @@ enum Op {
     Stop,
     Environment { id: String },
     Environments,
+    ForgetEnvironment { id: String },
 }
 
 impl Served {
@@ -132,6 +133,20 @@ impl Served {
         .await;
         environments.insert(id.into(), served.clone());
         Ok(served)
+    }
+
+    /// Forget the environment `id`, unless a session runs in it or a window
+    /// has worked in it since this host started. The environments stay
+    /// locked meanwhile, so none is selected while its folder goes.
+    async fn forget_environment(&self, id: &str) -> Result<(), String> {
+        let environments = self.environments.lock().await;
+        let running = running_sessions().await;
+        crate::environment::forget(
+            &adroit_model::paths::instance_state(),
+            id,
+            running.as_ref(),
+            environments.contains_key(id),
+        )
     }
 
     /// The way to the host and the windows, for what keeps the work read.
@@ -237,6 +252,14 @@ impl Served {
                         let served = served_environments().await;
                         let _ =
                             out.send(format!("{}\n", serde_json::json!({"environments": served})));
+                        continue;
+                    }
+                    Op::ForgetEnvironment { id } => {
+                        let reply = match self.forget_environment(&id).await {
+                            Ok(()) => serde_json::json!({"forgotten": id}),
+                            Err(error) => serde_json::json!({"error": error}),
+                        };
+                        let _ = out.send(format!("{reply}\n"));
                         continue;
                     }
                 }
@@ -391,16 +414,22 @@ impl Served {
     }
 }
 
+/// The sessions running in each environment this host serves, by the
+/// environment they run in; none where the terminal host does not answer.
+async fn running_sessions() -> Option<std::collections::BTreeMap<Option<String>, usize>> {
+    let sessions = crate::daemon::daemon().sessions().await.ok()?;
+    let mut running = std::collections::BTreeMap::new();
+    for session in sessions.into_iter().filter(|s| !s.exited) {
+        let id = adroit_term::tags::value(&session.tags, crate::environment::TAG);
+        *running.entry(id).or_insert(0) += 1;
+    }
+    Some(running)
+}
+
 /// The environments this host serves, each with the sessions running in it;
 /// none counted where the terminal host does not answer.
 async fn served_environments() -> Vec<adroit_protocol::ServedEnvironment> {
-    let mut running = std::collections::BTreeMap::new();
-    if let Ok(sessions) = crate::daemon::daemon().sessions().await {
-        for session in sessions.into_iter().filter(|s| !s.exited) {
-            let id = adroit_term::tags::value(&session.tags, crate::environment::TAG);
-            *running.entry(id).or_insert(0) += 1;
-        }
-    }
+    let running = running_sessions().await.unwrap_or_default();
     crate::environment::served(&adroit_model::paths::instance_state(), &running)
 }
 

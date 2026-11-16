@@ -26,7 +26,9 @@ refused with a word to the user.
 
 `{"op":"stop"}` asks the work host to stop, in every version: it answers
 `{"stopping":true}` and goes. `adroit host stop` and `adroit host restart`
-ask so.
+ask so. `{"op":"environments"}` lists the environments the work host serves,
+and `{"op":"forget_environment","id":…}` deletes one, answering
+`{"forgotten":…}` or `{"error":…}`, in every version too.
 
 ## The work, as a window shows it
 

@@ -1637,6 +1637,72 @@ fn a_work_host_lists_its_environments_with_the_names_windows_called_them_and_the
 }
 
 #[test]
+fn a_work_host_forgets_an_environment_only_where_no_session_runs_and_no_window_worked() {
+    use adroit_protocol::client::{environments, forget_environment};
+    let hosts = Hosts::new();
+    let _terminal = Service::start(&hosts, "daemon");
+    let _work = Service::start(&hosts, "host");
+    let info = remote_info(&hosts);
+    let socket = PathBuf::from(info["work"]["socket"].as_str().unwrap());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let daemon = adroit_term::Daemon::new(info["terminal"]["socket"].as_str().unwrap());
+        daemon
+            .spawn(adroit_term::Spawn {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "read answer".into()],
+                cwd: hosts.0.path().into(),
+                tags: adroit_term::tags::tagged(adroit_host::environment::TAG, "busy"),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let opened = adroit_protocol::client::Connection::open_in(&socket, Some("opened"))
+            .await
+            .unwrap();
+        let folders = folder_below(hosts.0.path(), "opened");
+        std::fs::create_dir_all(folders.with_file_name("idle")).unwrap();
+        std::fs::create_dir_all(folders.with_file_name("busy")).unwrap();
+        let ids = |listed: Vec<adroit_protocol::ServedEnvironment>| {
+            listed.into_iter().filter_map(|e| e.id).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids(environments(&socket).await.unwrap()),
+            ["busy", "idle", "opened"]
+        );
+        assert!(forget_environment(&socket, "busy").await.is_err());
+        assert!(forget_environment(&socket, "opened").await.is_err());
+        assert!(forget_environment(&socket, "nowhere").await.is_err());
+        forget_environment(&socket, "idle").await.unwrap();
+        assert_eq!(
+            ids(environments(&socket).await.unwrap()),
+            ["busy", "opened"]
+        );
+        drop(opened);
+    });
+}
+
+/// The folder named `name` somewhere below `dir`.
+fn folder_below(dir: &Path, name: &str) -> PathBuf {
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if entry.file_name() == name {
+                    return path;
+                }
+                pending.push(path);
+            }
+        }
+    }
+    panic!("no folder {name} below {}", dir.display())
+}
+
+#[test]
 fn the_hosts_a_window_on_the_work_machine_started_are_the_ones_a_paired_client_reaches() {
     let hosts = Hosts::new();
     let started = isolated(hosts.0.path())

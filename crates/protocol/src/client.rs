@@ -122,6 +122,35 @@ pub async fn environments(socket: &Path) -> std::io::Result<Vec<crate::ServedEnv
     .map_err(|_| std::io::Error::other("the work host did not list its environments"))?
 }
 
+/// Ask the work host at `socket` to forget the environment `id` it serves,
+/// with everything kept in it; an error says why it would not.
+pub async fn forget_environment(socket: &Path, id: &str) -> std::io::Result<()> {
+    let (read, mut write) = connect(adroit_sys::local::address(socket)).await?;
+    let asked = serde_json::json!({"op": "forget_environment", "id": id});
+    write.write_all(format!("{asked}\n").as_bytes()).await?;
+    let mut lines = Frames::new(BufReader::new(read));
+    tokio::time::timeout(HELLO * 5, async {
+        while let Some(line) = lines.next().await? {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "snake_case")]
+            enum Reply {
+                Forgotten(serde::de::IgnoredAny),
+                Error(String),
+            }
+            match serde_json::from_str::<Reply>(&line) {
+                Ok(Reply::Forgotten(_)) => return Ok(()),
+                Ok(Reply::Error(why)) => return Err(std::io::Error::other(why)),
+                Err(_) => continue,
+            }
+        }
+        Err(std::io::Error::other(
+            "the work host does not forget environments",
+        ))
+    })
+    .await
+    .map_err(|_| std::io::Error::other("the work host did not answer"))?
+}
+
 /// A connection to a work host, its hello read: the events it tells, and
 /// the requests sent to it, to be used apart.
 pub struct Connection {

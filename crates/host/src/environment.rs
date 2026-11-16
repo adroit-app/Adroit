@@ -174,6 +174,43 @@ pub fn call(state: &Path, id: Option<&str>, name: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Forget the environment `id` the host whose state is `state` serves, with
+/// everything kept in it, where the sessions `running` in each environment
+/// are known and none runs in it, and no window has worked in it, which
+/// `open` says. Its folder is taken out of the way before it is removed, so
+/// an environment selected meanwhile starts afresh rather than half removed.
+pub fn forget(
+    state: &Path,
+    id: &str,
+    running: Option<&std::collections::BTreeMap<Option<String>, usize>>,
+    open: bool,
+) -> Result<(), String> {
+    if !adroit_model::paths::is_instance(id) {
+        return Err("Invalid work environment".into());
+    }
+    let folder = state.join("environments").join(id);
+    if !folder.is_dir() {
+        return Err("The work host serves no such environment".into());
+    }
+    let Some(running) = running else {
+        return Err("Cannot tell whether a session runs in the environment".into());
+    };
+    if running.get(&Some(id.to_string())).is_some_and(|n| *n > 0) {
+        return Err("Sessions run in the environment; end them first".into());
+    }
+    if open {
+        return Err(
+            "A window has worked in the environment since the work host started; restart the work host first"
+                .into(),
+        );
+    }
+    let doomed = state
+        .join("environments")
+        .join(format!(".forgotten-{id}-{}", std::process::id()));
+    std::fs::rename(&folder, &doomed).map_err(|e| e.to_string())?;
+    std::fs::remove_dir_all(&doomed).map_err(|e| e.to_string())
+}
+
 /// The environments the host whose state is `state` serves, its own first,
 /// with the sessions `running` in each, by the environment they run in.
 pub fn served(
@@ -357,6 +394,61 @@ mod served_tests {
         assert!(call(dir.path(), None, "  ").is_err());
         assert!(call(dir.path(), None, &"x".repeat(257)).is_err());
         assert!(call(dir.path(), Some("../escape"), "Escape").is_err());
+    }
+
+    fn running(of: &[(Option<&str>, usize)]) -> BTreeMap<Option<String>, usize> {
+        of.iter()
+            .map(|(id, n)| (id.map(String::from), *n))
+            .collect()
+    }
+
+    #[test]
+    fn an_environment_no_session_runs_in_is_forgotten_with_all_it_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        Environment::at("play", dir.path()).unwrap();
+        call(dir.path(), Some("work"), "Work").unwrap();
+        forget(dir.path(), "work", Some(&running(&[(None, 1)])), false).unwrap();
+        assert!(!dir.path().join("environments/work").exists());
+        let ids: Vec<_> = served_in(dir.path(), &[])
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        assert_eq!(ids, [None, Some("play".into())]);
+    }
+
+    #[test]
+    fn an_environment_a_session_runs_in_or_whose_sessions_cannot_be_told_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        assert!(
+            forget(
+                dir.path(),
+                "work",
+                Some(&running(&[(Some("work"), 1)])),
+                false
+            )
+            .is_err()
+        );
+        assert!(forget(dir.path(), "work", None, false).is_err());
+        assert!(dir.path().join("environments/work").exists());
+    }
+
+    #[test]
+    fn an_environment_a_window_has_worked_in_since_the_host_started_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        Environment::at("work", dir.path()).unwrap();
+        assert!(forget(dir.path(), "work", Some(&running(&[])), true).is_err());
+        assert!(dir.path().join("environments/work").exists());
+    }
+
+    #[test]
+    fn forgetting_an_environment_not_served_or_not_valid_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("outside"), "").unwrap();
+        assert!(forget(dir.path(), "gone", Some(&running(&[])), false).is_err());
+        assert!(forget(dir.path(), "../outside", Some(&running(&[])), false).is_err());
+        assert!(dir.path().join("outside").exists());
     }
 }
 

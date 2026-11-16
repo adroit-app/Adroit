@@ -19,6 +19,13 @@
 .adding-option-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.4; color: var(--text); }
 .adding-option-text small { color: var(--text-3); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adding-option-go { flex: none; color: var(--text-3); font-size: 11.5px; }
+.adding-served { display: flex; flex-direction: column; gap: 6px; }
+.adding-served-row { display: flex; align-items: stretch; gap: 6px; }
+.adding-served-row .adding-option { flex: 1; min-width: 0; }
+.adding-delete { flex: none; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text-3); font: inherit; font-size: 11.5px; cursor: default; }
+.adding-delete:hover:not(:disabled), .adding-delete:focus-visible { color: var(--fail); border-color: var(--fail); background: var(--fail-tint); outline: none; }
+.adding-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--fail); border-radius: 8px; background: var(--fail-tint); }
+.adding-confirm-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .adding-address { display: flex; gap: 8px; }
 .adding-input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: 6px; background: var(--raised); border: 1px solid var(--line-strong);
   color: var(--text); font: 12px var(--mono); outline: none; }
