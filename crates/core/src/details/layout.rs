@@ -496,6 +496,21 @@ impl Component {
             .filter(move |c| c.describes(subject))
     }
 
+    /// Whether it tells of a pull request or issue, the branch's where a
+    /// window is described.
+    pub fn is_github(self) -> bool {
+        matches!(
+            self,
+            Component::Github
+                | Component::GithubShow
+                | Component::GithubOpen
+                | Component::GithubStart
+                | Component::GithubConversation
+                | Component::GithubFiles
+                | Component::GithubChecks
+        )
+    }
+
     /// Whether it is a button, which can be given a tone.
     pub fn is_button(self) -> bool {
         matches!(

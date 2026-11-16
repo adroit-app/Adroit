@@ -480,10 +480,10 @@ mod tests {
         let cases = [
             (
                 Event::Welcome {
-                    version: Version(1),
+                    version: adroit_protocol::SPOKEN[0],
                 },
                 Link::Ready {
-                    version: Version(1),
+                    version: adroit_protocol::SPOKEN[0],
                 },
             ),
             (

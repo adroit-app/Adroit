@@ -1150,7 +1150,9 @@ pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<Tas
 pub fn pulls_wanted(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
     let shown = details.shown.open
         && details.shown.subject() == Subject::Session
-        && shows(details, Component::Github);
+        && in_sight(details)
+            .iter()
+            .any(|(p, _)| p.component.is_github());
     let worktree = details.shown.worktree.as_ref().filter(|_| shown)?;
     let workspace = crate::tree::listed(work).workspace_of(worktree)?;
     workspace.git.then(|| workspace.root.clone())
@@ -2773,7 +2775,12 @@ pub(crate) mod tests {
         )]);
         assert_eq!(
             reads("[[panel.session.tabs]]\ntitle = \"PR\"\ncomponents = [\"github\"]\n"),
-            Some(pulls)
+            Some(pulls.clone())
+        );
+        assert_eq!(
+            reads("[[panel.session.tabs]]\ntitle = \"C\"\ncomponents = [\"github-checks\"]\n"),
+            Some(pulls.clone()),
+            "any component of the branch's pull request reads them"
         );
         assert_eq!(
             reads("[[panel.session.tabs]]\ntitle = \"F\"\ncomponents = [\"files\"]\n"),

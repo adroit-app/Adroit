@@ -208,6 +208,31 @@ pub(super) fn PartView(
                 }
             }
         }
+        // A meter or a gauge on a line with other components is drawn on
+        // its own there, as its run would draw it.
+        c if c.meter().is_some() => {
+            let meter = c
+                .meter()
+                .unwrap_or(adroit_model::config::UsageSettings::NONE);
+            let lines = vec![machine_gauges(&app, &app.shown_environment(), &meter)];
+            rsx! { MachineUsage { lines } }
+        }
+        c if c.gauge().is_some() => {
+            let details = app.details.read().clone();
+            let hosts = app.hosts.read();
+            let work = hosts.work(&app.shown_environment());
+            let kind = c.gauge();
+            let lines = vec![
+                usage(&details, work, now_ms)
+                    .into_iter()
+                    .filter(|g| Some(g.kind) == kind)
+                    .collect::<Vec<_>>(),
+            ];
+            let usage_url = work
+                .and_then(|w| w.agents.of(agent))
+                .and_then(|facts| facts.usage_url.clone());
+            rsx! { AgentUsage { lines, agent, usage_url } }
+        }
         Component::Environment => rsx! { EnvironmentCard { environment } },
         Component::EnvironmentRetry => {
             rsx! { EnvironmentButton { press: EnvironmentPress::Retry, placed: part.placed.clone(), environment } }

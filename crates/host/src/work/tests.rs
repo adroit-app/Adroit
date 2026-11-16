@@ -59,7 +59,7 @@ const B: WindowId = WindowId(2);
 fn two_windows(a: &str, b: &str) -> Host {
     let mut host = Host::default();
     for (window, session) in [(A, a), (B, b)] {
-        host.handle(window, hello(&[1]));
+        host.handle(window, hello(&[SPOKEN[0].0]));
         host.handle(window, watch(Some(session), None));
     }
     host
@@ -93,7 +93,7 @@ fn each_window_s_patches_follow_on_from_its_own_snapshot() {
     let a = seqs(to(A, host.record([links("a")])));
     let b = seqs(to(B, host.record([links("b")])));
     let late = WindowId(3);
-    let snapshot = seqs(to(late, host.handle(late, hello(&[1]))));
+    let snapshot = seqs(to(late, host.handle(late, hello(&[SPOKEN[0].0]))));
     assert_eq!((a, b), (vec![Seq(1)], vec![Seq(1)]));
     let next = seqs(to(
         late,
@@ -112,7 +112,8 @@ fn a_window_said_hello_late_is_sent_what_every_window_is_and_nothing_another_sho
         error: Some("no daemon".into()),
     }]);
     let late = WindowId(3);
-    let Some(Event::Snapshot(snapshot)) = to(late, host.handle(late, hello(&[1]))).pop() else {
+    let Some(Event::Snapshot(snapshot)) = to(late, host.handle(late, hello(&[SPOKEN[0].0]))).pop()
+    else {
         panic!("a snapshot");
     };
     assert_eq!(snapshot.tree.failing.as_deref(), Some("no daemon"));
@@ -274,7 +275,7 @@ fn a_repository_read_reaches_the_windows_that_list_it_as_it_was_read() {
         (A, Spot::Log),
         (B, Spot::Files(adroit_model::repository::Rev::WorkingCopy)),
     ] {
-        host.handle(window, hello(&[1]));
+        host.handle(window, hello(&[SPOKEN[0].0]));
         host.handle(
             window,
             Request::Watch(Box::new(Sight {
@@ -386,11 +387,9 @@ fn the_host_answers_hello_by_the_versions_both_speak() {
     });
     let cases = [
         (
-            hello(&[1]),
+            hello(&[SPOKEN[0].0]),
             vec![
-                Event::Welcome {
-                    version: Version(1),
-                },
+                Event::Welcome { version: SPOKEN[0] },
                 snapshot().seq(4).into(),
             ],
         ),
@@ -918,7 +917,7 @@ fn the_configuration_read_reaches_every_window_once_whatever_it_shows() {
     });
     let mut host = Host::new(configured.clone());
     assert_eq!(
-        host.on(hello(&[1])).last(),
+        host.on(hello(&[SPOKEN[0].0])).last(),
         Some(&Event::Snapshot(Box::new(configured.snapshot())))
     );
     assert!(patched(host.read([read("zoom = 1.25\n")])).is_empty());

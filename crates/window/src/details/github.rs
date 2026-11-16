@@ -223,6 +223,9 @@ fn use_thread(
 ) -> Signal<Option<Result<Thread, String>>> {
     let app = use_context::<AppCtx>();
     let mut read = use_signal(|| None::<Result<Thread, String>>);
+    // What the thread read is of: one that answers for another pull request
+    // or issue than the one now asked of is dropped.
+    let mut of = use_signal(|| None::<(EnvironmentId, PathBuf, Listing, u64)>);
     let mut reads = use_signal(|| 0_u64);
     use_hook(move || {
         spawn(async move {
@@ -236,6 +239,11 @@ fn use_thread(
         (&environment, &root, &listing, &number),
         move |(environment, root, listing, number)| {
             let _ = reads();
+            let key = (environment.clone(), root.clone(), listing, number);
+            if of.peek().as_ref() != Some(&key) {
+                of.set(Some(key.clone()));
+                read.set(None);
+            }
             let asked = app.ask_in(
                 &environment,
                 Ask::GitHubThread {
@@ -250,6 +258,9 @@ fn use_thread(
                     Answer::Failed { text } => Err(text),
                     other => Err(format!("the work host answered {other:?}")),
                 };
+                if of.peek().as_ref() != Some(&key) {
+                    return;
+                }
                 let keeps = answer.is_err() && matches!(*read.peek(), Some(Ok(_)));
                 if !keeps {
                     read.set(Some(answer));

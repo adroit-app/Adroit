@@ -140,7 +140,7 @@ impl Scenario {
 #[cfg(test)]
 mod tests {
     use crate::testing::here;
-    use adroit_protocol::{Event, Request, Seq, Version};
+    use adroit_protocol::{Event, Request, Seq};
 
     use super::*;
     use crate::host::Link;
@@ -151,7 +151,7 @@ mod tests {
         let run = Scenario::answering(|request| match request {
             Request::Hello { .. } => vec![
                 Event::Welcome {
-                    version: Version(1),
+                    version: adroit_protocol::SPOKEN[0],
                 },
                 snapshot().seq(2).into(),
             ],
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(
             run.state().hosts.own().link,
             Link::Ready {
-                version: Version(1)
+                version: adroit_protocol::SPOKEN[0]
             }
         );
         assert_eq!(
