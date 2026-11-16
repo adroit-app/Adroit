@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use super::changes::Worktree;
 use super::log::LogRows;
 use super::overview::{ChangeLine, GroupedRows, LinkMenu, SessionHead, selected_row};
-use super::timeline::{ProgressCard, TimelineRows};
+use super::timeline::TimelineRows;
 use super::usage::{AgentUsage, MachineUsage};
 use crate::bridge::AppCtx;
 use crate::components::ListRow;
@@ -135,18 +135,10 @@ pub(super) fn PartView(
         Component::Session => rsx! { SessionHead { live_input_ms, now_ms } },
         Component::Change => rsx! { ChangeLine {} },
         Component::Timeline => {
-            if let Some(Entry::Progress(progress)) = rows.first() {
-                return rsx! {
-                    ProgressCard { progress: progress.clone(), at: base, selected: selected == Some(base), now_ms }
-                };
-            }
-            // Folded, the timeline sums up the tree at work, and says nothing
-            // while there is none.
             let has_session = {
                 let details = app.details.read();
                 let hosts = app.hosts.read();
-                !adroit_core::details::is_folded(&details, adroit_core::details::Group::Timeline)
-                    && shown_session(&details, hosts.work(&app.shown_environment())).is_some()
+                shown_session(&details, hosts.work(&app.shown_environment())).is_some()
             };
             let rows: Vec<(usize, Entry)> = rows
                 .into_iter()

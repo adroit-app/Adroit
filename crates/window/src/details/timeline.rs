@@ -1,9 +1,7 @@
-//! The timeline as the panel draws it: the overview's summary of it, the
-//! trees with their tasks, and a task opened with its history.
+//! The timeline as the panel draws it: the trees with their tasks, and a
+//! task opened with its history.
 
-use adroit_core::details::{
-    Bar, Entry, Progress, TaskDetail, TaskLine, TreeCard, status_label, status_tone,
-};
+use adroit_core::details::{Bar, Entry, TaskDetail, TaskLine, TreeCard, status_label, status_tone};
 use adroit_core::msg::Msg;
 use adroit_model::time::ago;
 use adroit_model::timeline::{Status, percent};
@@ -43,32 +41,18 @@ fn Chip(status: Status) -> Element {
     }
 }
 
-/// The overview's summary of the timeline at row `at`, which shows it.
+/// The row standing for the trees not shown, which shows them all.
 #[component]
-pub(super) fn ProgressCard(progress: Progress, at: usize, selected: bool, now_ms: u64) -> Element {
+fn MoreRow(hidden: usize, at: usize, selected: bool) -> Element {
     let app = use_context::<AppCtx>();
-    let tree = progress.tree;
     rsx! {
-        div { class: "details-block details-links",
-            ListRow {
-                kind: "timeline-progress",
-                selected,
-                title: "Show the timeline",
-                onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
-                div { class: "timeline-progress-head",
-                    span { class: "timeline-mark {status_tone(tree.status)}", "{mark(tree.status)}" }
-                    span { class: "list-row-name", "{tree.title}" }
-                    span { class: "timeline-share", "{tree.bar.percent()}" }
-                }
-                StackBar { bar: tree.bar }
-                div { class: "timeline-progress-foot",
-                    if let Some(focus) = &progress.focus {
-                        span { class: "timeline-mark {status_tone(focus.status)}", "{mark(focus.status)}" }
-                        span { class: "timeline-focus", "{focus.title}" }
-                    }
-                    span { class: "details-link-tag", "{tree.tag(now_ms)}" }
-                }
-            }
+        ListRow {
+            kind: "details-link details-more",
+            selected,
+            onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+            crate::icons::IconView { icon: crate::icons::Icon::Dots, size: 13 }
+            span { class: "list-row-name", "Show all" }
+            span { class: "details-link-tag", "{hidden} more" }
         }
     }
 }
@@ -90,6 +74,9 @@ pub(super) fn TimelineRows(
                     Entry::Task(line) => rsx! {
                         TaskRow { key: "{line.id}", line, at, selected: selected == Some(at) }
                     },
+                    Entry::More { hidden, .. } => rsx! {
+                        MoreRow { key: "more-{at}", hidden, at, selected: selected == Some(at) }
+                    },
                     _ => rsx! {},
                 }
             }
@@ -104,9 +91,7 @@ fn TreeRow(card: TreeCard, at: usize, selected: bool, now_ms: u64) -> Element {
         ListRow {
             kind: "timeline-tree",
             selected,
-            title: if card.folds_timeline {
-                "Fold the timeline"
-            } else if card.folded {
+            title: if card.folded {
                 "Show its tasks"
             } else {
                 "Hide its tasks"

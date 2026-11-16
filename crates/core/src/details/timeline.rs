@@ -1,11 +1,10 @@
-//! The timeline sheet's rows, the task opened from them, and what the
-//! overview sums up of the timeline.
+//! The timeline sheet's rows and the task opened from them.
 
 use std::collections::HashSet;
 
 use adroit_model::timeline::{Revision, Shares, Status, Task, Timeline, Tree};
 
-use super::{Entry, lasted};
+use super::{Entry, Group, lasted};
 
 /// How a piece of work splits by status, in hundredths of a percent, so
 /// that rows compare exactly.
@@ -80,10 +79,6 @@ pub struct TreeCard {
     pub ended_ms: Option<u64>,
     /// Whether its tasks are left out.
     pub folded: bool,
-    /// Whether opening it folds the whole timeline back into its summary,
-    /// as the card of the tree at work does where the timeline is placed
-    /// folded and was unfolded.
-    pub folds_timeline: bool,
 }
 
 impl TreeCard {
@@ -99,7 +94,6 @@ impl TreeCard {
             started_ms: tree.started_ms,
             ended_ms: tree.ended_ms,
             folded,
-            folds_timeline: false,
         }
     }
 
@@ -129,14 +123,6 @@ pub struct TaskLine {
     pub bar: Bar,
 }
 
-/// What the overview sums up of the timeline: the tree at work, and the
-/// task in progress in it, or the next one to do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Progress {
-    pub tree: TreeCard,
-    pub focus: Option<TaskLine>,
-}
-
 fn tree_key(id: &str) -> String {
     // No task id starts with a NUL, so no task takes a tree's place.
     format!("\0tree:{id}")
@@ -148,19 +134,18 @@ fn folded(tree: &Tree, toggled: &HashSet<String>) -> bool {
     (tree.status == Status::Completed) != toggled.contains(&tree.id)
 }
 
-/// The trees, the one at work first and then the newest, each with its tasks
-/// unless it is folded; `toggled` holds the trees the user folded or unfolded.
-pub fn timeline_entries(timeline: &Timeline, toggled: &HashSet<String>) -> Vec<Entry> {
+/// The newest `shown` trees, the newest first, each with its tasks unless it
+/// is folded, then a row standing for the rest; `toggled` holds the trees the
+/// user folded or unfolded.
+pub fn timeline_entries(
+    timeline: &Timeline,
+    toggled: &HashSet<String>,
+    shown: usize,
+) -> Vec<Entry> {
     let mut trees = timeline.trees();
     trees.reverse();
-    if let Some(current) = timeline.current()
-        && let Some(at) = trees
-            .iter()
-            .position(|t| t.id == current.id && t.status == Status::InProgress)
-    {
-        let tree = trees.remove(at);
-        trees.insert(0, tree);
-    }
+    let hidden = trees.len().saturating_sub(shown);
+    trees.truncate(shown);
     let mut entries = Vec::new();
     for tree in trees {
         let card = TreeCard::of(&tree, folded(&tree, toggled));
@@ -175,6 +160,12 @@ pub fn timeline_entries(timeline: &Timeline, toggled: &HashSet<String>) -> Vec<E
             );
         }
     }
+    if hidden > 0 {
+        entries.push(Entry::More {
+            group: Group::Timeline,
+            hidden,
+        });
+    }
     entries
 }
 
@@ -186,33 +177,6 @@ fn line(task: &Task, depth: usize, shares: &Shares) -> TaskLine {
         depth,
         bar: Bar::of(shares),
     }
-}
-
-/// What the overview sums up of `timeline`; none before it holds a tree.
-pub fn progress(timeline: &Timeline) -> Option<Progress> {
-    let top = timeline.current()?;
-    let tree = timeline.trees().into_iter().find(|t| t.id == top.id)?;
-    let focus = timeline
-        .working(&top.id)
-        .or_else(|| next(timeline, &top.id))
-        .filter(|task| task.id != top.id)
-        .map(|task| line(task, 0, &timeline.shares_of(&task.id)));
-    Some(Progress {
-        tree: TreeCard::of(&tree, false),
-        focus,
-    })
-}
-
-/// The first task of the tree of `top` not started that has no steps.
-fn next<'a>(timeline: &'a Timeline, top: &str) -> Option<&'a Task> {
-    let rows = timeline.rows(top);
-    let id = rows
-        .iter()
-        .find(|r| {
-            r.task.status == Status::Pending && timeline.children(Some(&r.task.id)).next().is_none()
-        })
-        .map(|r| r.task.id.clone())?;
-    timeline.task(&id)
 }
 
 /// The tree `at` lists a task of, or is the card of.
@@ -296,6 +260,7 @@ mod tests {
             .map(|e| match e {
                 Entry::Tree(card) => format!("tree {}", card.id),
                 Entry::Task(line) => format!("{}{}", "  ".repeat(line.depth), line.id),
+                Entry::More { hidden, .. } => format!("more {hidden}"),
                 other => panic!("{other:?}"),
             })
             .collect()
@@ -321,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tree_at_work_comes_first_then_the_newest_and_a_completed_one_is_folded() {
+    fn the_trees_come_newest_first_and_a_completed_one_is_folded() {
         let t = timeline(vec![
             add("old", None, Status::Pending),
             add("old-a", Some("old"), Status::InProgress),
@@ -332,14 +297,14 @@ mod tests {
             add("new-a1", Some("new-a"), Status::Pending),
         ]);
         assert_eq!(
-            keys(&timeline_entries(&t, &HashSet::new())),
+            keys(&timeline_entries(&t, &HashSet::new(), usize::MAX)),
             [
-                "tree old",
-                "old-a",
                 "tree new",
                 "new-a",
                 "  new-a1",
-                "tree done"
+                "tree done",
+                "tree old",
+                "old-a",
             ]
         );
     }
@@ -354,38 +319,26 @@ mod tests {
         ]);
         let toggled = HashSet::from(["open".to_owned(), "done".to_owned()]);
         assert_eq!(
-            keys(&timeline_entries(&t, &toggled)),
+            keys(&timeline_entries(&t, &toggled, usize::MAX)),
             ["tree done", "done-a", "tree open"]
         );
     }
 
     #[test]
-    fn the_overview_sums_up_the_tree_at_work_and_its_task_in_progress() {
+    fn past_the_trees_shown_a_row_shows_the_rest() {
         let t = timeline(vec![
-            add("goal", None, Status::InProgress),
-            add("a", Some("goal"), Status::Completed),
-            add("b", Some("goal"), Status::InProgress),
-            add("c", Some("goal"), Status::Pending),
-        ]);
-        let p = progress(&t).unwrap();
-        assert_eq!(p.tree.id, "goal");
-        assert_eq!(p.tree.status, Status::InProgress);
-        assert_eq!(p.focus.map(|f| f.id).as_deref(), Some("b"));
-    }
-
-    #[test]
-    fn without_a_task_in_progress_the_overview_names_the_next_to_do() {
-        let t = timeline(vec![
-            add("goal", None, Status::Pending),
-            add("a", Some("goal"), Status::Completed),
-            add("b", Some("goal"), Status::Pending),
-            add("b1", Some("b"), Status::Pending),
+            add("a", None, Status::Pending),
+            add("b", None, Status::Pending),
+            add("c", None, Status::Pending),
         ]);
         assert_eq!(
-            progress(&t).unwrap().focus.map(|f| f.id).as_deref(),
-            Some("b1")
+            keys(&timeline_entries(&t, &HashSet::new(), 2)),
+            ["tree c", "tree b", "more 1"]
         );
-        assert_eq!(progress(&Timeline::default()), None);
+        assert_eq!(
+            keys(&timeline_entries(&t, &HashSet::new(), 3)),
+            ["tree c", "tree b", "tree a"]
+        );
     }
 
     #[test]
@@ -395,8 +348,11 @@ mod tests {
             add("a", Some("goal"), Status::Completed),
             add("b", Some("goal"), Status::Pending),
         ]);
-        let p = progress(&t).unwrap();
-        assert_eq!(p.tree.tag(1_000 + 25 * 60_000), "1/2 leaf tasks · 25 min");
+        let Some(Entry::Tree(card)) = timeline_entries(&t, &HashSet::new(), 1).into_iter().next()
+        else {
+            panic!("no card");
+        };
+        assert_eq!(card.tag(1_000 + 25 * 60_000), "1/2 leaf tasks · 25 min");
     }
 
     #[test]

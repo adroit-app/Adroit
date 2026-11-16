@@ -295,7 +295,7 @@ impl Component {
                 "The change the worktree is on; it opens the files the change touches."
             }
             Component::Timeline => {
-                "The task trees the session's agent recorded; folded, how far the one at work has come."
+                "The task trees the session's agent recorded, the newest first, each folding on its own."
             }
             Component::Running => {
                 "Subagents at work, live processes and tied sessions still running; folded, how many of each."
@@ -559,18 +559,16 @@ impl Component {
     }
 
     /// Whether it lists its first few rows and one that shows the rest, as
-    /// many as its `shown` says.
+    /// many as its `shown` says; the timeline, its newest trees.
     pub fn pages(self) -> bool {
-        self.folds() && !matches!(self, Component::About | Component::Timeline)
+        (self.folds() && self != Component::About) || self == Component::Timeline
     }
 
-    /// Whether it folds: its rows under their heading, or the timeline to its
-    /// summary.
+    /// Whether it folds its rows under their heading.
     pub fn folds(self) -> bool {
         matches!(
             self,
-            Component::Timeline
-                | Component::Running
+            Component::Running
                 | Component::Processes
                 | Component::About
                 | Component::Sessions
@@ -676,6 +674,11 @@ impl Placed {
 
     const fn folded(mut self) -> Self {
         self.folded = Some(true);
+        self
+    }
+
+    const fn shown(mut self, rows: usize) -> Self {
+        self.shown = Some(rows);
         self
     }
 
@@ -876,7 +879,7 @@ impl Surface {
                         p(C::Session),
                         p(C::Change),
                         p(C::Github),
-                        p(C::Timeline).folded(),
+                        p(C::Timeline).shown(3),
                         p(C::Running).folded(),
                         p(C::About).folded(),
                     ],

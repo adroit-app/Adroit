@@ -451,7 +451,7 @@ fn Options(
             }
             if c.folds() {
                 div { class: "dl-option",
-                    span { if c == Component::Timeline { "Folded to its summary" } else { "Starts folded" } }
+                    span { "Starts folded" }
                     Toggle {
                         checked: placed.folded == Some(true),
                         onchange: move |on: bool| change(Box::new(move |p: &mut Placed| p.folded = on.then_some(true))),
@@ -460,7 +460,7 @@ fn Options(
             }
             if c.pages() {
                 div { class: "dl-option",
-                    span { "Rows before Show all" }
+                    span { if c == Component::Timeline { "Trees before Show all" } else { "Rows before Show all" } }
                     NumberField {
                         min: "1",
                         max: "99",

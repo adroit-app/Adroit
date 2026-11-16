@@ -19,8 +19,8 @@ the panel, show the tab of that number ([keys](keys.md)). With a single tab,
 no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
-change, the branch's pull request, and, folded, its timeline, what runs for
-it and About), Code (changes and log), Timeline, Conversation (prompts,
+change, the branch's pull request, the three newest trees of its timeline,
+what runs for it and About), Code (changes and log), Timeline, Conversation (prompts,
 messages, subagents and sessions) and Resources (files, links, artifacts and
 images), over a foot of the conversation's context, the account's limits and
 the machine's load. An environment's has the tabs Overview (its connection,
@@ -45,12 +45,8 @@ window or such a row is described.
   **changes**.
 - **section** — a heading of your own over what follows it.
 - **timeline** — the task trees the session's agent recorded of its work
-  ([below](#the-timeline)). Folded, it sums up the tree at work instead: its
-  status, how much of it is completed, the task in progress in it, or else
-  the next one to do, how many of its leaf tasks are completed and how long
-  it has taken; opening that unfolds it where it is, with that task
-  selected, and the card of the tree at work then folds it back, opened
-  or gone back from, in place of folding that tree's tasks.
+  ([below](#the-timeline)). Each tree folds on its own; `shown` is how many
+  of the newest it shows before a row that shows them all.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
 - **processes** — its live work processes alone.
@@ -284,8 +280,8 @@ Each tree is a card: its title, its status, a bar split into what is
 completed, in progress, blocked and not started, the share completed, how
 many of its leaf tasks are completed and how long it has taken, until it was
 completed or until now. Under the card are its tasks, each step under the
-task it is a step of, each with its status, a bar and its share. The tree at
-work comes first, then the newest. A completed tree shows its card alone
+task it is a step of, each with its status, a bar and its share. The newest
+tree comes first. A completed tree shows its card alone
 until it is unfolded, any other its tasks until it is folded, and a card
 opened folds or unfolds it. Opening a task shows what it is for, what came of
 it, its share, its weight and its leaf tasks completed, and its history,

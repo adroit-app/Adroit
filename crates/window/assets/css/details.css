@@ -150,15 +150,11 @@
 .timeline-bar-part.run { background: var(--run); }
 .timeline-bar-part.fail { background: var(--fail); }
 .timeline-bar-part.idle { background: transparent; }
-.list-row.timeline-progress, .list-row.timeline-tree { height: auto; flex-direction: column; align-items: stretch; gap: 4px; padding-top: 6px; padding-bottom: 6px; }
-.list-row.timeline-progress { border: 1px solid var(--line); border-radius: 8px; margin: 0; }
-.timeline-progress-head, .timeline-progress-foot, .timeline-tree-head, .timeline-tree-bar, .timeline-task-head, .timeline-revision-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.timeline-progress-head .list-row-name, .timeline-tree-title { font-weight: 500; }
-.timeline-progress-foot { flex-wrap: wrap; row-gap: 2px; }
-.timeline-focus { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-2); }
-.timeline-progress-foot .details-link-tag { margin-left: auto; max-width: none; }
+.list-row.timeline-tree { height: auto; flex-direction: column; align-items: stretch; gap: 4px; padding-top: 6px; padding-bottom: 6px; }
+.timeline-tree-head, .timeline-tree-bar, .timeline-task-head, .timeline-revision-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.timeline-tree-title { font-weight: 500; }
 .timeline-tree-head .icon { flex: none; color: var(--text-3); }
-.timeline-tree-title, .timeline-progress-head .list-row-name { white-space: normal; overflow-wrap: anywhere; }
+.timeline-tree-title { white-space: normal; overflow-wrap: anywhere; }
 .timeline { container-type: inline-size; }
 @container (max-width: 320px) {
   .timeline .timeline-bar.small { display: none; }

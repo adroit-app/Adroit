@@ -565,8 +565,6 @@ pub enum Entry {
     Fact(Fact),
     Link(Link),
     Image(Shot),
-    /// What the overview sums up of the timeline, which shows it.
-    Progress(Progress),
     /// A tree of the timeline, heading its tasks.
     Tree(TreeCard),
     /// A task of a tree, which opens its history.
@@ -612,7 +610,6 @@ impl Entry {
             Entry::Fact(f) => f.label,
             Entry::Link(l) => l.target.as_str(),
             Entry::Image(s) => s.key.as_str(),
-            Entry::Progress(_) => "\0progress",
             Entry::Tree(card) => card.key.as_str(),
             Entry::Task(line) => line.id.as_str(),
             Entry::Changed(c) => c.path.as_str(),
@@ -648,7 +645,7 @@ impl Entry {
             Entry::Fact(_) => Group::About,
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
-            Entry::Progress(_) | Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
+            Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
             Entry::Changed(_) => Group::Changed,
             Entry::Commit(_) => Group::Log,
             Entry::Prompt(_) => Group::Prompts,

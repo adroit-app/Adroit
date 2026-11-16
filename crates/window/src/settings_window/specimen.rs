@@ -28,7 +28,6 @@ pub(super) fn Specimen(placed: Placed) -> Element {
     }
     if folded && component.folds() {
         return match component {
-            Component::Timeline => progress(),
             Component::Running => rsx! {
                 div { class: "details-block details-links",
                     {folded_heading("1 subagent · 1 process")}
@@ -335,26 +334,6 @@ fn stack_bar(kind: &str, parts: &[(&str, f32)]) -> Element {
         div { class: "timeline-bar {kind}",
             for (tone , width) in parts.iter().copied() {
                 div { key: "{tone}", class: "timeline-bar-part {tone}", style: "width:{width}%" }
-            }
-        }
-    }
-}
-
-fn progress() -> Element {
-    rsx! {
-        div { class: "details-block details-links",
-            ListRow { kind: "timeline-progress", title: "Show the timeline",
-                div { class: "timeline-progress-head",
-                    span { class: "timeline-mark run", "◐" }
-                    span { class: "list-row-name", "Retry the login on timeout" }
-                    span { class: "timeline-share", "62.50%" }
-                }
-                {stack_bar("", &[("done", 62.5), ("run", 25.0), ("idle", 12.5)])}
-                div { class: "timeline-progress-foot",
-                    span { class: "timeline-mark run", "◐" }
-                    span { class: "timeline-focus", "Write the retry test" }
-                    span { class: "details-link-tag", "5/8 leaf tasks · 12m" }
-                }
             }
         }
     }

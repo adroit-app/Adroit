@@ -15,9 +15,9 @@ use adroit_protocol::{
 
 use super::{
     Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
-    Progress, Related, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about,
-    context_gauge, file_link, gauges, grouped, newest_first, progress, related, running,
-    task_detail, timeline_entries, tree_at,
+    Related, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about, context_gauge,
+    file_link, gauges, grouped, newest_first, related, running, task_detail, timeline_entries,
+    tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
@@ -372,7 +372,7 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             Vec::new()
         }
         Some(Entry::Tree(card)) => {
-            fold_card(details, card, !card.folded);
+            fold_tree(details, card, !card.folded);
             Vec::new()
         }
         Some(entry) => opened(details, &l, entry, Opening::Existing),
@@ -505,12 +505,8 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Ve
             details.drill.open(l);
             Vec::new()
         }
-        Entry::Progress(p) => {
-            show_timeline(details, p);
-            Vec::new()
-        }
         Entry::Tree(card) => {
-            fold_card(details, card, !card.folded);
+            fold_tree(details, card, !card.folded);
             Vec::new()
         }
         entry => used(details, entry, Use::Open(how)),
@@ -538,29 +534,12 @@ fn pressed_on_timeline(
         (Entry::Tree(_) | Entry::Task(_), Key::Fold) => (tree_at(entries, at)?.clone(), true),
         _ => return None,
     };
-    fold_card(details, &card, shut);
-    details.drill.aim(if card.folds_timeline {
-        PROGRESS_KEY
-    } else {
-        &card.key
-    });
+    fold_tree(details, &card, shut);
+    details.drill.aim(&card.key);
     if let Some(now) = entry_listing(details, work) {
         details.drill.refreshed(&now);
     }
     Some(Vec::new())
-}
-
-/// What the summary of the timeline is told apart by.
-const PROGRESS_KEY: &str = "\0progress";
-
-/// The tree of `card` folded, when `shut`, or unfolded; the card that folds
-/// the timeline folds it into its summary instead.
-fn fold_card(details: &mut Details, card: &TreeCard, shut: bool) {
-    if card.folds_timeline {
-        fold(details, Group::Timeline, true);
-    } else {
-        fold_tree(details, card, shut);
-    }
 }
 
 /// The tree of `card` folded, when `shut`, or unfolded.
@@ -574,16 +553,6 @@ fn fold_tree(details: &mut Details, card: &TreeCard, shut: bool) {
     } else {
         details.trees.insert(key);
     }
-}
-
-/// The timeline unfolded where its summary `p` is, with the task it names
-/// selected in its tree, unfolded.
-fn show_timeline(details: &mut Details, p: &Progress) {
-    fold_tree(details, &p.tree, false);
-    fold(details, Group::Timeline, false);
-    details
-        .drill
-        .aim(p.focus.as_ref().map_or(&p.tree.key, |f| &f.id));
 }
 
 /// What the agent of a session recorded, replayed from what was `read`.
@@ -634,7 +603,6 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
             &a.prompt,
             format!("Copied the prompt of {}", a.description),
         ),
-        Entry::Progress(p) => copied(how, &p.tree.title, format!("Copied {}", p.tree.title)),
         Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
         Entry::Changed(c) => copied(how, &c.path, format!("Copied {}", c.path)),
@@ -839,20 +807,13 @@ fn rows_of(
             .collect()
     };
     match c {
-        Component::Timeline if is_folded(details, Group::Timeline) => progress(&timeline_of(read))
-            .map(Entry::Progress)
-            .into_iter()
-            .collect(),
         Component::Timeline => {
-            let mut entries = timeline_entries(&timeline_of(read), &toggled_trees(details));
-            // Unfolded where it is placed folded, the card of the tree at work
-            // folds it again rather than a line over it saying that tree again.
-            if placed.folded == Some(true)
-                && let Some(Entry::Tree(card)) = entries.first_mut()
-            {
-                card.folds_timeline = true;
-            }
-            entries
+            let shown = if opened.contains(&Group::Timeline) {
+                usize::MAX
+            } else {
+                first(usize::MAX)
+            };
+            timeline_entries(&timeline_of(read), &toggled_trees(details), shown)
         }
         Component::Running => {
             let processes = read
@@ -1318,7 +1279,7 @@ pub(crate) mod tests {
     const CLASSIC: &str = "[panel.session]\n\
         foot = [\"context\", \"session-limit\", \"week-limit\", \"model-limits\", \"cpu\", \"gpu\", \"memory\", \"storage\"]\n\
         [[panel.session.tabs]]\ntitle = \"Overview\"\n\
-        components = [\"session\", \"change\", { component = \"timeline\", folded = true }, \"running\", { component = \"about\", folded = true }]\n\
+        components = [\"session\", \"change\", { component = \"timeline\", shown = 3 }, \"running\", { component = \"about\", folded = true }]\n\
         [[panel.session.tabs]]\ntitle = \"Changes\"\ncomponents = [\"changes\"]\n\
         [[panel.session.tabs]]\ntitle = \"Log\"\ncomponents = [\"log\"]\n\
         [[panel.session.tabs]]\ntitle = \"Agents\"\ncomponents = [\"sessions\", \"messages\", \"subagents\"]\n\
@@ -1976,7 +1937,6 @@ pub(crate) mod tests {
         Some(match &entries[at] {
             Entry::Tree(card) => format!("tree {}", card.id),
             Entry::Task(line) => line.id.clone(),
-            Entry::Progress(_) => "progress".into(),
             other => format!("{other:?}"),
         })
     }
@@ -2030,69 +1990,99 @@ pub(crate) mod tests {
         assert_eq!(timeline_rows(&clicked), 4);
     }
 
+    /// Trees `t1` to `t4`, each with a task to do, the newest last.
+    fn planned() -> SessionRead {
+        let ops: Vec<serde_json::Value> = (1..=4)
+            .flat_map(|n| {
+                [
+                    serde_json::json!({"op": "add", "id": format!("t{n}"), "title": format!("T{n}")}),
+                    serde_json::json!({"op": "add", "id": format!("t{n}a"), "parent": format!("t{n}"), "title": "A"}),
+                ]
+            })
+            .collect();
+        SessionRead {
+            links: Some(Links::default()),
+            timeline: Some(journal(serde_json::Value::Array(ops))),
+            ..Default::default()
+        }
+    }
+
+    fn timeline_keys(run: &Scenario) -> Vec<String> {
+        let Some(Listing::Entries(entries)) = entries_of(run) else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Tree(card) => Some(format!("tree {}", card.id)),
+                Entry::Task(line) => Some(line.id.clone()),
+                Entry::More {
+                    group: Group::Timeline,
+                    hidden,
+                } => Some(format!("more {hidden}")),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn the_overview_sums_up_the_timeline_first_and_unfolds_it_there_at_the_task_in_progress() {
+    fn the_overview_lists_the_newest_trees_each_folding_on_its_own() {
         let overview = scenario()
-            .event(work(read("a", working())))
+            .event(work(read("a", planned())))
             .send(shown(Some("a"), None));
-        assert_eq!(selected_key(&overview).as_deref(), Some("progress"));
-        let Some(Listing::Entries(entries)) = entries_of(&overview) else {
-            panic!("the overview lists its rows");
-        };
-        let Entry::Progress(p) = &entries[0] else {
-            panic!("{:?}", entries[0]);
-        };
-        assert_eq!(p.tree.bar.percent(), "33.33%");
-        assert_eq!(p.focus.as_ref().map(|f| f.id.as_str()), Some("b"));
-        let timeline = overview.send(Msg::DetailsKey(Key::Open));
-        assert_eq!(timeline.state().details.drill.tab(), OVERVIEW);
-        assert_eq!(selected_key(&timeline).as_deref(), Some("b"));
-        let Some(Listing::Entries(unfolded)) = entries_of(&timeline) else {
-            panic!("the overview lists its rows");
-        };
-        assert!(!unfolded.iter().any(|e| matches!(
-            e,
-            Entry::Heading {
-                group: Group::Timeline,
-                ..
-            }
-        )));
-        assert!(matches!(&unfolded[0], Entry::Tree(card) if card.folds_timeline));
+        assert_eq!(
+            timeline_keys(&overview),
+            [
+                "tree t4", "t4a", "tree t3", "t3a", "tree t2", "t2a", "more 1"
+            ]
+        );
+        assert_eq!(selected_key(&overview).as_deref(), Some("tree t4"));
+        let folded = overview.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(
+            timeline_keys(&folded),
+            ["tree t4", "tree t3", "t3a", "tree t2", "t2a", "more 1"]
+        );
+        assert_eq!(selected_key(&folded).as_deref(), Some("tree t4"));
+        let from_task = folded.send_all([
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Fold),
+        ]);
+        assert_eq!(
+            timeline_keys(&from_task),
+            ["tree t4", "tree t3", "tree t2", "t2a", "more 1"]
+        );
+        assert_eq!(selected_key(&from_task).as_deref(), Some("tree t3"));
     }
 
     #[test]
-    fn the_overview_s_timeline_folds_back_from_the_card_of_the_tree_at_work_or_its_tasks() {
-        let unfolded = || {
-            scenario()
-                .event(work(read("a", working())))
-                .send_all([shown(Some("a"), None), Msg::DetailsKey(Key::Open)])
-        };
-        let sums_up = |run: &Scenario| {
-            matches!(
-                entries_of(run),
-                Some(Listing::Entries(e)) if matches!(e[0], Entry::Progress(_))
-            )
-        };
-        assert!(sums_up(&unfolded().send(Msg::DetailsClick(0))));
-        let from_key =
-            unfolded().send_all([Msg::DetailsKey(Key::First), Msg::DetailsKey(Key::Open)]);
-        assert!(sums_up(&from_key));
-        assert_eq!(selected_key(&from_key).as_deref(), Some("progress"));
-        assert!(sums_up(&unfolded().send(Msg::DetailsKey(Key::Fold))));
-    }
-
-    #[test]
-    fn the_timeline_s_own_tab_folds_no_card_into_a_summary() {
-        let tab = scenario()
-            .event(work(read("a", working())))
-            .send_all([shown(Some("a"), None), Msg::DetailsTab(TIMELINE)]);
-        let Some(Listing::Entries(entries)) = entries_of(&tab) else {
-            panic!("the timeline lists its rows");
-        };
-        assert!(
+    fn the_overview_s_row_past_its_trees_shows_them_all() {
+        let overview = scenario()
+            .event(work(read("a", planned())))
+            .send(shown(Some("a"), None));
+        let at = {
+            let Some(Listing::Entries(entries)) = entries_of(&overview) else {
+                panic!("the overview lists its rows");
+            };
             entries
                 .iter()
-                .all(|e| !matches!(e, Entry::Tree(card) if card.folds_timeline))
+                .position(|e| {
+                    matches!(
+                        e,
+                        Entry::More {
+                            group: Group::Timeline,
+                            ..
+                        }
+                    )
+                })
+                .unwrap()
+        };
+        let all = overview.send(Msg::DetailsClick(at));
+        assert_eq!(
+            timeline_keys(&all),
+            [
+                "tree t4", "t4a", "tree t3", "t3a", "tree t2", "t2a", "tree t1", "t1a"
+            ]
         );
     }
 
@@ -2107,9 +2097,7 @@ pub(crate) mod tests {
                 },
             )))
             .send(shown(Some("a"), None));
-        let listed = entries_of(&overview);
-        let has_progress = matches!(&listed, Some(Listing::Entries(e)) if e.iter().any(|e| matches!(e, Entry::Progress(_))));
-        assert!(!has_progress);
+        assert_eq!(timeline_keys(&overview), Vec::<String>::new());
     }
 
     #[test]
