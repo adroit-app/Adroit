@@ -80,6 +80,61 @@ pub async fn count(root: &Path, slug: &str) -> Result<Counts, String> {
     }
 }
 
+/// The most repositories of an owner read.
+pub const OWNED_LIMIT: usize = 1000;
+
+/// The names of `owner`'s repositories, as many as [`OWNED_LIMIT`], those
+/// pushed to last first.
+pub async fn repositories(owner: &str) -> Result<Vec<String>, String> {
+    let limit = OWNED_LIMIT.to_string();
+    let args = ["repo", "list", owner, "--limit", &limit, "--json", "name"];
+    match run("gh", &args, None).await {
+        Ok(out) => named(&out),
+        Err(Error::Failed { stderr, .. }) => Err(reason(&stderr)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// The names `gh repo list --json name` printed.
+fn named(out: &str) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct Named {
+        name: String,
+    }
+    let printed: Vec<Named> =
+        serde_json::from_str(out).map_err(|e| format!("gh printed what cannot be read: {e}"))?;
+    Ok(printed.into_iter().map(|n| n.name).collect())
+}
+
+/// The owners `gh` is logged in as: the user, then the organizations they
+/// belong to.
+pub async fn accounts() -> Result<Vec<String>, String> {
+    let ask = |args: &'static [&'static str]| async move {
+        match run("gh", args, None).await {
+            Ok(out) => Ok(out),
+            Err(Error::Failed { stderr, .. }) => Err(reason(&stderr)),
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    let (user, orgs) = tokio::join!(
+        ask(&["api", "user", "--jq", ".login"]),
+        ask(&["api", "--paginate", "user/orgs", "--jq", ".[].login"]),
+    );
+    Ok(logins(&user?, &orgs.unwrap_or_default()))
+}
+
+/// The logins `gh api --jq` printed, one a line, of the user and of the
+/// organizations, each once.
+fn logins(user: &str, orgs: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for login in user.lines().take(1).chain(orgs.lines()).map(str::trim) {
+        if !login.is_empty() && !found.iter().any(|f| f == login) {
+            found.push(login.to_string());
+        }
+    }
+    found
+}
+
 /// The counts `gh api graphql` printed for [`count`]'s query.
 fn counted(out: &str) -> Result<Counts, String> {
     #[derive(Deserialize)]
@@ -428,6 +483,23 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8(output.stdout).unwrap()
+    }
+
+    #[test]
+    fn an_owners_repositories_are_read_by_name_in_the_order_gh_lists_them() {
+        assert_eq!(
+            named(r#"[{"name":"adroit"},{"name":"vim-x"}]"#),
+            Ok(vec!["adroit".to_string(), "vim-x".to_string()])
+        );
+        assert!(named("not json").is_err());
+    }
+
+    #[test]
+    fn the_owners_logged_in_as_are_the_user_then_each_organization_once() {
+        assert_eq!(
+            logins("me\n", "org\n\nother\norg\n"),
+            ["me", "org", "other"]
+        );
     }
 
     #[test]

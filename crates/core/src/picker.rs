@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use adroit_model::{EnvironmentId, Key, TerminalProgram};
+use adroit_model::{EnvironmentId, GitHubTyped, Key, TerminalProgram};
 use adroit_protocol::{PastSight, PickSight, Request, WorkSnapshot};
 
 use crate::actions::Action;
@@ -76,6 +76,7 @@ impl PickerView {
         match &self.open {
             Some(Picking::Go(p)) => Some(PickSight {
                 listed: p.filer.expanded().map(Path::to_path_buf).collect(),
+                ..PickSight::default()
             }),
             _ => None,
         }
@@ -83,19 +84,25 @@ impl PickerView {
 
     /// What the host of `environment` keeps listed for the picker going to
     /// a session: that of the environment the directory tree browses lists
-    /// its directories too, every other only what it offers.
+    /// its directories too, every other only what it offers; one that
+    /// clones lists what is typed asks of GitHub.
     pub fn sight_in(&self, environment: &EnvironmentId) -> Option<PickSight> {
-        let browsed = match &self.open {
-            Some(Picking::Go(p)) => &p.environment,
-            _ => return None,
+        let Some(Picking::Go(p)) = &self.open else {
+            return None;
         };
-        self.sight().map(|sight| {
-            if environment == browsed {
-                sight
-            } else {
-                PickSight::default()
+        let mut sight = self.sight()?;
+        if *environment != p.environment {
+            sight = PickSight::default();
+        }
+        let clones = p.offered.get(environment).is_some_and(|o| o.clones);
+        match GitHubTyped::parse(&p.query).filter(|_| clones) {
+            Some(GitHubTyped::Owner(_)) => sight.accounts = true,
+            Some(GitHubTyped::Repository { owner, .. }) => {
+                sight.owners.insert(owner);
             }
-        })
+            None => {}
+        }
+        Some(sight)
     }
 
     /// Which conversations the host of `environment` lists while they are
@@ -149,6 +156,16 @@ fn listed_dirs(work: Option<&WorkSnapshot>, dir: &Path) -> Option<Vec<PathBuf>> 
 /// `hosts` holds, best first for what is typed, each session standing as
 /// `tree` shows it; the directories alone while it adds to the tree.
 pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> Vec<Choice> {
+    let github = hosts.each().filter_map(|(environment, host)| {
+        Some(GitHubOffers {
+            environment,
+            offers: picker.offered.get(environment)?,
+            listed: &host.work.as_ref()?.pick,
+        })
+    });
+    if let Some(rows) = github_choices(&picker.query, github, PICKS) {
+        return rows;
+    }
     let mut all_sessions = Vec::new();
     let mut directories = Vec::new();
     for (environment, host) in hosts.each() {
@@ -174,13 +191,15 @@ pub fn go_rows(picker: &Picker, home: &Path, hosts: &Hosts, tree: &TreeView) -> 
     let clones = hosts.each().filter_map(|(environment, _)| {
         clone_offer(environment, picker.offered.get(environment)?, &picker.query)
     });
+    let help = github_help(&picker.query, picker.offered.values()).then_some(Choice::GitHubHelp);
     let rows = choices(&all_sessions, &directories, &picker.query, home, PICKS)
         .into_iter()
-        .chain(clones.map(Choice::Clone));
+        .chain(clones.map(Choice::Clone))
+        .chain(help);
     match picker.purpose {
         Purpose::Go => rows.collect(),
         Purpose::Add => rows
-            .filter(|c| matches!(c, Choice::Directory(_) | Choice::Clone(_)))
+            .filter(|c| !matches!(c, Choice::Scratch | Choice::Session(_)))
             .collect(),
     }
 }
@@ -403,6 +422,8 @@ pub(crate) fn choose(state: &mut ViewState, at: usize) -> Vec<Effect> {
             close(&mut state.picker);
             content::show_session(state, s.environment, s.id)
         }
+        Some(Choice::Owner(owner)) => query(&mut state.picker, GitHubTyped::owner_query(&owner)),
+        Some(Choice::GitHubHelp) => query(&mut state.picker, GitHubTyped::PREFIX.to_string()),
         None => Vec::new(),
     }
 }
@@ -527,7 +548,7 @@ fn under_cursor(state: &ViewState) -> Option<(EnvironmentId, PathBuf)> {
             Some((s.environment.clone(), worktree.to_path_buf()))
         }
         Choice::Directory(c) => Some((c.environment, c.path)),
-        Choice::Clone(_) => None,
+        Choice::Clone(_) | Choice::Owner(_) | Choice::GitHubHelp => None,
     }
 }
 

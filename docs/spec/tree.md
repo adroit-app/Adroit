@@ -237,8 +237,8 @@ shell and `Ctrl+e` Neovim in its directory: a directory's own, the worktree a
 session runs in, the scratch folder for the scratch row. `Ctrl+t` adds the
 directory's workspace to the tree with nothing started there.
 
-Typing a repository ghq can clone — `owner/repo` on GitHub,
-`host/owner/repo`, or a URL git clones from — offers a row to clone it after
+Typing a repository ghq can clone — `host/owner/repo` or a URL git clones
+from — offers a row to clone it after
 the directories, which typing a filter and `Enter` therefore never chooses
 over a directory that matches, in each environment where ghq is offered as
 above and does not keep that repository already. Choosing it runs `ghq get`
@@ -247,6 +247,18 @@ passphrase or a host to trust, is answered there. Once the clone succeeds,
 the repository's directory is taken as if it had been chosen from the list,
 by `Enter`, `Ctrl+s`, `Ctrl+e` or `Ctrl+t` as the clone row was; once it
 fails, the terminal stays with what it wrote.
+
+Typing `github:` looks through GitHub instead, and the list offers nothing
+else. Where ghq is offered, a row says so while nothing, or the start of
+`github`, is typed, and choosing it types `github:`. After `github:`, the list offers the owners
+`gh` is logged in as on that work machine, the user and their
+organizations, narrowed by what is typed; choosing one types it and a
+slash. After `github:owner/`, it offers a clone row for each of that
+owner's repositories that ghq does not keep, as `gh` lists them, the
+private ones its login can see included, narrowed by what is typed after
+the slash. Where `gh` is not installed or not logged in, no owner is
+offered, and `github:owner/repo` typed in full offers that repository
+alone.
 
 Add to Tree, in the Session menu, on an environment's heading or `A` in the
 tree, opens the picker on the directories alone, of the environment it was

@@ -91,6 +91,8 @@ mod tests {
             }),
             pick: Some(PickSight {
                 listed: BTreeSet::from(["/home".into()]),
+                owners: BTreeSet::from(["adroit-app".into()]),
+                accounts: true,
             }),
             place: Some(crate::HostPath::local("/w")),
             commands: Some(CommandsSight {
@@ -299,6 +301,8 @@ mod tests {
             },
             pick: PickWork {
                 offers: Some(Offers::default()),
+                owned: [("adroit-app".into(), vec!["adroit".into()])].into(),
+                accounts: Some(vec!["adroit-app".into()]),
             },
             place: PlaceWork {
                 read: Some(PlaceRead::default()),

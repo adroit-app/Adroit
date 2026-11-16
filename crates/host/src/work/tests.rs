@@ -778,6 +778,7 @@ fn picking(listed: &[&str]) -> Request {
     Request::Watch(Box::new(Sight {
         pick: Some(PickSight {
             listed: listed.iter().map(Into::into).collect(),
+            ..PickSight::default()
         }),
         ..Default::default()
     }))
@@ -816,6 +817,28 @@ fn the_picker_s_offers_reach_the_window_while_it_is_open_and_leave_as_it_closes(
         vec![Change::Pick(PickChange::Left)]
     );
     assert_eq!(host.work().snapshot().pick.offers, None);
+}
+
+#[test]
+fn what_github_listed_for_the_picker_reaches_the_window_while_it_is_open_and_leaves_as_it_closes() {
+    let mut host = Host::default();
+    let owned = PickChange::Owned {
+        owner: "o".into(),
+        repositories: vec!["r".into()],
+    };
+    let accounts = PickChange::Accounts {
+        owners: vec!["me".into()],
+    };
+    host.on(picking(&[]));
+    assert_eq!(
+        patched(host.read([owned.clone(), accounts.clone()])),
+        vec![Change::Pick(owned), Change::Pick(accounts)]
+    );
+    assert_eq!(
+        patched(host.on(watch(None, None))),
+        vec![Change::Pick(PickChange::Left)]
+    );
+    assert_eq!(host.work().snapshot().pick, Default::default());
 }
 
 #[test]

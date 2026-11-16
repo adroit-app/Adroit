@@ -26,6 +26,7 @@ mod history;
 pub(crate) mod hold;
 mod marks;
 mod offers;
+mod owners;
 mod past;
 mod place;
 mod processes;
@@ -303,6 +304,7 @@ pub fn start(watched: Watched) {
     crate::environment::spawn(marks::watch(watched.clone()));
     crate::environment::spawn(past::watch(watched.clone()));
     crate::environment::spawn(offers::watch(watched.clone()));
+    crate::environment::spawn(owners::watch(watched.clone()));
     crate::environment::spawn(commands::watch(watched.clone()));
     crate::environment::spawn(place::watch(watched.clone()));
     crate::environment::spawn(entries::watch(watched.clone()));

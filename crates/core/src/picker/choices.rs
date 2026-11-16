@@ -6,8 +6,8 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use adroit_model::{CloneTarget, EnvironmentId, Session, Tree};
-use adroit_protocol::Offers;
+use adroit_model::{CloneTarget, EnvironmentId, GitHubTyped, Session, Tree};
+use adroit_protocol::{Offers, PickWork};
 
 use super::filer::{Filer, Row};
 use super::fuzzy::{Query, best};
@@ -34,10 +34,17 @@ pub enum Mark {
     Directory,
     /// A repository to clone.
     Clone,
+    /// An owner on GitHub whose repositories to look through.
+    Owner,
+    /// How to look through GitHub.
+    Help,
 }
 
 /// What the scratch row says.
 pub const SCRATCH: &str = "New scratch session";
+
+/// What the row telling how to clone from GitHub says.
+pub const GITHUB_HELP: &str = "Type github:owner/repo to clone from GitHub";
 
 /// What a row of the list offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +57,10 @@ pub enum Choice {
     Directory(Candidate),
     /// A repository to clone, then take as a directory chosen.
     Clone(CloneOffer),
+    /// An owner on GitHub, typed to look through its repositories.
+    Owner(String),
+    /// [`GITHUB_HELP`], which types the prefix that looks through GitHub.
+    GitHubHelp,
 }
 
 impl Choice {
@@ -64,6 +75,8 @@ impl Choice {
                 a.environment == b.environment && a.path == b.path
             }
             (Choice::Clone(a), Choice::Clone(b)) => a == b,
+            (Choice::Owner(a), Choice::Owner(b)) => a == b,
+            (Choice::GitHubHelp, Choice::GitHubHelp) => true,
             _ => false,
         }
     }
@@ -120,6 +133,82 @@ pub fn clone_offer(
         environment: environment.clone(),
         target,
     })
+}
+
+/// What one environment's host offers of GitHub: whether it clones, what
+/// ghq keeps there, and what `gh` listed there.
+pub struct GitHubOffers<'a> {
+    pub environment: &'a EnvironmentId,
+    pub offers: &'a Offers,
+    pub listed: &'a PickWork,
+}
+
+/// The best `cap` rows for what `typed` asks of GitHub, from the hosts that
+/// clone: the owners `gh` is logged in as for the start of an owner, or the
+/// repositories of one ghq does not keep for an owner and a slash, the one
+/// typed in full among them while the owner's are not listed. [`None`] when
+/// `typed` asks nothing of GitHub.
+pub fn github_choices<'a>(
+    typed: &str,
+    offered: impl IntoIterator<Item = GitHubOffers<'a>>,
+    cap: usize,
+) -> Option<Vec<Choice>> {
+    let asked = GitHubTyped::parse(typed)?;
+    let cloning = offered.into_iter().filter(|o| o.offers.clones);
+    Some(match asked {
+        GitHubTyped::Owner(start) => {
+            let mut owners: Vec<&String> = Vec::new();
+            for o in cloning {
+                for owner in o.listed.accounts.iter().flatten() {
+                    if !owners.contains(&owner) {
+                        owners.push(owner);
+                    }
+                }
+            }
+            let query = Query::new(&start);
+            best(
+                owners.into_iter().filter_map(|owner| {
+                    query
+                        .rank_named(owner, owner)
+                        .map(|rank| (rank, Choice::Owner(owner.clone())))
+                }),
+                cap,
+            )
+        }
+        GitHubTyped::Repository { owner, name } => {
+            let query = Query::new(&name);
+            cloning
+                .flat_map(|o| {
+                    let listed = o.listed.owned.get(&owner);
+                    let names: Vec<&str> = match listed {
+                        Some(names) => names.iter().map(String::as_str).collect(),
+                        None if !name.is_empty() => vec![name.as_str()],
+                        None => Vec::new(),
+                    };
+                    let offers = names.into_iter().filter_map(|n| {
+                        let target = GitHubTyped::target(&owner, n);
+                        let rank = query.rank_named(n, n)?;
+                        target.kept_in(&o.offers.ghq).is_none().then(|| {
+                            let offer = CloneOffer {
+                                environment: o.environment.clone(),
+                                target,
+                            };
+                            (rank, Choice::Clone(offer))
+                        })
+                    });
+                    best(offers, cap)
+                })
+                .collect()
+        }
+    })
+}
+
+/// Whether the row telling how to clone from GitHub is offered: where a host
+/// clones, while nothing is typed or the start of the prefix.
+pub fn github_help<'a>(typed: &str, offered: impl IntoIterator<Item = &'a Offers>) -> bool {
+    let typed = typed.trim();
+    let prefix = GitHubTyped::PREFIX.trim_end_matches(':');
+    prefix.starts_with(typed) && offered.into_iter().any(|o| o.clones)
 }
 
 /// A session the picker offers, with where it runs and how it stands.
@@ -366,6 +455,26 @@ pub fn labelled_lines(
                         place: label(&c.environment),
                         badge: "ghq".into(),
                         mark: Mark::Clone,
+                    },
+                ),
+                Choice::Owner(owner) => (
+                    Some("GitHub owners"),
+                    Line {
+                        heading: None,
+                        name: owner.clone(),
+                        place: None,
+                        badge: "gh".into(),
+                        mark: Mark::Owner,
+                    },
+                ),
+                Choice::GitHubHelp => (
+                    None,
+                    Line {
+                        heading: None,
+                        name: GITHUB_HELP.into(),
+                        place: None,
+                        badge: String::new(),
+                        mark: Mark::Help,
                     },
                 ),
             };
@@ -750,6 +859,8 @@ mod tests {
                 Choice::Session(s) => s.id.clone(),
                 Choice::Directory(d) => d.path.display().to_string(),
                 Choice::Clone(c) => format!("clone {}", c.target.path),
+                Choice::Owner(o) => format!("owner {o}"),
+                Choice::GitHubHelp => "help".into(),
             })
             .collect()
     }
@@ -883,11 +994,15 @@ mod tests {
     #[test]
     fn a_repository_typed_is_offered_to_clone_where_the_host_clones() {
         let here = EnvironmentId::default();
-        let offered = clone_offer(&here, &cloning(&[]), "o/r").unwrap();
+        let offered = clone_offer(&here, &cloning(&[]), "git@github.com:o/r").unwrap();
         assert_eq!(offered.target.path, "github.com/o/r");
-        assert_eq!(offered.target.typed, "o/r");
+        assert_eq!(offered.target.typed, "git@github.com:o/r");
         assert_eq!(clone_offer(&here, &cloning(&[]), "api"), None);
-        assert_eq!(clone_offer(&here, &Offers::default(), "o/r"), None);
+        assert_eq!(clone_offer(&here, &cloning(&[]), "o/r"), None);
+        assert_eq!(
+            clone_offer(&here, &Offers::default(), "github.com/o/r"),
+            None
+        );
     }
 
     #[test]
@@ -905,7 +1020,7 @@ mod tests {
 
     #[test]
     fn a_clone_row_draws_the_repository_s_place_under_a_heading_of_its_own() {
-        let target = adroit_model::CloneTarget::parse("o/r").unwrap();
+        let target = adroit_model::GitHubTyped::target("o", "r");
         let found = [Choice::Clone(CloneOffer {
             environment: EnvironmentId::default(),
             target,
@@ -919,6 +1034,30 @@ mod tests {
                 badge: "ghq".into(),
                 mark: Mark::Clone,
             }]
+        );
+    }
+
+    #[test]
+    fn an_owner_row_draws_the_owner_and_the_help_row_what_to_type() {
+        let found = [Choice::Owner("o".into()), Choice::GitHubHelp];
+        assert_eq!(
+            lines(&found, Path::new(HOME)),
+            [
+                Line {
+                    heading: Some("GitHub owners"),
+                    name: "o".into(),
+                    place: None,
+                    badge: "gh".into(),
+                    mark: Mark::Owner,
+                },
+                Line {
+                    heading: None,
+                    name: GITHUB_HELP.into(),
+                    place: None,
+                    badge: String::new(),
+                    mark: Mark::Help,
+                },
+            ]
         );
     }
 

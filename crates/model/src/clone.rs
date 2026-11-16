@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-/// A repository typed as `owner/repo`, `host/owner/repo`, or a URL git
-/// clones from.
+/// A repository typed as `host/owner/repo` or a URL git clones from, or
+/// chosen from an owner's on GitHub.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CloneTarget {
     /// What was typed, which `ghq get` is given unchanged so that the URL's
@@ -41,7 +41,6 @@ impl CloneTarget {
             *host = host.split(':').next().unwrap_or_default();
         }
         let path = match parts.as_slice() {
-            [owner, repo] if !addressed => format!("github.com/{owner}/{repo}"),
             [host, _, _, ..] if host.contains('.') || addressed => parts.join("/"),
             _ => return None,
         };
@@ -71,6 +70,58 @@ impl CloneTarget {
             tail.iter().rev().eq(wanted.iter())
         })
     }
+}
+
+/// What is typed after `github:` to look through GitHub: the start of an
+/// owner's name, or an owner, a slash and the start of one of its
+/// repositories' names. Either start may be nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitHubTyped {
+    Owner(String),
+    Repository { owner: String, name: String },
+}
+
+impl GitHubTyped {
+    pub const PREFIX: &str = "github:";
+
+    /// What `typed` asks of GitHub, if it starts with [`Self::PREFIX`].
+    pub fn parse(typed: &str) -> Option<Self> {
+        let rest = typed.trim().strip_prefix(Self::PREFIX)?;
+        if rest.chars().any(char::is_whitespace) {
+            return None;
+        }
+        let started = |s: &str| s.is_empty() || segment(s);
+        match rest.split_once('/') {
+            None => login(rest).then(|| Self::Owner(rest.to_string())),
+            Some((owner, name)) => {
+                (!owner.is_empty() && login(owner) && !name.contains('/') && started(name)).then(
+                    || Self::Repository {
+                        owner: owner.to_string(),
+                        name: name.to_string(),
+                    },
+                )
+            }
+        }
+    }
+
+    /// What is typed to look through `owner`'s repositories.
+    pub fn owner_query(owner: &str) -> String {
+        format!("{}{owner}/", Self::PREFIX)
+    }
+
+    /// `owner`'s repository `name`, to clone.
+    pub fn target(owner: &str, name: &str) -> CloneTarget {
+        CloneTarget {
+            typed: format!("{owner}/{name}"),
+            path: format!("github.com/{owner}/{name}"),
+        }
+    }
+}
+
+/// Whether `s` is, or starts, a name GitHub gives an owner: letters, digits
+/// and dashes, not starting with a dash.
+fn login(s: &str) -> bool {
+    !s.starts_with('-') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// The address of an scp-like `user@host:path`, as `host/path`.
@@ -107,18 +158,15 @@ mod tests {
     }
 
     #[test]
-    fn an_owner_and_a_repository_are_on_github() {
-        assert_eq!(path("owner/repo").as_deref(), Some("github.com/owner/repo"));
-        assert_eq!(path(" a-b/c.d_e ").as_deref(), Some("github.com/a-b/c.d_e"));
-    }
-
-    #[test]
     fn a_host_before_them_names_where_they_are() {
         assert_eq!(
             path("gitlab.com/group/sub/repo").as_deref(),
             Some("gitlab.com/group/sub/repo")
         );
-        assert_eq!(path("github.com/o/r").as_deref(), Some("github.com/o/r"));
+        assert_eq!(
+            path(" github.com/a-b/c.d_e ").as_deref(),
+            Some("github.com/a-b/c.d_e")
+        );
     }
 
     #[test]
@@ -146,15 +194,16 @@ mod tests {
         for typed in [
             "",
             "repo",
-            "owner/repo extra",
+            "owner/repo",
+            "github.com/owner/repo extra",
             "a/b/c",
             "~/src/repo",
             "/abs/path",
             "./o/r",
-            "o/.r",
-            "-o/r",
+            "x.y/o/.r",
+            "x.y/-o/r",
             "https://-x/o/r",
-            "o/r?x",
+            "x.y/o/r?x",
             "file:///o/r",
             "https://github.com",
             "@w",
@@ -164,15 +213,62 @@ mod tests {
     }
 
     #[test]
+    fn github_and_a_colon_start_an_owner_and_a_slash_after_it_its_repositories() {
+        let owner = |o: &str| Some(GitHubTyped::Owner(o.into()));
+        let repository = |o: &str, n: &str| {
+            Some(GitHubTyped::Repository {
+                owner: o.into(),
+                name: n.into(),
+            })
+        };
+        assert_eq!(GitHubTyped::parse("github:"), owner(""));
+        assert_eq!(GitHubTyped::parse(" github:adr "), owner("adr"));
+        assert_eq!(
+            GitHubTyped::parse("github:adroit-app/"),
+            repository("adroit-app", "")
+        );
+        assert_eq!(
+            GitHubTyped::parse("github:adroit-app/ad"),
+            repository("adroit-app", "ad")
+        );
+    }
+
+    #[test]
+    fn without_github_and_a_colon_or_past_a_name_github_gives_nothing_is_asked_of_it() {
+        for typed in [
+            "",
+            "adroit-app/",
+            "github.com/o/",
+            "github",
+            "github:/",
+            "github:-o",
+            "github:o.x",
+            "github:o/r/x",
+            "github:o/.r",
+            "github:o/r x",
+        ] {
+            assert_eq!(GitHubTyped::parse(typed), None, "{typed}");
+        }
+    }
+
+    #[test]
+    fn an_owners_repository_is_what_ghq_clones_and_an_owner_what_looks_through_them() {
+        let target = GitHubTyped::target("o", "r");
+        assert_eq!(target.path, "github.com/o/r");
+        assert_eq!(target.typed, "o/r");
+        assert_eq!(GitHubTyped::owner_query("o"), "github:o/");
+    }
+
+    #[test]
     fn a_kept_repository_is_found_by_its_last_components_whatever_their_case() {
-        let target = CloneTarget::parse("Adroit-App/adroit").unwrap();
+        let target = GitHubTyped::target("Adroit-App", "adroit");
         let kept = [
             PathBuf::from("/g/github.com/other/adroit"),
             PathBuf::from("/g/github.com/adroit-app/Adroit"),
         ];
         assert_eq!(target.kept_in(&kept), Some(&kept[1]));
         assert_eq!(
-            CloneTarget::parse("o/new").unwrap().kept_in(&kept),
+            GitHubTyped::target("o", "new").kept_in(&kept),
             None::<&PathBuf>
         );
     }

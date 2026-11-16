@@ -95,7 +95,7 @@ pub(super) fn Go(picker: Picker) -> Element {
                                         kind: if matches!(line.mark, Mark::Directory | Mark::Clone) { "mono" } else { "" },
                                         selected: i == picker.cursor,
                                         onclick: move |_| app.dispatch(Msg::PickerChoose(i)),
-                                        PlaceMark { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder, Mark::Clone => Icon::FolderDown } }
+                                        PlaceMark { icon: match line.mark { Mark::Scratch => Icon::Notes, Mark::Session => Icon::Message, Mark::Directory => Icon::Folder, Mark::Clone => Icon::FolderDown, Mark::Owner => Icon::BrandGithub, Mark::Help => Icon::InfoCircle } }
                                         span { class: "list-row-name",
                                             {marked(&query, &line.name)}
                                             if let Some(place) = &line.place {

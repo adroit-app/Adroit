@@ -655,12 +655,9 @@ fn left(work: &Work, sights: &[&Sight]) -> Vec<Change> {
         .as_ref()
         .filter(|(of, _)| !sights.iter().any(|s| s.past.as_ref() == Some(of)))
         .map(|_| Change::Past(PastChange::Left));
-    let pick = work
-        .pick
-        .offers
-        .as_ref()
-        .filter(|_| sights.iter().all(|s| s.pick.is_none()))
-        .map(|_| Change::Pick(PickChange::Left));
+    let listed = work.pick != adroit_protocol::PickWork::default();
+    let pick = (listed && sights.iter().all(|s| s.pick.is_none()))
+        .then_some(Change::Pick(PickChange::Left));
     let place = work
         .place
         .read
@@ -705,7 +702,9 @@ fn in_sight(change: &Change, sight: &Sight) -> bool {
         }
         Change::Past(PastChange::Listed { sight: of, .. }) => sight.past.as_ref() == Some(of),
         Change::Past(PastChange::Left) => true,
-        Change::Pick(PickChange::Offers { .. }) => sight.pick.is_some(),
+        Change::Pick(
+            PickChange::Offers { .. } | PickChange::Owned { .. } | PickChange::Accounts { .. },
+        ) => sight.pick.is_some(),
         Change::Pick(PickChange::Left) => true,
         Change::Place(PlaceChange::Read { read }) => sight.place.as_ref() == Some(&read.worktree),
         Change::Place(PlaceChange::Left) => true,

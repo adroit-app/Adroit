@@ -102,6 +102,7 @@ fn asked(run: &Scenario) -> Option<Option<PickSight>> {
 fn listed(dirs: &[&str]) -> Option<Option<PickSight>> {
     Some(Some(PickSight {
         listed: dirs.iter().map(PathBuf::from).collect::<BTreeSet<_>>(),
+        ..PickSight::default()
     }))
 }
 
@@ -750,7 +751,7 @@ fn the_cursor_stays_on_its_session_while_a_change_of_state_moves_it() {
     assert_eq!(picker(&run).cursor, 0);
 }
 
-/// The picker open with a host that clones with ghq, `o/r` typed.
+/// The picker open with a host that clones with ghq, `github.com/o/r` typed.
 fn typing_a_repository() -> Scenario {
     picking()
         .tell(PickChange::Offers {
@@ -759,7 +760,7 @@ fn typing_a_repository() -> Scenario {
                 ..Offers::default()
             },
         })
-        .send(Msg::PickerQuery("o/r".into()))
+        .send(Msg::PickerQuery("github.com/o/r".into()))
 }
 
 /// What `run` last asked to clone, and what it is taken for once cloned.
@@ -783,7 +784,7 @@ fn a_repository_typed_is_offered_to_clone_after_every_directory_that_matches() {
         Some("github.com/o/r")
     );
     assert_eq!(
-        names(&picking().send(Msg::PickerQuery("o/r".into()))),
+        names(&picking().send(Msg::PickerQuery("github.com/o/r".into()))),
         Vec::<String>::new(),
         "a host that does not clone offers no clone"
     );
@@ -815,10 +816,115 @@ fn the_picker_adding_to_the_tree_clones_a_repository_to_keep_it() {
                 ..Offers::default()
             },
         })
-        .send(Msg::PickerQuery("o/r".into()));
+        .send(Msg::PickerQuery("github.com/o/r".into()));
     assert_eq!(names(&run), ["github.com/o/r"]);
     let run = run.send(key("Enter"));
     assert_eq!(cloning(&run), Some(("github.com/o/r".into(), Then::Keep)));
+}
+
+/// The picker open with a host that clones with ghq and keeps
+/// `adroit-app/adroit`, `query` typed.
+fn asking_github(query: &str) -> Scenario {
+    picking()
+        .tell(PickChange::Offers {
+            offers: Offers {
+                clones: true,
+                ghq: vec!["/g/github.com/adroit-app/adroit".into()],
+                ..Offers::default()
+            },
+        })
+        .send(Msg::PickerQuery(query.into()))
+}
+
+fn asked_github(run: &Scenario) -> Option<(Vec<String>, bool)> {
+    let sight = run.state().picker.sight_in(&here())?;
+    Some((sight.owners.into_iter().collect(), sight.accounts))
+}
+
+#[test]
+fn the_help_row_shows_how_to_clone_from_github_where_ghq_clones_and_choosing_it_types_the_prefix() {
+    for typed in ["", "git", "github"] {
+        let run = asking_github(typed);
+        assert_eq!(
+            names(&run).last().map(String::as_str),
+            Some(GITHUB_HELP),
+            "{typed:?}"
+        );
+    }
+    assert!(!names(&asking_github("a")).contains(&GITHUB_HELP.to_string()));
+    assert!(!names(&picking()).contains(&GITHUB_HELP.to_string()));
+    let run = last_row(asking_github("")).send(key("Enter"));
+    assert_eq!(picker(&run).query, "github:");
+}
+
+#[test]
+fn github_and_a_colon_ask_for_the_owners_gh_logs_in_as_and_offer_them_alone() {
+    let run = asking_github("github:");
+    assert_eq!(asked_github(&run), Some((Vec::new(), true)));
+    assert_eq!(names(&run), Vec::<String>::new());
+    let run = run
+        .tell(PickChange::Accounts {
+            owners: vec!["me".into(), "adroit-app".into()],
+        })
+        .send(Msg::PickerQuery("github:adr".into()));
+    assert_eq!(names(&run), ["adroit-app"]);
+    assert_eq!(
+        asked_github(&picking().send(Msg::PickerQuery("github:".into()))),
+        Some((Vec::new(), false)),
+        "a host that does not clone is asked nothing of GitHub"
+    );
+}
+
+#[test]
+fn choosing_an_owner_types_it_to_look_through_its_repositories() {
+    let run = asking_github("github:")
+        .tell(PickChange::Accounts {
+            owners: vec!["adroit-app".into()],
+        })
+        .send(key("Enter"));
+    assert_eq!(picker(&run).query, "github:adroit-app/");
+    assert_eq!(
+        asked_github(&run),
+        Some((vec!["adroit-app".to_string()], false))
+    );
+}
+
+#[test]
+fn an_owners_repositories_ghq_does_not_keep_are_offered_narrowed_by_what_follows_the_slash() {
+    let owned = PickChange::Owned {
+        owner: "adroit-app".into(),
+        repositories: vec!["adroit".into(), "adroit-docs".into(), "vim-x".into()],
+    };
+    let run = asking_github("github:adroit-app/").tell(owned);
+    assert_eq!(
+        names(&run),
+        [
+            "github.com/adroit-app/adroit-docs",
+            "github.com/adroit-app/vim-x"
+        ]
+    );
+    let run = run.send(Msg::PickerQuery("github:adroit-app/doc".into()));
+    assert_eq!(names(&run), ["github.com/adroit-app/adroit-docs"]);
+    let run = run.send(key("Enter"));
+    assert_eq!(
+        cloning(&run),
+        Some(("github.com/adroit-app/adroit-docs".into(), Then::Start))
+    );
+}
+
+#[test]
+fn a_repository_typed_in_full_is_offered_while_its_owners_are_not_listed() {
+    assert_eq!(names(&asking_github("github:o/r")), ["github.com/o/r"]);
+    let listed = asking_github("github:o/r").tell(PickChange::Owned {
+        owner: "o".into(),
+        repositories: vec!["xyz".into()],
+    });
+    assert_eq!(names(&listed), Vec::<String>::new());
+    assert_eq!(
+        names(&picking().send(Msg::PickerQuery("github:o/r".into()))),
+        Vec::<String>::new(),
+        "a host that does not clone offers no clone"
+    );
 }
 
 #[test]
