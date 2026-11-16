@@ -13,12 +13,33 @@ pub struct Hint {
 }
 
 impl Hint {
-    fn new(keys: impl Into<String>, does: &'static str) -> Self {
+    fn new(keys: impl AsRef<str>, does: &'static str) -> Self {
         Hint {
-            keys: keys.into(),
+            keys: short(keys.as_ref()),
             does,
         }
     }
+}
+
+/// `keys` with the escape key named as short as a hint has room for; the
+/// keymap's own name stays `Escape`.
+fn short(keys: &str) -> String {
+    let mut out = String::with_capacity(keys.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        out.push_str(if word == "Escape" { "Esc" } else { word });
+        word.clear();
+    };
+    for c in keys.chars() {
+        if c == '+' || c == '/' {
+            flush(&mut word, &mut out);
+            out.push(c);
+        } else {
+            word.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
 }
 
 /// The first keys bound to `action` over the window, with `does`; none

@@ -30,7 +30,7 @@ fn the_picker_going_to_a_session_hints_at_the_keys_bound_over_the_window_and_its
             ("Ctrl+e", "Neovim"),
             ("Ctrl+t", "add to tree"),
             ("Ctrl+f", "file tree"),
-            ("Escape", "close"),
+            ("Esc", "close"),
         ]
     );
 }
@@ -54,7 +54,7 @@ fn the_picker_s_file_tree_hints_at_the_filer_s_keys() {
         ("!", "hidden"),
         ("Enter", "choose"),
         ("Ctrl+f", "list"),
-        ("Escape", "close"),
+        ("Esc", "close"),
     ] {
         assert!(shown.contains(&hint), "{hint:?} in {shown:?}");
     }
@@ -69,7 +69,7 @@ fn the_list_of_past_conversations_hints_at_widening_it_to_every_directory() {
             ("Ctrl+n/p", "move"),
             ("Enter", "resume"),
             ("Ctrl+a", "this directory or every one"),
-            ("Escape", "close"),
+            ("Esc", "close"),
         ]
     );
 }
@@ -78,7 +78,7 @@ fn the_list_of_past_conversations_hints_at_widening_it_to_every_directory() {
 fn the_keys_help_hints_at_scrolling_and_closing() {
     assert_eq!(
         shown(&keys_help(&Keymap::defaults())),
-        [("Ctrl+n/p", "scroll"), ("Escape", "close")]
+        [("Ctrl+n/p", "scroll"), ("Esc", "close")]
     );
 }
 
@@ -108,4 +108,12 @@ fn keys_alike_but_their_last_character_share_what_comes_before_it() {
     assert_eq!(pair("j", "k"), "j/k");
     assert_eq!(pair("ArrowDown", "ArrowUp"), "ArrowDown/ArrowUp");
     assert_eq!(pair("Ctrl+g", "Alt+p"), "Ctrl+g/Alt+p");
+}
+
+#[test]
+fn a_hint_names_the_escape_key_short_wherever_it_stands() {
+    assert_eq!(Hint::new("Escape", "close").keys, "Esc");
+    assert_eq!(Hint::new("Ctrl+Escape", "x").keys, "Ctrl+Esc");
+    assert_eq!(Hint::new("Escape/q", "x").keys, "Esc/q");
+    assert_eq!(Hint::new("Ctrl+e", "x").keys, "Ctrl+e");
 }
