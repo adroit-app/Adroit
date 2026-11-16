@@ -117,6 +117,59 @@ pub fn file_id(file: &std::fs::File) -> std::io::Result<u64> {
     Ok(u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow))
 }
 
+/// How much of the volume `path` is on is in use and how large it is, in
+/// bytes; space only the superuser may fill counts as used.
+// fsblkcnt_t is u32 on macOS and u64 on Linux.
+#[cfg(unix)]
+#[allow(clippy::unnecessary_cast)]
+pub fn capacity(path: impl AsRef<std::path::Path>) -> Option<(u64, u64)> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).ok()?;
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: the path is NUL-terminated and stats points to writable storage.
+    if unsafe { libc::statvfs(path.as_ptr(), stats.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: statvfs initialized stats on success.
+    let stats = unsafe { stats.assume_init() };
+    let block_size = if stats.f_frsize > 0 {
+        stats.f_frsize
+    } else {
+        stats.f_bsize
+    } as u64;
+    let total = (stats.f_blocks as u64).checked_mul(block_size)?;
+    let used = (stats.f_blocks as u64)
+        .saturating_sub(stats.f_bavail as u64)
+        .checked_mul(block_size)?;
+    (total > 0).then_some((used, total))
+}
+
+/// How much of the volume `path` is on is in use and how large it is, in
+/// bytes; space a quota keeps from this user counts as used.
+#[cfg(windows)]
+pub fn capacity(path: impl AsRef<std::path::Path>) -> Option<(u64, u64)> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path
+        .as_ref()
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let (mut available, mut total) = (0u64, 0u64);
+    // SAFETY: the path is NUL-terminated UTF-16, and both counts point to
+    // writable storage; the free bytes not asked for may be null.
+    let read = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            &mut total,
+            std::ptr::null_mut(),
+        )
+    };
+    (read != 0 && total > 0).then(|| (total.saturating_sub(available), total))
+}
+
 /// A file standing for the folder `dir`, to lock: the folder itself.
 #[cfg(unix)]
 pub fn lockable(dir: impl AsRef<std::path::Path>) -> std::io::Result<std::fs::File> {
@@ -274,6 +327,15 @@ pub fn check_private_dir(path: impl AsRef<std::path::Path>) -> std::io::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_volume_a_folder_is_on_reports_what_it_holds_out_of_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let (used, total) = capacity(dir.path()).expect("the volume's capacity");
+        assert!(total > 0);
+        assert!(used <= total, "{used} of {total}");
+        assert!(capacity(dir.path().join("missing")).is_none());
+    }
 
     #[test]
     fn a_canonical_path_is_absolute_resolved_and_not_verbatim() {
