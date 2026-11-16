@@ -176,11 +176,20 @@ fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
             let daemon = daemon();
             let build = build();
             say_when_listening(&daemon, &build, adroit_term::SPEAKS).await;
-            let _published = crate::remote::Publication::create("terminal", Some(&socket()))
-                .inspect_err(
-                    |e| tracing::warn!(error = %e, "paired clients cannot find this host"),
-                );
-            keep_saying(&daemon, &build, adroit_term::SPEAKS, SAY_AGAIN).await
+            let socket = socket();
+            let published = async {
+                let _published = crate::remote::Publication::claim(
+                    "terminal",
+                    Some(&socket),
+                    crate::remote::CLAIM_AGAIN,
+                )
+                .await;
+                std::future::pending::<()>().await
+            };
+            tokio::select! {
+                () = keep_saying(&daemon, &build, adroit_term::SPEAKS, SAY_AGAIN) => {}
+                () = published => {}
+            }
         });
         let monitor = async {
             loop {

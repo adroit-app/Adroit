@@ -107,11 +107,29 @@ async fn keep_hosts_up() {
 }
 
 /// The hosts of this instance, found through their discovery files.
-struct Discovered;
+/// Says once, until they are found again, that they are not: a paired client
+/// cut off right after its handshake learns no more than that.
+#[derive(Default)]
+struct Discovered {
+    missing: AtomicBool,
+}
 
 impl Hosts for Discovered {
     fn current(&self) -> Result<HostsNow, String> {
-        let info = crate::remote::info().map_err(|error| error.to_string())?;
+        let info = match crate::remote::info() {
+            Ok(info) => {
+                if self.missing.swap(false, Ordering::Relaxed) {
+                    tracing::info!("paired clients reach the hosts again");
+                }
+                info
+            }
+            Err(error) => {
+                if !self.missing.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(%error, "paired clients cannot reach the hosts");
+                }
+                return Err(error.to_string());
+            }
+        };
         Ok(HostsNow {
             info: serde_json::to_vec(&info).map_err(|error| error.to_string())?,
             work: info.work.socket,
@@ -158,10 +176,10 @@ async fn serve(
         // narrower bind would buy little and break on a changed address.
         None => vec![(std::net::Ipv6Addr::UNSPECIFIED, DEFAULT_PORT).into()],
     };
-    let running = match start(files, &addresses, Arc::new(Discovered)).await {
+    let running = match start(files, &addresses, Arc::new(Discovered::default())).await {
         Err(error) if listen_was_default(&addresses) => {
             let fallback = [(std::net::Ipv4Addr::UNSPECIFIED, DEFAULT_PORT).into()];
-            start(files, &fallback, Arc::new(Discovered))
+            start(files, &fallback, Arc::new(Discovered::default()))
                 .await
                 .map_err(|_| error)?
         }

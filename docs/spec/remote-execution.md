@@ -5,7 +5,8 @@ host its own windows and commands use ([the hosts](sessions.md#the-hosts)), so
 a session started at the machine and one a paired client started are the same
 work, seen and driven from either. Each instance has a persistent identity, and
 each host incarnation publishes itself under a new private socket that is never
-reused. `adroit remote info` describes the currently running pair and refuses
+reused; one started while the host before it still holds that place publishes
+itself once the earlier one ends. `adroit remote info` describes the currently running pair and refuses
 stale discovery. Replacing the work host leaves the terminal host and its
 sessions running; replacing the terminal host ends its sessions, and a paired
 client never replaces either. What a paired client asks is held to the rules

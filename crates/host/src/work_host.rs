@@ -55,9 +55,6 @@ pub struct WorkHostServer {
     listener: adroit_sys::local::Listener,
     socket: PathBuf,
     _claim: std::fs::File,
-    /// Where paired clients reach this host through the gateway, once it is
-    /// published for them.
-    remote: Option<(adroit_sys::local::Listener, crate::remote::Publication)>,
 }
 
 impl Drop for WorkHostServer {
@@ -97,28 +94,26 @@ impl WorkHostServer {
             listener,
             socket: socket.to_path_buf(),
             _claim: claim,
-            remote: None,
         })
-    }
-
-    /// Publish this host for paired clients, which reach it at a socket of
-    /// their own so that what they ask is known as asked remotely.
-    pub fn publish(&mut self) -> std::io::Result<()> {
-        let published = crate::remote::Publication::create("work", None)?;
-        let listener = bind_private(published.socket())?;
-        published.ours();
-        self.remote = Some((listener, published));
-        Ok(())
     }
 
     /// Say `hello` to everyone who connects here and answer them from
     /// `served`, and so to paired clients with what they are told, until
-    /// one asks this host to stop.
+    /// one asks this host to stop. Paired clients reach it at a socket of
+    /// their own, so that what they ask is known as asked remotely, once it
+    /// could publish itself for them.
     pub async fn serve(&self, hello: Hello, served: Served) {
         let (stop, mut stopped) = tokio::sync::mpsc::channel::<()>(1);
         let permits = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
+        // Polled across connections, so a publication waiting for the record
+        // is not begun again with every one.
+        let mut publishing = std::pin::pin!(published());
+        let for_paired: std::sync::OnceLock<(
+            adroit_sys::local::Listener,
+            crate::remote::Publication,
+        )> = std::sync::OnceLock::new();
         let remote_accept = || async {
-            match &self.remote {
+            match for_paired.get() {
                 Some((listener, _)) => listener.accept().await,
                 None => std::future::pending().await,
             }
@@ -133,6 +128,10 @@ impl WorkHostServer {
                     Ok(stream) => (stream, true),
                     Err(_) => continue,
                 },
+                published = &mut publishing, if for_paired.get().is_none() => {
+                    let _ = for_paired.set(published);
+                    continue;
+                }
                 _ = stopped.recv() => return,
             };
             let (hello, served, stop) = (hello.clone(), served.clone(), stop.clone());
@@ -144,6 +143,26 @@ impl WorkHostServer {
                 let hello = if remote { hello_of_ours() } else { hello };
                 served.connection(stream, &hello, stop).await
             }));
+        }
+    }
+}
+
+/// This host published for paired clients and listening where they reach it,
+/// once both could be done.
+async fn published() -> (adroit_sys::local::Listener, crate::remote::Publication) {
+    loop {
+        let published =
+            crate::remote::Publication::claim("work", None, crate::remote::CLAIM_AGAIN).await;
+        match bind_private(published.socket()) {
+            Ok(listener) => {
+                published.ours();
+                return (listener, published);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "paired clients cannot reach this host");
+                drop(published);
+                tokio::time::sleep(crate::remote::CLAIM_AGAIN).await;
+            }
         }
     }
 }
@@ -406,10 +425,7 @@ async fn delegation() {
 /// from the configuration first and then kept read once the terminal host
 /// the sessions are listed from runs.
 async fn serve(socket: &Path) -> Result<()> {
-    let mut server = WorkHostServer::bind(socket).await?;
-    if let Err(e) = server.publish() {
-        tracing::warn!(error = %e, "paired clients cannot find this host");
-    }
+    let server = WorkHostServer::bind(socket).await?;
     let host = crate::work::Host::new(crate::work::Work::configured(crate::config::read()));
     let judged = std::sync::Arc::new(tokio::sync::watch::Sender::new(None));
     let served = Served::new(host, |watched| crate::asks::asks(watched, judged.clone()));

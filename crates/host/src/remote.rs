@@ -5,11 +5,14 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::cli::{DaemonCommand, HostCommand, RemoteCommand};
 use adroit_protocol::{RemoteEndpoint, RemoteInfo, is_generation};
 
 const LIMIT: u64 = 65536;
+/// How often a host that could not publish itself tries again.
+pub(crate) const CLAIM_AGAIN: Duration = Duration::from_secs(2);
 static OURS: OnceLock<RemoteEndpoint> = OnceLock::new();
 
 /// Whether what is being done was asked by a paired client.
@@ -160,10 +163,41 @@ impl Publication {
         &self.endpoint
     }
 
+    /// Publish as `create` does, trying again every `again` for as long as
+    /// it fails: a host started while an older one of its role still holds
+    /// the record publishes once that one ends, rather than never.
+    pub async fn claim(role: &str, socket: Option<&Path>, again: Duration) -> Self {
+        Self::claim_in(&root(), role, socket, again).await
+    }
+
+    async fn claim_in(dir: &Path, role: &str, socket: Option<&Path>, again: Duration) -> Self {
+        let mut told = false;
+        loop {
+            match Self::create_in(dir, role, socket) {
+                Ok(published) => {
+                    if told {
+                        tracing::info!(role, "paired clients can find this host now");
+                    }
+                    return published;
+                }
+                Err(error) if !told => {
+                    tracing::warn!(role, %error, "paired clients cannot find this host yet");
+                    told = true;
+                }
+                Err(_) => {}
+            }
+            tokio::time::sleep(again).await;
+        }
+    }
+
     /// Publish this process as the instance's host of `role`, reached at
     /// `socket`, or else at a socket of its own a new generation names.
     pub fn create(role: &str, socket: Option<&Path>) -> std::io::Result<Self> {
-        let dir = root();
+        Self::create_in(&root(), role, socket)
+    }
+
+    fn create_in(dir: &Path, role: &str, socket: Option<&Path>) -> std::io::Result<Self> {
+        let dir = dir.to_path_buf();
         std::fs::create_dir_all(dir.parent().unwrap())?;
         private_dir(&dir, true)?;
         let claim = OpenOptions::new()
@@ -317,5 +351,28 @@ mod tests {
         });
         assert!(values.iter().all(|v| v == &values[0] && is_generation(v)));
         assert_eq!(instance(dir.path()).unwrap(), values[0]);
+    }
+
+    #[tokio::test]
+    #[cfg_attr(windows, ignore = "serves as a work machine, which runs Unix")]
+    async fn a_host_publishes_itself_once_the_one_before_it_lets_go() {
+        let state = tempfile::tempdir().unwrap();
+        let dir = state.path().join("remote");
+        let before = Publication::create_in(&dir, "work", None).unwrap();
+        let claiming = tokio::spawn({
+            let dir = dir.clone();
+            async move { Publication::claim_in(&dir, "work", None, Duration::from_millis(10)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!claiming.is_finished());
+        let stale = before.endpoint().generation.clone();
+        drop(before);
+        let published = tokio::time::timeout(Duration::from_secs(5), claiming)
+            .await
+            .expect("published once the record was let go")
+            .unwrap();
+        let recorded = read_endpoint(&dir, "work").unwrap();
+        assert_eq!(recorded.generation, published.endpoint().generation);
+        assert_ne!(recorded.generation, stale);
     }
 }
