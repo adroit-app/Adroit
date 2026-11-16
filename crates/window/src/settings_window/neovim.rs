@@ -91,7 +91,7 @@ pub(super) fn NeovimGroup(name: &'static str) -> Element {
                         }
                     },
                     IconView { icon: Icon::FolderOpen, size: 14 }
-                    "Show in Finder"
+                    {adroit_core::chrome::SHOW_IN_FILE_MANAGER}
                 }
                 Button {
                     title: "Edit init.lua in a Neovim of the main window",

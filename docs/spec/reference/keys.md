@@ -57,7 +57,7 @@ changes them ([keys](../keys.md)).
 | `cursor.fold` |  | fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from | `tree`: `h`<br>`details`: `Escape`, `Backspace` |
 | `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `x` |
 | `cursor.copy` |  | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path | `tree`: `y`<br>`details`: `y` |
-| `cursor.reveal` |  | in the details panel, show the selected file of the overview in the Finder |  |
+| `cursor.reveal` |  | in the details panel, show the selected file of the overview in the system's file manager |  |
 | `cursor.browse` |  | open the selected pull request or issue on GitHub in the browser | `tree`: `g x`<br>`viewer`: `g x` |
 | `filer.down` |  | move to the next file or directory, in the tree's files or the picker's directories | `filer`: `j`, `ArrowDown` |
 | `filer.up` |  | move to the previous file or directory | `filer`: `k`, `ArrowUp` |

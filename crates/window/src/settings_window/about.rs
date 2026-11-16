@@ -77,7 +77,7 @@ pub(super) fn AboutPane() -> Element {
                         disabled: remote,
                         onclick: move |_| if !remote { open_with("-R", &path, starter); },
                         IconView { icon: Icon::FolderOpen, size: 14 }
-                        "Show in Finder"
+                        {adroit_core::chrome::SHOW_IN_FILE_MANAGER}
                     }
                 }
             }

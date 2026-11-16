@@ -87,7 +87,7 @@ operation rather than sending it again.
 
 A remote window types into its consoles while it is connected. Keys typed
 before a connection is lost never reach a program after it reconnects.
-Local file viewers, external editors, revealing remote paths in Finder,
+Local file viewers, external editors, revealing remote paths in the file manager,
 login terminals and attachments supplied as local file paths are
 unavailable for its files; those of an environment on this computer that the
 same window shows still open locally. A file of a work machine that a viewer
