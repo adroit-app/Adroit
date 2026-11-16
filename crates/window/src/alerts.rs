@@ -2,7 +2,7 @@
 
 /// The AppleScript that shows a notification, its words quoted so none can
 /// end the string they are in.
-#[cfg(any(test, not(windows)))]
+#[cfg(any(test, target_os = "macos"))]
 fn script(title: &str, subtitle: &str, body: &str) -> String {
     let q = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
     format!(
@@ -15,7 +15,7 @@ fn script(title: &str, subtitle: &str, body: &str) -> String {
 
 /// Show a notification that the session `name` waits, for `why`, once the
 /// future it gives is run.
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output = ()> + use<> {
     let mut cmd = tokio::process::Command::new("osascript");
     cmd.args(["-e", &script("Adroit", name, why)])
@@ -25,6 +25,34 @@ pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output 
     async move {
         let _ = cmd.status().await;
     }
+}
+
+/// Show a notification that the session `name` waits, for `why`, once the
+/// future it gives is run, through the desktop's notification server as
+/// `notify-send` reaches it; none where it is not installed.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn notify_waiting(name: &str, why: &str) -> impl std::future::Future<Output = ()> + use<> {
+    let mut cmd = tokio::process::Command::new("notify-send");
+    cmd.args(notify_send_args(name, why))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    async move {
+        let _ = cmd.status().await;
+    }
+}
+
+/// `notify-send`'s arguments for a notification that the session `name`
+/// waits, for `why`: words that begin with a dash are taken as words, not
+/// options.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn notify_send_args(name: &str, why: &str) -> Vec<String> {
+    vec![
+        "--app-name=Adroit".into(),
+        "--".into(),
+        name.into(),
+        why.into(),
+    ]
 }
 
 /// Nothing shown: Windows has no notification a program can show without
@@ -43,6 +71,14 @@ mod tests {
         assert_eq!(
             script("Adroit", "say \"hi\"", "a\\b"),
             r#"display notification "a\\b" with title "Adroit" subtitle "say \"hi\"""#
+        );
+    }
+
+    #[test]
+    fn a_notification_s_words_are_never_taken_as_notify_send_s_options() {
+        assert_eq!(
+            notify_send_args("-u critical", "--help"),
+            ["--app-name=Adroit", "--", "-u critical", "--help"]
         );
     }
 }
