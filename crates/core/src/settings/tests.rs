@@ -970,3 +970,20 @@ fn a_setting_the_file_should_not_hold_is_named_with_those_it_may() {
         "unknown field `nonsense`, expected `enabled`\nin `delegation`\n"
     );
 }
+
+#[test]
+fn every_option_as_alt_counts_both_alt_keys_off_macos() {
+    for chosen in [
+        OptionAsAlt::Both,
+        OptionAsAlt::Left,
+        OptionAsAlt::Right,
+        OptionAsAlt::None,
+    ] {
+        let in_force = chosen.in_force();
+        if cfg!(target_os = "macos") {
+            assert_eq!(in_force, chosen);
+        } else {
+            assert_eq!(in_force, OptionAsAlt::Both, "{chosen:?}");
+        }
+    }
+}

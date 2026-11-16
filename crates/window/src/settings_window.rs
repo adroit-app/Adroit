@@ -665,20 +665,22 @@ fn ConsolePane(now: Settings, change: Callback<Change>) -> Element {
                     onchange: set_number::<f64>(change, |s, n| s.font_size = n),
                 }
             }
-            SettingRow { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
-                Select {
-                    label: "Option as Alt",
-                    value: now.console.option_as_alt.name(),
-                    choices: choices_of([("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")]),
-                    onchange: move |value: String| {
-                        let as_alt = match value.as_str() {
-                            "left" => OptionAsAlt::Left,
-                            "right" => OptionAsAlt::Right,
-                            "none" => OptionAsAlt::None,
-                            _ => OptionAsAlt::Both,
-                        };
-                        change(Box::new(move |s: &mut Settings| s.console.option_as_alt = as_alt));
-                    },
+            if cfg!(target_os = "macos") {
+                SettingRow { label: "Option as Alt", hint: "Which Option keys send Alt (Meta) to what runs in the console; the others type what macOS makes of the key.",
+                    Select {
+                        label: "Option as Alt",
+                        value: now.console.option_as_alt.name(),
+                        choices: choices_of([("both", "Both"), ("left", "Left only"), ("right", "Right only"), ("none", "Neither")]),
+                        onchange: move |value: String| {
+                            let as_alt = match value.as_str() {
+                                "left" => OptionAsAlt::Left,
+                                "right" => OptionAsAlt::Right,
+                                "none" => OptionAsAlt::None,
+                                _ => OptionAsAlt::Both,
+                            };
+                            change(Box::new(move |s: &mut Settings| s.console.option_as_alt = as_alt));
+                        },
+                    }
                 }
             }
             SettingRow { label: "Blinking cursor", hint: "The console's cursor blinks when the program lets it.",
@@ -816,7 +818,7 @@ fn LaunchGroup(
 #[component]
 fn WindowPane(now: Settings, change: Callback<Change>) -> Element {
     rsx! { SettingGroup {
-            SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; ⌘0 comes back to it.",
+            SettingRow { label: "Zoom", hint: "How large the window draws everything when it opens; Actual Size in the View menu comes back to it.",
                 Select {
                     label: "Zoom",
                     // The level the zoom is at, whose digits may differ from

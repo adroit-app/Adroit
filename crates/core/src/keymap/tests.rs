@@ -1008,3 +1008,16 @@ fn every_default_binding_reads() {
     // as a key that silently does nothing.
     Keymap::try_defaults().unwrap();
 }
+
+#[test]
+fn an_action_s_keys_are_named_as_the_system_presses_them() {
+    let map = Keymap::defaults();
+    let keys = |action| map.keys_in(&[Context::Global], &action).unwrap();
+    if cfg!(target_os = "macos") {
+        assert_eq!(keys(Action::SettingsOpen), "Cmd+,");
+        assert_eq!(keys(Action::TreeToggle), "Cmd+b");
+    } else {
+        assert_eq!(keys(Action::SettingsOpen), "Ctrl+Shift+,");
+        assert_eq!(keys(Action::TreeToggle), "Ctrl+B");
+    }
+}

@@ -33,7 +33,7 @@ How the console takes keys and draws its cursor.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `console.cursor_blink` | boolean | `false` | Whether the cursor blinks when the program lets it. |
-| `console.option_as_alt` | one of `both`, `left`, `right`, `none` | `"both"` | Which Option keys send Alt to what runs there, `both`, `left`, `right` or `none`, the others typing what macOS makes of the key. |
+| `console.option_as_alt` | one of `both`, `left`, `right`, `none` | `"both"` | Which Option keys send Alt to what runs there, `both`, `left`, `right` or `none`, the others typing what macOS makes of the key. Read on macOS only; elsewhere both Alt keys send Alt. |
 
 ## `[delegation]`
 
