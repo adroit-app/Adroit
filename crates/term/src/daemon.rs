@@ -550,9 +550,11 @@ const ASK_STOP: Duration = Duration::from_secs(2);
 /// How long a daemon asked or signalled to stop is given to end.
 const STOPPING: Duration = Duration::from_secs(3);
 
-/// Start `program` with `args` apart from this process, with no console of
-/// its own and in a process group of its own, so neither closing adroit nor
-/// a Ctrl-C sent to its console ends the program.
+/// Start `program` with `args` apart from this process, on a console of its
+/// own that has no window and in a process group of its own, so neither
+/// closing adroit nor a Ctrl-C sent to its console ends the program. Not
+/// detached from every console: the console programs it starts would then
+/// each open a console window of their own.
 #[cfg(windows)]
 pub fn detached_with(
     program: &Path,
@@ -560,7 +562,6 @@ pub fn detached_with(
     env: &[(String, Option<String>)],
 ) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     let mut command = std::process::Command::new(program);
     with_env(&mut command, env);
@@ -569,7 +570,7 @@ pub fn detached_with(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .creation_flags(adroit_sys::process::CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map(drop)
 }

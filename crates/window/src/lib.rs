@@ -14,6 +14,10 @@ mod complete;
 mod components;
 mod connection;
 mod console;
+#[cfg(windows)]
+mod console_window;
+#[cfg(windows)]
+pub use console_window::*;
 mod console_read;
 mod content;
 pub use adroit_core::file_icons;
