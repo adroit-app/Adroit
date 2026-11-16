@@ -100,7 +100,7 @@ pub fn agent_env() -> Vec<(String, String)> {
     env
 }
 
-/// How often the daemon counts what runs and reads whether to keep the Mac
+/// How often the daemon counts what runs and reads whether to keep the machine
 /// awake: well within the minutes idle sleep waits.
 const AWAKE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -160,7 +160,7 @@ pub fn cli(asked: DaemonCommand) -> i32 {
 }
 
 fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
-    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME));
+    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME)).watching(Assertion::lost);
     rt.block_on(async {
         crate::environment::spawn(async {
             let daemon = daemon();

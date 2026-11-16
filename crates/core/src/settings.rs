@@ -190,8 +190,8 @@ pub struct Settings {
     #[serde(skip_serializing)]
     #[schemars(skip)]
     pub theme: Option<String>,
-    /// Keep the Mac from idle sleep while a session or a shell runs, the window
-    /// open or not; the display still sleeps.
+    /// Keep the machine from idle sleep while a session or a shell runs, the
+    /// window open or not; the display still sleeps.
     pub keep_awake: bool,
     /// Show a notification when a session starts waiting on you while the window
     /// is not in front; with several windows open, the one holding the lowest

@@ -463,7 +463,7 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
     let remote = use_context::<Link>().remote_status().is_some();
     rsx! {
         SettingGroup {
-            SettingRow { label: if remote { "Keep the work machine awake" } else { "Keep the Mac awake" }, hint: "While a session or a shell runs on the work machine, even with the window closed; the display still sleeps.",
+            SettingRow { label: if remote { "Keep the work machine awake" } else if cfg!(target_os = "macos") { "Keep the Mac awake" } else { "Keep this computer awake" }, hint: "While a session or a shell runs on the work machine, even with the window closed; the display still sleeps.",
                 Toggle {
                     checked: now.keep_awake,
                     onchange: move |on| change(Box::new(move |s: &mut Settings| s.keep_awake = on)),

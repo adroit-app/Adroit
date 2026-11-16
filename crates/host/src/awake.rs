@@ -1,11 +1,11 @@
-//! Keeping the Mac from idle sleep while the daemon runs a session or a
+//! Keeping the machine from idle sleep while the daemon runs a session or a
 //! shell, so they go on with the display off.
 
 /// What the assertion is called where the system lists them, as in
-/// `pmset -g assertions`.
+/// `pmset -g assertions`, `powercfg /requests` or `systemd-inhibit --list`.
 pub const NAME: &str = "adroit: sessions are running";
 
-/// Whether the Mac is to be kept awake, with `running` sessions and terminals
+/// Whether the machine is to be kept awake, with `running` sessions and terminals
 /// whose programs still run.
 pub fn wanted(running: usize, keep_awake: bool) -> bool {
     keep_awake && running > 0
@@ -23,20 +23,36 @@ pub fn environments_wanted(
 /// Holds what `take` gives, dropping it to let go, while it is wanted.
 pub struct Keeper<T> {
     take: fn() -> Option<T>,
+    lost: fn(&mut T) -> bool,
     held: Option<T>,
 }
 
 impl<T> Keeper<T> {
     pub fn new(take: fn() -> Option<T>) -> Self {
-        Self { take, held: None }
+        Self {
+            take,
+            lost: |_| false,
+            held: None,
+        }
     }
 
-    /// Hold it or let it go, as `wanted` says; a take that failed is tried
-    /// again on the next.
+    /// Ask `lost` of what is held whether the system let go of it, to take
+    /// it again.
+    pub fn watching(self, lost: fn(&mut T) -> bool) -> Self {
+        Self { lost, ..self }
+    }
+
+    /// Hold it or let it go, as `wanted` says; a take that failed, or one
+    /// the system let go of, is tried again on the next.
     pub fn keep(&mut self, wanted: bool) {
         if !wanted {
             self.held = None;
-        } else if self.held.is_none() {
+            return;
+        }
+        if self.held.as_mut().is_some_and(self.lost) {
+            self.held = None;
+        }
+        if self.held.is_none() {
             self.held = (self.take)();
         }
     }
@@ -86,6 +102,11 @@ mod power {
             };
             (got == 0).then_some(Self(id))
         }
+
+        /// Whether the system let go of it: an assertion is held until dropped.
+        pub fn lost(&mut self) -> bool {
+            false
+        }
     }
 
     impl Drop for Assertion {
@@ -98,17 +119,205 @@ mod power {
     }
 }
 
-/// Elsewhere adroit keeps nothing awake.
-#[cfg(not(target_os = "macos"))]
+/// The system's own: a power request that keeps it from idle sleep and lets
+/// the display sleep, as `powercfg /requests` lists them.
+#[cfg(windows)]
 mod power {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::Power::{
+        PowerClearRequest, PowerCreateRequest, PowerRequestSystemRequired, PowerSetRequest,
+    };
+    use windows_sys::Win32::System::Threading::{
+        POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0,
+    };
+
+    /// `POWER_REQUEST_CONTEXT_VERSION`.
+    const CONTEXT_VERSION: u32 = 0;
+
+    /// Held until dropped; the system also lets it go when the process ends.
     #[derive(Debug)]
-    pub enum Assertion {}
+    pub struct Assertion(HANDLE);
+
+    // SAFETY: the handle is a kernel object's, usable from any thread.
+    unsafe impl Send for Assertion {}
 
     impl Assertion {
-        pub fn take(_name: &str) -> Option<Self> {
-            None
+        pub fn take(name: &str) -> Option<Self> {
+            let mut reason: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            let context = REASON_CONTEXT {
+                Version: CONTEXT_VERSION,
+                Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,
+                Reason: REASON_CONTEXT_0 {
+                    SimpleReasonString: reason.as_mut_ptr(),
+                },
+            };
+            // SAFETY: the context and the string it points to outlive the
+            // call, which copies what it keeps; the handle is closed on
+            // failure and kept otherwise.
+            unsafe {
+                let request = PowerCreateRequest(&context);
+                if request.is_null() || request as isize == -1 {
+                    return None;
+                }
+                if PowerSetRequest(request, PowerRequestSystemRequired) == 0 {
+                    CloseHandle(request);
+                    return None;
+                }
+                Some(Self(request))
+            }
+        }
+
+        /// Whether the system let go of it: a request is held until dropped.
+        pub fn lost(&mut self) -> bool {
+            false
         }
     }
+
+    impl Drop for Assertion {
+        fn drop(&mut self) {
+            // SAFETY: the handle is the request this process set and has
+            // not closed.
+            unsafe {
+                PowerClearRequest(self.0, PowerRequestSystemRequired);
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+/// The inhibitors that keep the system from idle sleep: logind's, which keeps
+/// it from going idle, and GNOME's session's, as GNOME suspends an idle
+/// machine on a timer of its own that only its session's inhibitors stop.
+/// Each is held by a program for as long as it waits on the standard input
+/// this process holds; one whose program is not installed or ends at once,
+/// as where logind or GNOME's session does not run, is not held.
+#[cfg(all(unix, not(target_os = "macos")))]
+mod power {
+    /// Held until dropped; a process that ends lets its ends of the pipes
+    /// go, and with them the inhibitors.
+    #[derive(Debug)]
+    pub struct Assertion(Held);
+
+    impl Assertion {
+        pub fn take(name: &str) -> Option<Self> {
+            Held::start(super::inhibitors(name)).map(Self)
+        }
+
+        /// Whether the system let go of it: no program holds an inhibitor
+        /// any more.
+        pub fn lost(&mut self) -> bool {
+            self.0.lost()
+        }
+    }
+
+    /// The programs that hold inhibitors. One that has ever been seen holding
+    /// its inhibitor is started again whenever it has ended, as what it
+    /// holds was let go or, restarting, refused it for a while; one that
+    /// ended before it was ever seen holding is let be, as what it asks does
+    /// not run here, and would refuse it again. One that cannot be started
+    /// again is tried on the next look.
+    #[derive(Debug)]
+    pub(super) struct Held(Vec<Holding>);
+
+    #[derive(Debug)]
+    struct Holding {
+        program: &'static str,
+        args: Vec<String>,
+        child: Option<std::process::Child>,
+        held_once: bool,
+    }
+
+    fn spawn(program: &str, args: &[String]) -> Option<std::process::Child> {
+        std::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()
+    }
+
+    impl Held {
+        pub(super) fn start(programs: Vec<(&'static str, Vec<String>)>) -> Option<Self> {
+            let holding: Vec<_> = programs
+                .into_iter()
+                .filter_map(|(program, args)| {
+                    let child = spawn(program, &args)?;
+                    Some(Holding {
+                        program,
+                        args,
+                        child: Some(child),
+                        held_once: false,
+                    })
+                })
+                .collect();
+            (!holding.is_empty()).then_some(Self(holding))
+        }
+
+        pub(super) fn lost(&mut self) -> bool {
+            self.0.retain_mut(|held| {
+                let running = held
+                    .child
+                    .as_mut()
+                    .is_some_and(|child| matches!(child.try_wait(), Ok(None)));
+                if running {
+                    held.held_once = true;
+                    return true;
+                }
+                if !held.held_once {
+                    return false;
+                }
+                held.child = spawn(held.program, &held.args);
+                true
+            });
+            self.0.is_empty()
+        }
+    }
+
+    impl Drop for Held {
+        fn drop(&mut self) {
+            for child in self.0.iter_mut().filter_map(|held| held.child.as_mut()) {
+                drop(child.stdin.take());
+            }
+            for child in self.0.iter_mut().filter_map(|held| held.child.as_mut()) {
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
+/// The programs, with their arguments, that hold an inhibitor named `name`
+/// while `cat` waits on their input: logind's, keeping the system from going
+/// idle, and GNOME's session's, keeping it from suspending; neither keeps the
+/// display from sleeping.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn inhibitors(name: &str) -> Vec<(&'static str, Vec<String>)> {
+    vec![
+        (
+            "systemd-inhibit",
+            vec![
+                "--what=idle".into(),
+                "--who=Adroit".into(),
+                format!("--why={name}"),
+                "--mode=block".into(),
+                "cat".into(),
+            ],
+        ),
+        // Each option and its value apart: gnome-session-inhibit takes
+        // `--reason=…` for the command to run.
+        (
+            "gnome-session-inhibit",
+            vec![
+                "--app-id".into(),
+                "Adroit".into(),
+                "--reason".into(),
+                name.into(),
+                "--inhibit".into(),
+                "suspend".into(),
+                "cat".into(),
+            ],
+        ),
+    ]
 }
 
 #[cfg(test)]
@@ -131,6 +340,178 @@ mod tests {
         assert!(listed(&name));
         drop(held);
         assert!(!listed(&name));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_takes_a_request_to_stay_awake_and_lets_it_go() {
+        let held = Assertion::take("adroit test").expect("taken");
+        drop(held);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn logind_lists_the_inhibitor_by_its_name_while_it_is_held() {
+        fn listed(name: &str) -> Option<bool> {
+            let out = std::process::Command::new("systemd-inhibit")
+                .arg("--list")
+                .output()
+                .ok()
+                .filter(|out| out.status.success())?;
+            Some(String::from_utf8_lossy(&out.stdout).contains(name))
+        }
+        let name = format!("adroit test {}", std::process::id());
+        if listed(&name).is_none() {
+            eprintln!("logind does not run here");
+            return;
+        }
+        let held = Assertion::take(&name).expect("taken");
+        let shown = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            listed(&name) == Some(true)
+        });
+        assert!(shown);
+        drop(held);
+        assert_eq!(listed(&name), Some(false));
+    }
+
+    #[test]
+    fn linux_is_kept_from_idling_and_from_gnome_s_suspend_but_not_from_sleeping_its_display() {
+        let asked: std::collections::HashMap<_, _> = inhibitors("adroit: sessions are running")
+            .into_iter()
+            .collect();
+        let logind = &asked["systemd-inhibit"];
+        assert!(logind.contains(&"--what=idle".to_string()));
+        assert!(logind.contains(&"--why=adroit: sessions are running".to_string()));
+        let gnome = &asked["gnome-session-inhibit"];
+        let given = |option: &str| {
+            gnome
+                .windows(2)
+                .find(|pair| pair[0] == option)
+                .map(|pair| pair[1].as_str())
+        };
+        assert_eq!(given("--inhibit"), Some("suspend"));
+        assert_eq!(given("--reason"), Some("adroit: sessions are running"));
+        assert!(!gnome.iter().any(|a| a.starts_with("--") && a.contains('=')));
+        for args in asked.values() {
+            assert_eq!(args.last().map(String::as_str), Some("cat"));
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn an_inhibitor_let_go_is_taken_again_and_one_refused_at_once_is_let_be() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str| dir.path().join(name);
+        let shell = |script: String| ("/bin/sh", vec!["-c".to_string(), script]);
+        let count = |path: &std::path::Path| {
+            std::fs::read_to_string(path)
+                .unwrap_or_default()
+                .lines()
+                .count()
+        };
+        // A stand-in that holds its inhibitor until `stop` is there.
+        let holds_until = |stop: &std::path::Path| {
+            format!("while [ ! -e '{}' ]; do sleep 0.02; done", stop.display())
+        };
+        // Waits until `ran` has run, and a moment more for it to end: a
+        // program the first look finds still running counts as holding, as
+        // one does when the work host first looks, seconds after it starts.
+        let ended = |ran: &std::path::Path| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while count(ran) == 0 && std::time::Instant::now() < until {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        };
+        // Looks again and again until `done` holds, at most for a while.
+        let look_until = |held: &mut power::Held, done: &dyn Fn() -> bool| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !done() && std::time::Instant::now() < until {
+                assert!(!held.lost());
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            done()
+        };
+
+        let (runs, refused, stop) = (file("runs"), file("refused"), file("stop"));
+        let mut held = power::Held::start(vec![
+            shell(format!("echo >> '{}'; exit 1", refused.display())),
+            shell(format!(
+                "echo >> '{}'; {}",
+                runs.display(),
+                holds_until(&stop)
+            )),
+            shell("cat".into()),
+        ])
+        .unwrap();
+        ended(&refused);
+        assert!(!held.lost());
+        std::fs::write(&stop, "").unwrap();
+        assert!(
+            look_until(&mut held, &|| count(&runs) >= 2),
+            "the one seen holding ran again"
+        );
+        assert_eq!(count(&refused), 1, "the one never seen holding ran once");
+
+        let alone = file("alone");
+        let mut refused_alone = power::Held::start(vec![shell(format!(
+            "echo >> '{}'; exit 1",
+            alone.display()
+        ))])
+        .unwrap();
+        ended(&alone);
+        assert!(refused_alone.lost(), "the one refused alone is let be");
+
+        // Held once, then refused for a while, as while logind restarts.
+        let (tries, again) = (file("tries"), file("again"));
+        let mut comes_back = power::Held::start(vec![shell(format!(
+            "echo >> '{0}'; case $(wc -l < '{0}') in 1) {1} ;; 2) exit 1 ;; *) cat ;; esac",
+            tries.display(),
+            holds_until(&again)
+        ))])
+        .unwrap();
+        assert!(!comes_back.lost());
+        std::fs::write(&again, "").unwrap();
+        assert!(
+            look_until(&mut comes_back, &|| count(&tries) >= 3),
+            "one held once is tried again after a refusal"
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn gnome_s_session_holds_the_inhibitor_while_it_is_held() {
+        fn inhibited() -> Option<bool> {
+            let out = std::process::Command::new("gdbus")
+                .args([
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.gnome.SessionManager",
+                    "--object-path",
+                    "/org/gnome/SessionManager",
+                    "--method",
+                    "org.gnome.SessionManager.IsInhibited",
+                    "4",
+                ])
+                .output()
+                .ok()
+                .filter(|out| out.status.success())?;
+            Some(String::from_utf8_lossy(&out.stdout).contains("true"))
+        }
+        if inhibited() != Some(false) {
+            eprintln!("no GNOME session runs here, or something else inhibits it");
+            return;
+        }
+        let held = Assertion::take("adroit test").expect("taken");
+        let shown = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            inhibited() == Some(true)
+        });
+        assert!(shown);
+        drop(held);
+        assert_eq!(inhibited(), Some(false));
     }
 
     #[test]
@@ -200,6 +581,22 @@ mod tests {
         keeper.keep(true);
         assert!(keeper.held.is_none());
         assert_eq!(TRIED.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn one_the_system_let_go_of_is_taken_again_while_still_wanted() {
+        static TAKEN: AtomicUsize = AtomicUsize::new(0);
+        fn numbered() -> Option<usize> {
+            Some(TAKEN.fetch_add(1, Ordering::SeqCst))
+        }
+        let mut keeper = Keeper::new(numbered).watching(|held| *held == 0);
+        keeper.keep(true);
+        assert_eq!(keeper.held, Some(0));
+        keeper.keep(true);
+        assert_eq!(keeper.held, Some(1));
+        keeper.keep(true);
+        assert_eq!(keeper.held, Some(1));
+        assert_eq!(TAKEN.load(Ordering::SeqCst), 2);
     }
 }
 
