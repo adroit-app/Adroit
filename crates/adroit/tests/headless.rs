@@ -987,54 +987,129 @@ fn environments_share_services_but_keep_terminals_settings_and_recovery_apart() 
         b["resource_id"]
     );
 }
+/// A link to the work host at `root`, in the environment `id`, once it sent
+/// its snapshot, whose scratch folder is `expected_scratch` where given.
+fn environment_link(
+    root: &Path,
+    id: &str,
+    expected_scratch: Option<&str>,
+) -> std::io::BufReader<std::os::unix::net::UnixStream> {
+    use adroit_protocol::{Event, Request, SPOKEN, decode, encode};
+    use std::io::{BufRead, Write};
+    use std::os::unix::net::UnixStream;
+    let mut stream = UnixStream::connect(root.join("work.sock")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut hello = String::new();
+    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+    reader.read_line(&mut hello).unwrap();
+    writeln!(
+        stream,
+        "{}",
+        serde_json::json!({"op":"environment", "id":id})
+    )
+    .unwrap();
+    let mut selected = String::new();
+    reader.read_line(&mut selected).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&selected).unwrap()["environment"],
+        id
+    );
+    stream
+        .write_all(
+            encode(&Request::Hello {
+                versions: SPOKEN.to_vec(),
+            })
+            .as_bytes(),
+        )
+        .unwrap();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if let Event::Snapshot(snapshot) = decode::<Event>(&line).unwrap() {
+            if let Some(expected) = expected_scratch {
+                assert_eq!(
+                    snapshot.config.configured.unwrap().scratch,
+                    Path::new(expected)
+                );
+            }
+            return reader;
+        }
+    }
+}
+
+#[test]
+fn a_window_in_an_environment_of_this_machine_restarts_the_sessions_daemon() {
+    use adroit_protocol::{Answer, Ask, Event, Request, decode, encode};
+    use std::io::{BufRead, Write};
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    let started = isolated(root)
+        .env("ADROIT_ENVIRONMENT", "personal")
+        .args([
+            "terminal",
+            "start",
+            "--program",
+            "command",
+            "--name",
+            "held",
+            "--dir",
+            root.to_str().unwrap(),
+            "--json",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read answer",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let daemon_pid = || adroit_term::Daemon::new(root.join("term.sock")).pid();
+    let held = daemon_pid();
+    assert!(held.is_some());
+    let mut link = environment_link(root, "personal", None);
+    link.get_mut()
+        .write_all(
+            encode(&Request::Ask {
+                asked: 7,
+                ask: Box::new(Ask::RestartTerminalHost),
+            })
+            .as_bytes(),
+        )
+        .unwrap();
+    link.get_mut()
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    let answer = loop {
+        let mut line = String::new();
+        link.read_line(&mut line).unwrap();
+        assert!(!line.is_empty());
+        if let Event::Answer { asked: 7, answer } = decode::<Event>(&line).unwrap() {
+            break answer;
+        }
+    };
+    assert!(matches!(answer, Answer::TerminalHost { .. }), "{answer:?}");
+    assert_ne!(daemon_pid(), held);
+    let listed = isolated(root)
+        .env("ADROIT_ENVIRONMENT", "personal")
+        .args(["terminal", "list", "--json"])
+        .output()
+        .unwrap();
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 0, "{listed}");
+}
+
 #[test]
 fn profile_agents_and_work_settings_are_scoped_and_stale_saves_are_refused() {
-    use adroit_protocol::{Answer, Ask, Event, FileText, Request, SPOKEN, decode, encode};
+    use adroit_protocol::{Answer, Ask, Event, FileText, Request, decode, encode};
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
-    fn connect(root: &Path, id: &str, expected_scratch: Option<&str>) -> BufReader<UnixStream> {
-        let mut stream = UnixStream::connect(root.join("work.sock")).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
-        let mut hello = String::new();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        reader.read_line(&mut hello).unwrap();
-        writeln!(
-            stream,
-            "{}",
-            serde_json::json!({"op":"environment", "id":id})
-        )
-        .unwrap();
-        let mut selected = String::new();
-        reader.read_line(&mut selected).unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&selected).unwrap()["environment"],
-            id
-        );
-        stream
-            .write_all(
-                encode(&Request::Hello {
-                    versions: SPOKEN.to_vec(),
-                })
-                .as_bytes(),
-            )
-            .unwrap();
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            if let Event::Snapshot(snapshot) = decode::<Event>(&line).unwrap() {
-                if let Some(expected) = expected_scratch {
-                    assert_eq!(
-                        snapshot.config.configured.unwrap().scratch,
-                        Path::new(expected)
-                    );
-                }
-                return reader;
-            }
-        }
-    }
     fn save(reader: &mut BufReader<UnixStream>, text: String, expected: FileText) -> Answer {
         reader
             .get_mut()
@@ -1057,8 +1132,8 @@ fn profile_agents_and_work_settings_are_scoped_and_stale_saves_are_refused() {
     }
     let hosts = Hosts::new();
     hosts.run(&["terminal", "list", "--json"]);
-    let mut personal = connect(hosts.0.path(), "personal", None);
-    let mut work = connect(hosts.0.path(), "work", None);
+    let mut personal = environment_link(hosts.0.path(), "personal", None);
+    let mut work = environment_link(hosts.0.path(), "work", None);
     let text = "scratch_dir = '/personal-work'\n[[profiles]]\nid = 'personal-agent'\nagent = 'codex'\n[profiles.launch]\ncommand = ['/personal-cli']\n".to_string();
     assert!(matches!(
         save(&mut personal, text.clone(), FileText::Missing),
@@ -1097,8 +1172,8 @@ fn profile_agents_and_work_settings_are_scoped_and_stale_saves_are_refused() {
             .status
             .success()
     );
-    let _personal = connect(hosts.0.path(), "personal", Some("/personal-work"));
-    let _work = connect(hosts.0.path(), "work", Some("/work-folder"));
+    let _personal = environment_link(hosts.0.path(), "personal", Some("/personal-work"));
+    let _work = environment_link(hosts.0.path(), "work", Some("/work-folder"));
 }
 
 struct Gatewayed {

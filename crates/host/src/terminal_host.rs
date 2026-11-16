@@ -64,7 +64,9 @@ pub(crate) async fn start(judged: &watch::Sender<Judged>) {
 pub(crate) async fn restart(
     judged: &watch::Sender<Judged>,
 ) -> Result<TerminalHostStanding, String> {
-    if crate::remote::active() || crate::environment::current().is_some() {
+    // An environment of this machine shares its one terminal host, which its
+    // window may restart; only a paired client may not.
+    if crate::remote::active() {
         return Err(
             "manage the remote terminal service on its host; it is not restarted by a window"
                 .into(),
