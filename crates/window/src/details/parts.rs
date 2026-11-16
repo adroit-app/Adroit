@@ -148,21 +148,12 @@ pub(super) fn PartView(
                 !adroit_core::details::is_folded(&details, adroit_core::details::Group::Timeline)
                     && shown_session(&details, hosts.work(&app.shown_environment())).is_some()
             };
-            // Unfolded where it is placed folded, a line over it folds it again.
-            let heading = rows
-                .first()
-                .filter(|e| matches!(e, Entry::Heading { .. }))
-                .cloned();
             let rows: Vec<(usize, Entry)> = rows
                 .into_iter()
                 .enumerate()
                 .map(|(i, e)| (base + i, e))
-                .filter(|(_, e)| !matches!(e, Entry::Heading { .. }))
                 .collect();
             rsx! {
-                if let Some(heading) = heading {
-                    GroupedRows { rows: vec![heading], said: part.said.clone(), base, paths_from: PathBuf::new(), now_ms, on_kill, on_menu }
-                }
                 if !rows.is_empty() {
                     TimelineRows { rows, selected, now_ms }
                 } else if has_session {

@@ -49,7 +49,8 @@ window or such a row is described.
   status, how much of it is completed, the task in progress in it, or else
   the next one to do, how many of its leaf tasks are completed and how long
   it has taken; opening that unfolds it where it is, with that task
-  selected.
+  selected, and the card of the tree at work then folds it back, opened
+  or gone back from, in place of folding that tree's tasks.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
 - **processes** — its live work processes alone.

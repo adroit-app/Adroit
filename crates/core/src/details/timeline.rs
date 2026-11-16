@@ -80,6 +80,10 @@ pub struct TreeCard {
     pub ended_ms: Option<u64>,
     /// Whether its tasks are left out.
     pub folded: bool,
+    /// Whether opening it folds the whole timeline back into its summary,
+    /// as the card of the tree at work does where the timeline is placed
+    /// folded and was unfolded.
+    pub folds_timeline: bool,
 }
 
 impl TreeCard {
@@ -95,6 +99,7 @@ impl TreeCard {
             started_ms: tree.started_ms,
             ended_ms: tree.ended_ms,
             folded,
+            folds_timeline: false,
         }
     }
 

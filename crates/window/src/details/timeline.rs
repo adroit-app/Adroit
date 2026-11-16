@@ -104,7 +104,13 @@ fn TreeRow(card: TreeCard, at: usize, selected: bool, now_ms: u64) -> Element {
         ListRow {
             kind: "timeline-tree",
             selected,
-            title: if card.folded { "Show its tasks" } else { "Hide its tasks" },
+            title: if card.folds_timeline {
+                "Fold the timeline"
+            } else if card.folded {
+                "Show its tasks"
+            } else {
+                "Hide its tasks"
+            },
             onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
             div { class: "timeline-tree-head",
                 crate::icons::IconView {
