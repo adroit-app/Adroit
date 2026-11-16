@@ -9,6 +9,7 @@ use adroit_model::{EnvironmentId, Session, TerminalProgram, TerminalSession, Tre
 use super::*;
 use crate::content::Tab;
 use crate::testing::here;
+use crate::tree::Place;
 
 #[test]
 fn the_same_path_in_two_environments_is_two_rows_folded_apart() {

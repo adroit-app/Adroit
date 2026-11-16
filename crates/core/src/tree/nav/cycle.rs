@@ -10,8 +10,6 @@ use crate::content::Tab;
 use crate::cursor;
 use crate::tree::Place;
 
-pub use crate::cursor::wrap;
-
 /// The item `delta` steps from `current`, clamped to the ends. With nothing
 /// selected the first item is chosen.
 pub fn step(items: &[Item], current: Option<&Item>, delta: isize) -> Option<Item> {

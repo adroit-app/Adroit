@@ -305,7 +305,7 @@ pub(crate) fn show_tab(details: &mut Details, tab: usize) -> Vec<Effect> {
 /// The tab `delta` along from the one shown, from its top.
 pub(crate) fn step_tab(details: &mut Details, delta: isize) -> Vec<Effect> {
     let tabs = details.shown.surface().tabs.len().max(1);
-    let to = crate::tree::nav::wrap(details.drill.tab(), delta, tabs);
+    let to = crate::cursor::wrap(details.drill.tab(), delta, tabs);
     details.drill = Drill::new(to);
     Vec::new()
 }
@@ -1309,7 +1309,7 @@ pub(crate) mod tests {
     use crate::msg::Msg;
     use crate::scenario::Scenario;
     use crate::testing::{ListedBuilder, SnapshotBuilder, listed, patch, snapshot};
-    use crate::tree::nav::Place;
+    use crate::tree::Place;
 
     /// The sessions the host lists, every one these tests show, outside git
     /// in `/w`.
@@ -1621,9 +1621,13 @@ pub(crate) mod tests {
         ));
         assert!(run.state().details.shown.open);
         assert_eq!(run.state().details.shown.settings.links_shown, 3);
-        let hidden = run.send(Msg::PanelToggle(crate::layout::Side::Details));
+        let hidden = run.send(Msg::PanelToggle(
+            crate::chrome::panels::layout::Side::Details,
+        ));
         assert!(!hidden.state().details.shown.open);
-        let again = hidden.send(Msg::PanelToggle(crate::layout::Side::Details));
+        let again = hidden.send(Msg::PanelToggle(
+            crate::chrome::panels::layout::Side::Details,
+        ));
         assert!(again.state().details.shown.open);
     }
 

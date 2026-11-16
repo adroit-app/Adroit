@@ -15,7 +15,6 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
-pub use super::Place;
 pub use cycle::*;
 pub use keep::*;
 pub use opens::*;

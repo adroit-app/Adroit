@@ -38,6 +38,3 @@ pub mod tree;
 pub mod update;
 pub mod viewers;
 pub mod zoom;
-
-/// The side panels' widths, still reached here by the details panel.
-pub use chrome::panels::layout;
