@@ -117,6 +117,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "adroit-launcher"
+version = "0.0.0"
+dependencies = [
+ "adroit-sys",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "adroit-model"
 version = "0.0.0"
 dependencies = [

@@ -128,7 +128,9 @@ cargo run --release -p adroit
 
 Shells there run PowerShell. One `adroit` opens one window, and Claude Code's
 external editor is not handed to it. Started from Explorer or a shortcut
-rather than a terminal, it opens no console window beside its own.
+rather than a terminal, it opens no console window beside its own, though
+Windows shows one for a moment before it does. Start `adroitw.exe`, built
+beside `adroit.exe`, from a shortcut instead, and none shows at all.
 
 On Linux, the Nix development shell has what the window builds with. Outside
 it, install the development packages of WebKitGTK 4.1, GTK 3, libxdo and

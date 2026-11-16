@@ -93,9 +93,11 @@
               // {
                 cargoArtifacts = craneLib.buildDepsOnly build;
                 # Adroit's licence and those of the crates built into it go
-                # with it.
+                # with it. adroitw stands in for adroit only where Windows
+                # would give it a console, which no Nix system does.
                 postInstall = ''
                   licenses="$out/share/licenses/adroit"
+                  rm -f "$out/bin/adroitw"
                   install -Dm644 LICENSE "$licenses/LICENSE"
                   install -Dm644 THIRD-PARTY-LICENSES.txt "$licenses/THIRD-PARTY-LICENSES.txt"
                 '';

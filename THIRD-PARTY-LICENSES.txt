@@ -9801,6 +9801,7 @@ Used by:
   - adroit-agents 0.0.0 (https://github.com/adroit-app/Adroit)
   - adroit-connect 0.0.0 (https://github.com/adroit-app/Adroit)
   - adroit-host 0.0.0 (https://github.com/adroit-app/Adroit)
+  - adroit-launcher 0.0.0 (https://github.com/adroit-app/Adroit)
   - adroit-model 0.0.0 (https://github.com/adroit-app/Adroit)
   - adroit-net 0.0.0 (https://github.com/adroit-app/Adroit)
   - adroit-nvim 0.0.0 (https://github.com/adroit-app/Adroit)

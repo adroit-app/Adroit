@@ -36,6 +36,7 @@ Run `just ci` before reporting a change as done. CI runs the same recipe, and
 | Path | What lives there |
 | --- | --- |
 | `crates/adroit/` | the `adroit` application binary: which of the window, the hosts and the commands to run |
+| `crates/launcher/` | `adroitw`, which opens the window on Windows with no console |
 | `crates/window/` | the window: its Dioxus UI, menu bar and Settings window, which reaches the work only through the work host's socket |
 | `crates/window/assets/` | the windows' stylesheets and page scripts, taken in with `include_str!` |
 | `crates/agents/` | each agent's adapter: how Claude Code, Codex, Pi and OpenCode are started, asked and read back |
@@ -94,6 +95,7 @@ Scoped Commits:
 | Scope | Covers |
 | --- | --- |
 | `adroit` | `crates/adroit/` |
+| `launcher` | `crates/launcher/` |
 | `window` | `crates/window/` |
 | `agents` | `crates/agents/` |
 | `core` | `crates/core/` |
