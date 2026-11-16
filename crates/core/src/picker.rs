@@ -580,15 +580,20 @@ fn clone(state: &mut ViewState, offer: CloneOffer, then: Then) -> Vec<Effect> {
     }]
 }
 
-/// The repository cloned into `dir` of `environment` taken for `then`, as
-/// its row was chosen, whatever the window shows by now.
+/// The repository cloned into `dir` of `environment` kept in the tree, then
+/// taken for `then`, as its row was chosen, whatever the window shows by now.
 pub(crate) fn cloned(
     state: &mut ViewState,
     environment: EnvironmentId,
     dir: PathBuf,
     then: Then,
 ) -> Vec<Effect> {
-    take(state, then, environment, dir)
+    if then == Then::Keep {
+        return take(state, then, environment, dir);
+    }
+    let mut effects = take(state, Then::Keep, environment.clone(), dir.clone());
+    effects.extend(take(state, then, environment, dir));
+    effects
 }
 
 /// `then` done in `dir` of `environment`, the picker closed.

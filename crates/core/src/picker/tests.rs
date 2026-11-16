@@ -928,7 +928,7 @@ fn a_repository_typed_in_full_is_offered_while_its_owners_are_not_listed() {
 }
 
 #[test]
-fn a_repository_once_cloned_is_taken_as_its_row_was_chosen() {
+fn a_repository_once_cloned_is_kept_in_the_tree_and_taken_as_its_row_was_chosen() {
     let cloned = |then| Msg::Cloned {
         environment: here(),
         dir: "/g/github.com/o/r".into(),
@@ -940,13 +940,28 @@ fn a_repository_once_cloned_is_taken_as_its_row_was_chosen() {
             home: HOME.into(),
         })
         .send(cloned(Then::Start));
+    assert_eq!(kept(&run), Some("/g/github.com/o/r".into()));
     assert!(matches!(
         &run.state().content.showing().tab,
         Some(Tab::Draft { worktree, .. }) if worktree == &PathBuf::from("/g/github.com/o/r")
     ));
     let run = run.send(cloned(Then::Keep));
-    assert_eq!(kept(&run), Some("/g/github.com/o/r".into()));
+    let keeps = run
+        .last_effects()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Effect::Host {
+                    request: Request::KeepWorkspace { .. },
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(keeps, 1, "kept once");
     let run = run.send(cloned(Then::Shell));
+    assert_eq!(kept(&run), Some("/g/github.com/o/r".into()));
     assert_eq!(
         started(&run),
         Some(("/g/github.com/o/r".into(), TerminalProgram::Shell))

@@ -244,7 +244,8 @@ over a directory that matches, in each environment where ghq is offered as
 above and does not keep that repository already. Choosing it runs `ghq get`
 on that work machine in a terminal shown with the keys, so whatever the clone asks, a
 passphrase or a host to trust, is answered there. Once the clone succeeds,
-the repository's directory is taken as if it had been chosen from the list,
+the repository's workspace is added to the tree, and its directory is taken
+as if it had been chosen from the list,
 by `Enter`, `Ctrl+s`, `Ctrl+e` or `Ctrl+t` as the clone row was; once it
 fails, the terminal stays with what it wrote.
 

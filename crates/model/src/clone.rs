@@ -112,7 +112,7 @@ impl GitHubTyped {
     /// `owner`'s repository `name`, to clone.
     pub fn target(owner: &str, name: &str) -> CloneTarget {
         CloneTarget {
-            typed: format!("{owner}/{name}"),
+            typed: format!("github.com/{owner}/{name}"),
             path: format!("github.com/{owner}/{name}"),
         }
     }
@@ -255,7 +255,11 @@ mod tests {
     fn an_owners_repository_is_what_ghq_clones_and_an_owner_what_looks_through_them() {
         let target = GitHubTyped::target("o", "r");
         assert_eq!(target.path, "github.com/o/r");
-        assert_eq!(target.typed, "o/r");
+        assert_eq!(
+            CloneTarget::parse(&target.typed),
+            Some(target),
+            "the host parses what it is asked to clone again"
+        );
         assert_eq!(GitHubTyped::owner_query("o"), "github:o/");
     }
 
