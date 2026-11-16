@@ -27,14 +27,14 @@ use crate::{menu_bar, settings_window, themes};
 /// Open the window.
 pub fn launch(build: crate::Build) {
     crate::build::settle(build);
-    use dioxus::desktop::{Config as Desktop, LogicalSize, WindowBuilder};
+    use dioxus::desktop::{Config as Desktop, WindowBuilder};
     let cfg = Desktop::new()
         .with_window(
             WindowBuilder::new()
                 .with_title(adroit_core::chrome::title(
                     crate::build::described().filter(|_| cfg!(debug_assertions)),
                 ))
-                .with_inner_size(LogicalSize::new(1440.0, 900.0)),
+                .with_inner_size(super::fit::OPENING),
         )
         .with_menu(menu_bar::build())
         .with_background_color((15, 17, 20, 255))
@@ -45,6 +45,7 @@ pub fn launch(build: crate::Build) {
 #[component]
 fn App() -> Element {
     use_bundled_font();
+    super::fit::use_opening_fit();
     crate::viewers::use_arto_assets();
     let app = use_app();
     let local = use_local();

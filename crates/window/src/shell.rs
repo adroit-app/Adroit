@@ -5,6 +5,7 @@
 mod app;
 mod body;
 mod effects;
+mod fit;
 mod footer;
 pub(crate) mod header;
 mod lightbox;
