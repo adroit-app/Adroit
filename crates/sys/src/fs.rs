@@ -183,8 +183,11 @@ pub fn replace(
     mode: u32,
 ) -> std::io::Result<()> {
     let path = path.as_ref();
-    let staged = staged(path, bytes.as_ref(), mode)?;
-    staged.persist(path).map_err(|error| error.error)?;
+    let staged = staged(path, bytes.as_ref(), mode)?.into_temp_path();
+    // Not `persist`: on Windows it moves with MoveFileEx, refused while a
+    // reader holds the old file open, where `rename` replaces it anyway.
+    std::fs::rename(&staged, path)?;
+    let _ = staged.keep();
     sync_dir(parent(path))
 }
 
@@ -361,6 +364,22 @@ mod tests {
             std::fs::metadata(dir.path().join("key")).unwrap().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn a_file_held_open_by_a_reader_is_replaced_and_the_reader_keeps_the_old_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("extension.ts");
+        std::fs::write(&path, "old").unwrap();
+        let mut reading = std::fs::File::open(&path).unwrap();
+
+        replace(&path, b"new", 0o600).unwrap();
+
+        let mut read = String::new();
+        std::io::Read::read_to_string(&mut reading, &mut read).unwrap();
+        assert_eq!(read, "old");
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert_eq!(listed(dir.path()), ["extension.ts"]);
     }
 
     #[test]
