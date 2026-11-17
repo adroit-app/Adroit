@@ -55,7 +55,7 @@ See [the concept](docs/concept.md) for who Adroit is for and the ideas behind it
 
 ## Build and install
 
-Adroit needs git and at least one supported agent on `PATH`. The macOS app
+Adroit needs git and at least one supported agent on `PATH`. A release
 carries the Neovim its prompt and console reader run; built and run from the
 source, they run `nvim` on `PATH`, or the program `ADROIT_NVIM` names. Opening a
 file in Neovim runs the `nvim` on `PATH` either way.
@@ -81,6 +81,20 @@ image the cask installs. Adroit.app is signed by a self-signed certificate,
 not by an Apple Developer ID, so a downloaded copy needs its quarantine removed
 (`xattr -dr com.apple.quarantine /Applications/Adroit.app`) or opening allowed
 in System Settings → Privacy & Security; the cask does this itself.
+
+Each release also carries a zip for Windows on x86_64 and a tarball for Linux
+on x86_64 and on aarch64. Unpack either anywhere and run `adroit` from the
+folder; it carries the Neovim the prompt and console reader run in `neovim/`
+beside it, and the licences in `licenses/`.
+
+On Windows, start `adroitw.exe` from a shortcut to open the window with no
+console showing. The zip is not signed, so SmartScreen asks before it runs a
+downloaded copy. The window draws with the Microsoft Edge WebView2 Runtime,
+which Windows 11 includes.
+
+On Linux, the tarball runs on a glibc as new as Ubuntu 24.04's or newer, and
+links the system's WebKitGTK 4.1, GTK 3 and libxdo (on Debian and Ubuntu,
+install `libwebkit2gtk-4.1-0` and `libxdo3`).
 
 With Nix (prebuilt in the `adroit` Cachix cache):
 
@@ -114,10 +128,11 @@ MACOS_SIGNING_P12=… MACOS_SIGNING_PASSWORD=… just macos-import-identity
 ```
 
 A release is published as a GitHub Release with a tag such as `v0.1.0`; the
-disk image, the Nix build and the Homebrew cask follow
-([ADR](docs/adr/20261114-release-adroit-from-a-github-release.md)). Build the
-disk image the way the release does, outside the Nix shell, with
-`just bundle`.
+disk image, the Windows zip, the Linux tarballs, the Nix build and the
+Homebrew cask follow
+([ADR](docs/adr/20261117-release-adroit-from-a-github-release.md)). Build the
+one for the system you are on the way the release does, outside the Nix
+shell (from Git Bash on Windows), with `just bundle`.
 
 On Windows, build with Rust, the MSVC build tools and LLVM installed, and
 Neovim on `PATH`:
