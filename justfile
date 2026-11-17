@@ -106,6 +106,22 @@ bundle version="0.0.0-ci":
     assets/macos/bundle.sh
     assets/macos/dmg.sh {{version}} dist
 
+# Build Adroit for release and put it in the tarball a GitHub Release
+# carries, in dist/. Run outside the Nix shell, as the release does: a build
+# made inside it asks for a loader in /nix/store.
+[linux]
+bundle version="0.0.0-ci":
+    cargo build --release --locked -p adroit
+    assets/release/package.sh {{version}} dist
+
+# Build Adroit and adroitw for release and put them in the zip a GitHub
+# Release carries, in dist/, from Git Bash. The C runtime is linked in, so
+# they run where the Visual C++ runtime was never installed.
+[windows]
+bundle version="0.0.0-ci":
+    RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked -p adroit -p adroit-launcher
+    assets/release/package.sh {{version}} dist
+
 # Make a new identity to sign the macOS app with, "Adroit Release", into a
 # new folder. The one releases are signed with is kept in 1Password; a new
 # one makes every user grant the app its permissions again.
