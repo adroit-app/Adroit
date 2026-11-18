@@ -721,7 +721,10 @@ fn runs_of(runs: &Path, at_least: usize) -> Vec<String> {
     for _ in 0..300 {
         let lines: Vec<String> = std::fs::read_to_string(runs)
             .unwrap_or_default()
-            .lines()
+            // A run's line is written in pieces; the last one may not be
+            // whole yet.
+            .split_inclusive('\n')
+            .filter_map(|line| line.strip_suffix('\n'))
             // Adroit also runs the agent to ask what it offers; a session
             // is started with Adroit's plugin.
             .filter(|line| line.contains("--plugin-dir"))
