@@ -63,6 +63,7 @@ icons! {
     ChevronLeft => "chevron-left",
     ChevronRight => "chevron-right",
     Circle => "circle",
+    CircleDot => "circle-dot",
     Code => "code",
     ColumnInsertRight => "column-insert-right",
     ColumnRemove => "column-remove",

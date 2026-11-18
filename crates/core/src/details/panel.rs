@@ -14,8 +14,8 @@ use adroit_protocol::{
 };
 
 use super::{
-    Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
-    PullRow, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TaskLine,
+    Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, ItemRow, Listing,
+    Placed, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TaskLine,
     TreeCard, View, about, context_gauge, file_link, gauges, grouped, newest_first, related,
     running, session_tree_at, task_detail, timeline_entries, tree_at,
 };
@@ -186,6 +186,7 @@ fn group_of(component: Component) -> Option<Group> {
         Component::Images => Group::Images,
         Component::Links => Group::Links,
         Component::Pulls => Group::Pulls,
+        Component::Issues => Group::Issues,
         Component::Files => Group::Files,
         Component::Changes => Group::Changed,
         Component::Log => Group::Log,
@@ -686,7 +687,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         ),
         Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
-        Entry::Pull(p) => use_pull(p, how, &details.shown.environment),
+        Entry::Item(p) => use_item(p, how, &details.shown.environment),
         Entry::SessionTree(row) => use_related(
             &Related {
                 name: row.name.clone(),
@@ -735,13 +736,13 @@ fn use_link(link: &Link, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
 
 /// Show `pull`, of `environment`, in Adroit while the repository shown lists
 /// it open, or else on GitHub, or copy its page.
-fn use_pull(pull: &PullRow, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
+fn use_item(pull: &ItemRow, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
     match (how, &pull.root) {
         (Use::Open(how), Some(root)) => vec![Effect::Show {
             thing: Tab::GitHub {
                 environment: environment.clone(),
                 repository: root.clone(),
-                listing: adroit_model::github::Listing::Pulls,
+                listing: pull.listing,
                 number: pull.number,
             },
             how,
@@ -1002,14 +1003,18 @@ fn rows_of(
                 first(d.links_shown),
             )
         }
-        Component::Pulls => {
+        Component::Pulls | Component::Issues => {
+            let (listing, group) = match c {
+                Component::Pulls => (adroit_model::github::Listing::Pulls, Group::Pulls),
+                _ => (adroit_model::github::Listing::Issues, Group::Issues),
+            };
             let repository = shown_repository(details, work);
             let shown = repository.as_ref().map(|(root, r)| (root.as_path(), *r));
-            let rows = super::pull_rows(&links.urls, shown)
+            let rows = super::item_rows(&links.urls, listing, shown)
                 .into_iter()
-                .map(Entry::Pull)
+                .map(Entry::Item)
                 .collect();
-            grouped(Group::Pulls, rows, &folded, opened, first(d.links_shown))
+            grouped(group, rows, &folded, opened, first(d.links_shown))
         }
         Component::Prompts => {
             let rows = links
@@ -1318,16 +1323,36 @@ pub fn timelines_wanted(details: &Details, work: Option<&WorkSnapshot>) -> BTree
         .collect()
 }
 
-/// The root of the repository whose pull requests the host keeps read for
-/// **github** and **pulls**, while one is in sight of what a window shows.
-pub fn pulls_wanted(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
-    let shown = details.shown.open
-        && details.shown.subject() == Subject::Session
-        && in_sight(details)
-            .iter()
-            .any(|(p, _)| p.component.is_github() || p.component == Component::Pulls);
-    details.shown.worktree.as_ref().filter(|_| shown)?;
-    shown_root(details, work)
+/// The listings of the repository shown the host keeps read, at its root:
+/// its pull requests for **github** and **pulls**, its issues for
+/// **issues**, while one is in sight of what a window shows.
+pub fn listings_wanted(
+    details: &Details,
+    work: Option<&WorkSnapshot>,
+) -> Vec<(PathBuf, adroit_model::github::Listing)> {
+    use adroit_model::github::Listing;
+    if !details.shown.open
+        || details.shown.subject() != Subject::Session
+        || details.shown.worktree.is_none()
+    {
+        return Vec::new();
+    }
+    let Some(root) = shown_root(details, work) else {
+        return Vec::new();
+    };
+    let sight = in_sight(details);
+    let has = |f: &dyn Fn(Component) -> bool| sight.iter().any(|(p, _)| f(p.component));
+    [
+        (
+            has(&|c| c.is_github() || c == Component::Pulls),
+            Listing::Pulls,
+        ),
+        (has(&|c| c == Component::Issues), Listing::Issues),
+    ]
+    .into_iter()
+    .filter(|(wanted, _)| *wanted)
+    .map(|(_, listing)| (root.clone(), listing))
+    .collect()
 }
 
 /// The root of the git repository of the worktree shown.
@@ -1402,6 +1427,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
         Component::Images,
         Component::Links,
         Component::Pulls,
+        Component::Issues,
         Component::Files,
     ]
     .into_iter()
@@ -3236,8 +3262,79 @@ pub(crate) mod tests {
             "the pull requests brought up are told of as they are listed"
         );
         assert_eq!(
+            reads("[[panel.session.tabs]]\ntitle = \"I\"\ncomponents = [\"issues\"]\n"),
+            Some(std::collections::BTreeSet::from([(
+                PathBuf::from("/r"),
+                adroit_model::github::Listing::Issues,
+            )])),
+            "the issues brought up are told of as the issues are listed"
+        );
+        assert_eq!(
             reads("[[panel.session.tabs]]\ntitle = \"F\"\ncomponents = [\"files\"]\n"),
             Some(Default::default())
+        );
+    }
+
+    /// The session `a` shown in `o/r` at `/r`, which GitHub says has issue
+    /// `#3` open, its conversation having brought up `#3`, `#4` of the same
+    /// repository, pull request `#2` and issue `#8` of another.
+    fn brought_up_issues() -> Scenario {
+        let mut repository = adroit_model::github::Repository::new("o/r");
+        repository.issues = Some(Ok(vec![adroit_model::github::Item {
+            number: 3,
+            title: "Login times out".into(),
+            url: "https://github.com/o/r/issues/3".into(),
+            ..Default::default()
+        }]));
+        let urls = [
+            "https://github.com/o/r/issues/3#issuecomment-9",
+            "https://github.com/o/r/pull/2",
+            "https://github.com/o/r/issues/4",
+            "https://github.com/x/y/issues/8",
+        ];
+        let links = Links {
+            urls: urls.iter().map(|u| link(LinkKind::Url, u)).collect(),
+            ..Default::default()
+        };
+        Scenario::new()
+            .event(crate::config::testing::configured(
+                "[[panel.session.tabs]]\ntitle = \"I\"\ncomponents = [\"issues\"]\n",
+            ))
+            .event(
+                snapshot()
+                    .listed(listed().session(session("a").cwd("/r")))
+                    .details(read("a", with_links(links))),
+            )
+            .event(patch(2).change(adroit_protocol::TreeChange::GitHub {
+                repository: "/r".into(),
+                github: Some(Box::new(repository)),
+            }))
+            .send(shown(Some("a"), Some("/r")))
+    }
+
+    #[test]
+    fn the_issues_brought_up_are_listed_once_each_as_github_last_told_of_them() {
+        let run = brought_up_issues();
+        assert_eq!(
+            pull_rows(&run),
+            [
+                "o/r#3 Open Login times out",
+                "o/r#4 Closed -",
+                "x/y#8 Unknown -",
+            ]
+        );
+        let opened = run.send(Msg::DetailsKey(Key::Open));
+        assert_eq!(
+            local(&opened),
+            [Effect::Show {
+                thing: Tab::GitHub {
+                    environment: here(),
+                    repository: "/r".into(),
+                    listing: adroit_model::github::Listing::Issues,
+                    number: 3,
+                },
+                how: Opening::Existing,
+            }]
         );
     }
     /// The session `a` shown in the repository `o/r` at `/r`, which GitHub
@@ -3299,7 +3396,7 @@ pub(crate) mod tests {
         entries
             .iter()
             .map(|e| match e {
-                Entry::Pull(p) => format!(
+                Entry::Item(p) => format!(
                     "{}#{} {:?} {}",
                     p.repo,
                     p.number,
