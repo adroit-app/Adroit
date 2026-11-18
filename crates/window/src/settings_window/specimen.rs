@@ -43,6 +43,7 @@ pub(super) fn Specimen(placed: Placed) -> Element {
         Component::Section => rsx! {},
         Component::Change => change(),
         Component::Timeline => timeline(),
+        Component::Timelines => timelines(),
         Component::Running => running(),
         Component::Processes => processes(),
         Component::About => about(),
@@ -268,6 +269,7 @@ fn folded_said(c: Component) -> String {
         Component::Files => "3 files · login.rs, retry.rs, README.md".into(),
         Component::Prompts => "2 prompts · latest: Add a test for the second timeout".into(),
         Component::Processes => "2 processes · cargo, node".into(),
+        Component::Timelines => "2 sessions · fix-login-timeout, review-login-retry".into(),
         Component::Changes => "3 files changed".into(),
         Component::Log => "24 changes · latest: fix: retry the login on timeout".into(),
         c => c.title().into(),
@@ -334,6 +336,48 @@ fn stack_bar(kind: &str, parts: &[(&str, f32)]) -> Element {
         div { class: "timeline-bar {kind}",
             for (tone , width) in parts.iter().copied() {
                 div { key: "{tone}", class: "timeline-bar-part {tone}", style: "width:{width}%" }
+            }
+        }
+    }
+}
+
+fn timelines() -> Element {
+    let sessions = [
+        (
+            "run",
+            "fix-login-timeout",
+            "In progress",
+            "Retry the login on timeout",
+            "62.50%",
+            [("done", 62.5), ("run", 25.0), ("idle", 12.5)],
+            "5/8 leaf tasks · 12m",
+        ),
+        (
+            "done",
+            "review-login-retry",
+            "Completed",
+            "Review the retry",
+            "100.00%",
+            [("done", 100.0), ("run", 0.0), ("idle", 0.0)],
+            "3/3 leaf tasks · 4m",
+        ),
+    ];
+    rsx! {
+        div { class: "details-block details-links timeline",
+            {heading("2 sessions · fix-login-timeout, review-login-retry")}
+            for (tone , name , status , tree , share , bar , tag) in sessions {
+                ListRow { key: "{name}", kind: "timeline-tree session-timeline", title: "Show {name}",
+                    div { class: "timeline-tree-head",
+                        span { class: "state-glyph {tone}", IconView { icon: Icon::Terminal2, size: 12 } }
+                        span { class: "list-row-name timeline-tree-title", "{name}" }
+                        span { class: "state-badge {tone}", "{status}" }
+                    }
+                    div { class: "timeline-tree-bar",
+                        {stack_bar("", &bar)}
+                        span { class: "timeline-share", "{share}" }
+                    }
+                    span { class: "details-link-tag timeline-tree-tag", "{tree} · {tag}" }
+                }
             }
         }
     }

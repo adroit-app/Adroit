@@ -132,6 +132,7 @@ icons! {
     SwitchHorizontal => "switch-horizontal",
     Terminal => "terminal",
     Terminal2 => "terminal-2",
+    Timeline => "timeline",
     TimelineEvent => "timeline-event",
     TransferIn => "transfer-in",
     UsersGroup => "users-group",

@@ -101,6 +101,7 @@ mod tests {
                 dir: "/w".into(),
             }),
             terminals: BTreeSet::from([u128::MAX, 7]),
+            timelines: BTreeSet::from(["t".into()]),
         })));
         round_trips(Request::Relist);
         round_trips(Request::Call {

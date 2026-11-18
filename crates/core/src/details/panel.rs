@@ -2,22 +2,22 @@
 //! tabs it shows and how far into it it has gone, the groups folded or shown
 //! whole, and what the panel asks the work host to read.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use adroit_model::config::UsageSettings;
-use adroit_model::links::{Kind as LinkKind, Link, Links};
+use adroit_model::links::{Kind as LinkKind, Link, Links, Peer};
 use adroit_model::repository::{Rev, Spot};
-use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Session};
+use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Session, Tree};
 use adroit_protocol::{
     Account, AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
 };
 
 use super::{
     Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
-    Related, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about, context_gauge,
-    file_link, gauges, grouped, newest_first, related, running, task_detail, timeline_entries,
-    tree_at,
+    Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about,
+    context_gauge, file_link, gauges, grouped, newest_first, related, running, task_detail,
+    timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
@@ -172,6 +172,7 @@ pub fn shows(details: &Details, component: Component) -> bool {
 fn group_of(component: Component) -> Option<Group> {
     Some(match component {
         Component::Timeline => Group::Timeline,
+        Component::Timelines => Group::Timelines,
         Component::Running => Group::Running,
         Component::Processes => Group::Processes,
         Component::About => Group::About,
@@ -605,6 +606,15 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         ),
         Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
+        Entry::SessionTree(row) => use_related(
+            &Related {
+                name: row.name.clone(),
+                id: Some(row.session.clone()),
+                ties: Vec::new(),
+            },
+            how,
+            &details.shown.environment,
+        ),
         Entry::Changed(c) => copied(how, &c.path, format!("Copied {}", c.path)),
         Entry::Commit(c) => copied(how, &c.short, format!("Copied {}", c.short)),
         Entry::Prompt(p) => copied(how, &p.prompt.text, "Copied the prompt".into()),
@@ -814,6 +824,24 @@ fn rows_of(
                 first(usize::MAX)
             };
             timeline_entries(&timeline_of(read), &toggled_trees(details), shown)
+        }
+        Component::Timelines => {
+            let tree = work.map(|w| w.tree.tree());
+            let others = tree
+                .map(|t| in_scope(shown, t, &links.peers, placed.scope()))
+                .unwrap_or_default();
+            let row = |s: &Session| {
+                let read = work.and_then(|w| w.details.sessions.get(&s.id));
+                SessionTree::of(s, &timeline_of(read))
+            };
+            let mut rows: Vec<SessionTree> = others.into_iter().filter_map(row).collect();
+            rows.sort_by_key(|r| std::cmp::Reverse(r.card.started_ms));
+            let rows = row(shown)
+                .into_iter()
+                .chain(rows)
+                .map(Entry::SessionTree)
+                .collect();
+            grouped(Group::Timelines, rows, &folded, opened, first(usize::MAX))
         }
         Component::Running => {
             let processes = read
@@ -1120,6 +1148,53 @@ pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<Tas
     task_detail(&timeline_of(session_read(details, work)), id)
 }
 
+/// The sessions of `tree` besides `shown` that `scope` takes in: those tied
+/// to it, by the tree and by the `peers` it messaged, those of its
+/// workspace, or every one.
+fn in_scope<'a>(shown: &Session, tree: &'a Tree, peers: &[Peer], scope: Scope) -> Vec<&'a Session> {
+    let all: Vec<&Session> = tree.sessions().map(|(_, s)| s).collect();
+    let others = all.iter().copied().filter(|s| s.id != shown.id);
+    match scope {
+        Scope::Related => {
+            let tied: HashSet<String> = related(shown, &all, peers)
+                .into_iter()
+                .filter_map(|r| r.id)
+                .collect();
+            others.filter(|s| tied.contains(&s.id)).collect()
+        }
+        Scope::Workspace => match tree.find(&shown.id) {
+            Some((workspace, ..)) => others
+                .filter(|s| workspace.sessions().any(|w| w.id == s.id))
+                .collect(),
+            None => Vec::new(),
+        },
+        Scope::Environment => others.collect(),
+    }
+}
+
+/// The sessions besides the one shown whose timelines the session timelines
+/// in sight list, for the host to read.
+pub fn timelines_wanted(details: &Details, work: Option<&WorkSnapshot>) -> BTreeSet<String> {
+    let Some(shown) = shown_session(details, work)
+        .filter(|_| details.shown.open && details.shown.subject() == Subject::Session)
+    else {
+        return BTreeSet::new();
+    };
+    let Some(tree) = work.map(|w| w.tree.tree()) else {
+        return BTreeSet::new();
+    };
+    let peers = session_read(details, work)
+        .and_then(|r| r.links.as_ref())
+        .map(|l| l.peers.as_slice())
+        .unwrap_or_default();
+    in_sight(details)
+        .iter()
+        .filter(|(p, _)| p.component == Component::Timelines)
+        .flat_map(|(p, _)| in_scope(shown, tree, peers, p.scope()))
+        .map(|s| s.id.clone())
+        .collect()
+}
+
 /// The root of the repository whose pull requests the host keeps read for
 /// **github**, while it is in sight of what a window shows.
 pub fn pulls_wanted(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
@@ -1190,7 +1265,12 @@ pub(crate) fn sight(details: &Details) -> Sight {
         Component::Files,
     ]
     .into_iter()
-    .any(has);
+    .any(has)
+        // The sessions it messaged are read from its conversation.
+        || (of_window
+            && in_sight(details).iter().any(|(p, _)| {
+                p.component == Component::Timelines && p.scope() == Scope::Related
+            }));
     let mut spots = Vec::new();
     if has(Component::Change) || has(Component::Changes) {
         spots.push(Spot::Files(Rev::WorkingCopy));
@@ -2102,6 +2182,135 @@ pub(crate) mod tests {
             )))
             .send(shown(Some("a"), None));
         assert_eq!(timeline_keys(&overview), Vec::<String>::new());
+    }
+
+    /// A tree `id` begun at `at_ms`, with a task done and one to do.
+    fn begun(id: &str, at_ms: u64) -> SessionRead {
+        SessionRead {
+            links: Some(Links::default()),
+            timeline: Some(vec![adroit_model::timeline::Entry {
+                at_ms,
+                ops: serde_json::from_value(serde_json::json!([
+                    {"op": "add", "id": id, "title": id.to_uppercase()},
+                    {"op": "add", "id": format!("{id}-1"), "parent": id, "title": "One", "status": "completed"},
+                    {"op": "add", "id": format!("{id}-2"), "parent": id, "title": "Two"},
+                ]))
+                .unwrap(),
+            }]),
+            ..Default::default()
+        }
+    }
+
+    /// The session `a` shown with the session timelines placed as `placed`
+    /// alone in its tab: `a` in `/w` opened `b` there, `c` works in `/w` too
+    /// and `d` in `/x`, each with a tree begun later than the one before,
+    /// save `e`, in `/w`, whose agent recorded none.
+    fn crew(placed: &str) -> Scenario {
+        let (own, opener) = (
+            adroit_model::SessionId::new(),
+            adroit_model::SessionId::new(),
+        );
+        let sessions = [
+            session("a").cwd("/w").delegation(opener),
+            session("b").cwd("/w").delegation(own).parent(opener),
+            session("c").cwd("/w"),
+            session("d").cwd("/x"),
+            session("e").cwd("/w"),
+        ];
+        let details = DetailsWork {
+            sessions: BTreeMap::from([
+                ("a".to_string(), begun("ta", 1)),
+                ("b".to_string(), begun("tb", 2)),
+                ("c".to_string(), begun("tc", 3)),
+                ("d".to_string(), begun("td", 4)),
+            ]),
+            ..Default::default()
+        };
+        Scenario::new()
+            .event(crate::config::testing::configured(&format!(
+                "[panel.session]\nfoot = []\n[[panel.session.tabs]]\ntitle = \"T\"\ncomponents = [{placed}]\n\
+                 [[panel.session.tabs]]\ntitle = \"U\"\ncomponents = [\"session\", {placed}]\n"
+            )))
+            .event(
+                snapshot()
+                    .listed(listed().outside_git().sessions(sessions))
+                    .details(details),
+            )
+            .send(shown(Some("a"), Some("/w")))
+    }
+
+    fn session_trees(run: &Scenario) -> Vec<String> {
+        let Some(Listing::Entries(entries)) = entries_of(run) else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .map(|e| match e {
+                Entry::SessionTree(row) => format!("{} {}", row.session, row.card.id),
+                Entry::Heading { group, .. } => group.title().to_string(),
+                Entry::More { hidden, .. } => format!("more {hidden}"),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_session_timelines_list_the_newest_tree_of_each_session_their_scope_takes_in() {
+        assert_eq!(
+            session_trees(&crew("\"timelines\"")),
+            ["a ta", "b tb"],
+            "the one shown first, then those tied to it"
+        );
+        assert_eq!(
+            session_trees(&crew(
+                "{ component = \"timelines\", scope = \"workspace\" }"
+            )),
+            ["a ta", "c tc", "b tb"],
+            "the others of its workspace, the latest begun first"
+        );
+        assert_eq!(
+            session_trees(&crew(
+                "{ component = \"timelines\", scope = \"environment\" }"
+            )),
+            ["a ta", "d td", "c tc", "b tb"]
+        );
+        let among = crew("{ component = \"timelines\", scope = \"environment\", shown = 2 }")
+            .send(Msg::DetailsTab(1));
+        assert_eq!(
+            session_trees(&among),
+            ["Session timelines", "a ta", "d td", "more 2"]
+        );
+    }
+
+    #[test]
+    fn the_host_reads_the_timelines_of_the_sessions_in_scope_beside_the_one_shown() {
+        let timelines = |placed: &str| {
+            watched(&crew(placed))
+                .last()
+                .map(|s| s.timelines.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        assert_eq!(timelines("\"timelines\""), ["b"]);
+        assert_eq!(
+            timelines("{ component = \"timelines\", scope = \"workspace\" }"),
+            ["b", "c", "e"]
+        );
+        assert_eq!(timelines("\"session\""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn opening_a_session_s_timeline_shows_the_session_and_copying_it_copies_its_name() {
+        let run = || crew("\"timelines\"").send(Msg::DetailsKey(Key::Down));
+        let opened = run().send(Msg::DetailsKey(Key::Open));
+        assert_eq!(local(&opened), [Effect::ShowSession(here(), "b".into())]);
+        let copied = run().send(Msg::DetailsKey(Key::Copy));
+        assert_eq!(
+            local(&copied),
+            [Effect::Copy {
+                text: "b".into(),
+                done: "Copied b".into()
+            }]
+        );
     }
 
     #[test]

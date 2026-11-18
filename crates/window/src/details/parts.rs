@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use super::changes::Worktree;
 use super::log::LogRows;
 use super::overview::{ChangeLine, GroupedRows, LinkMenu, SessionHead, selected_row};
-use super::timeline::TimelineRows;
+use super::timeline::{SessionTimelineRows, TimelineRows};
 use super::usage::{AgentUsage, MachineUsage};
 use crate::bridge::AppCtx;
 use crate::components::ListRow;
@@ -152,6 +152,18 @@ pub(super) fn PartView(
                     div { class: "details-block timeline-empty",
                         "No timeline yet. A session's agent records the plan and progress of its work here as it goes."
                     }
+                }
+            }
+        }
+        Component::Timelines => {
+            let rows: Vec<(usize, Entry)> = rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, e)| (base + i, e))
+                .collect();
+            rsx! {
+                if !rows.is_empty() {
+                    SessionTimelineRows { rows, said: part.said.clone(), selected, now_ms }
                 }
             }
         }

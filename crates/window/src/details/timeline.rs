@@ -1,7 +1,9 @@
-//! The timeline as the panel draws it: the trees with their tasks, and a
-//! task opened with its history.
+//! The timeline as the panel draws it: the trees with their tasks, a task
+//! opened with its history, and the newest tree of each of several sessions.
 
-use adroit_core::details::{Bar, Entry, TaskDetail, TaskLine, TreeCard, status_label, status_tone};
+use adroit_core::details::{
+    Bar, Entry, SessionTree, TaskDetail, TaskLine, TreeCard, state_tone, status_label, status_tone,
+};
 use adroit_core::msg::Msg;
 use adroit_model::time::ago;
 use adroit_model::timeline::{Status, percent};
@@ -80,6 +82,74 @@ pub(super) fn TimelineRows(
                     _ => rsx! {},
                 }
             }
+        }
+    }
+}
+
+/// The session timelines' rows, each with the row it is in the entries,
+/// under the line that folds them, which says `said`.
+#[component]
+pub(super) fn SessionTimelineRows(
+    rows: Vec<(usize, Entry)>,
+    said: Option<String>,
+    selected: Option<usize>,
+    now_ms: u64,
+) -> Element {
+    let app = use_context::<AppCtx>();
+    rsx! {
+        div { class: "details-block details-links timeline",
+            for (at , entry) in rows.into_iter() {
+                match entry {
+                    Entry::Heading { folded, count, .. } => rsx! {
+                        ListRow { key: "heading-{at}",
+                            kind: "details-link-heading",
+                            selected: selected == Some(at),
+                            onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+                            crate::icons::IconView {
+                                icon: if folded { crate::icons::Icon::ChevronRight } else { crate::icons::Icon::ChevronDown },
+                                size: 12,
+                            }
+                            span { class: "list-row-name details-summary",
+                                {said.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{count} sessions"))}
+                            }
+                        }
+                    },
+                    Entry::SessionTree(row) => rsx! {
+                        SessionTreeRow { key: "{row.key}", row, at, selected: selected == Some(at), now_ms }
+                    },
+                    Entry::More { hidden, .. } => rsx! {
+                        MoreRow { key: "more-{at}", hidden, at, selected: selected == Some(at) }
+                    },
+                    _ => rsx! {},
+                }
+            }
+        }
+    }
+}
+
+/// A session by its newest tree: its name and the tree's status, bar and
+/// share, with the tree's title beside how far it has come.
+#[component]
+fn SessionTreeRow(row: SessionTree, at: usize, selected: bool, now_ms: u64) -> Element {
+    let app = use_context::<AppCtx>();
+    let card = &row.card;
+    let tone = state_tone(&row.state);
+    rsx! {
+        ListRow {
+            kind: "timeline-tree session-timeline",
+            selected,
+            title: "Show {row.name}",
+            onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
+            div { class: "timeline-tree-head",
+                span { class: "state-glyph {tone}", crate::icons::IconView { icon: crate::icons::Icon::Terminal2, size: 12 } }
+                span { class: "list-row-name timeline-tree-title", "{row.name}" }
+                Chip { status: card.status }
+            }
+            div { class: "timeline-tree-bar",
+                StackBar { bar: card.bar }
+                span { class: "timeline-share", "{card.bar.percent()}" }
+            }
+            span { class: "details-link-tag timeline-tree-tag", "{card.title} · {card.tag(now_ms)}" }
         }
     }
 }

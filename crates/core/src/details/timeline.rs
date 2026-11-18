@@ -179,6 +179,33 @@ fn line(task: &Task, depth: usize, shares: &Shares) -> TaskLine {
     }
 }
 
+/// A session as the session timelines list it: its newest tree's card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTree {
+    /// What tells its row apart from every other.
+    pub key: String,
+    /// The session, by its id.
+    pub session: String,
+    pub name: String,
+    pub state: adroit_model::State,
+    pub card: TreeCard,
+}
+
+impl SessionTree {
+    /// The row of `session`, none while its agent has recorded no tree.
+    pub fn of(session: &adroit_model::Session, timeline: &Timeline) -> Option<SessionTree> {
+        let newest = timeline.trees().pop()?;
+        Some(SessionTree {
+            // No address, path or session name starts with a NUL.
+            key: format!("\0session tree:{}", session.id),
+            session: session.id.clone(),
+            name: session.name.clone(),
+            state: session.state.clone(),
+            card: TreeCard::of(&newest, true),
+        })
+    }
+}
+
 /// The tree `at` lists a task of, or is the card of.
 pub fn tree_at(entries: &[Entry], at: usize) -> Option<&TreeCard> {
     entries.get(..=at)?.iter().rev().find_map(|e| match e {
