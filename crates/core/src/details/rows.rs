@@ -4,10 +4,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use adroit_model::github::Standing as Checked;
 use adroit_model::links::{Kind as LinkKind, Touch};
 use adroit_model::subagents::Standing;
 
-use super::{Entry, Group, Source, Tie, shown_agent, shown_link, shown_shot};
+use super::{Entry, Group, PullState, Source, Tie, shown_agent, shown_link, shown_shot};
 use crate::icons::Icon;
 
 /// How a subagent is marked, by how it stands: the class that colours its
@@ -188,6 +189,23 @@ pub fn link_sections(
                     tone,
                     badge: a.kind.clone(),
                     ..LinkRow::plain(at, icon, label, tag, a.call.clone())
+                })
+            }
+            Entry::Pull(p) => {
+                let tone = match (p.state, p.checks.as_ref().and_then(|c| c.standing())) {
+                    (PullState::Closed, _) => "state-glyph done",
+                    (PullState::Open, Some(Checked::Failed)) => "state-glyph fail",
+                    (PullState::Open, Some(Checked::Pending)) => "state-glyph run",
+                    (PullState::Open, _) => "state-glyph wait",
+                    (PullState::Unknown, _) => "",
+                };
+                let label = match &p.title {
+                    Some(title) => title.clone(),
+                    None => p.reference(),
+                };
+                Some(LinkRow {
+                    tone,
+                    ..LinkRow::plain(at, Icon::GitPullRequest, label, p.tag(), p.url.clone())
                 })
             }
             Entry::Link(link) => {

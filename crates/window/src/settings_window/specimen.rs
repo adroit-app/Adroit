@@ -104,6 +104,23 @@ pub(super) fn Specimen(placed: Placed) -> Element {
                 Link::new(Icon::Link, "RFC 9110: HTTP Semantics", "www.rfc-editor.org"),
             ],
         ),
+        Component::Pulls => links(
+            "2 pull requests · acme/app#42, acme/app#37",
+            &[
+                Link {
+                    tone: "state-glyph wait",
+                    ..Link::new(
+                        Icon::GitPullRequest,
+                        "Retry the login on timeout",
+                        "open · 4/4 checks · acme/app#42",
+                    )
+                },
+                Link {
+                    tone: "state-glyph done",
+                    ..Link::new(Icon::GitPullRequest, "acme/app#37", "merged or closed")
+                },
+            ],
+        ),
         Component::Files => links(
             "3 files · login.rs, retry.rs, README.md",
             &[
@@ -266,6 +283,7 @@ fn folded_said(c: Component) -> String {
         Component::Artifacts => "1 artifact · Login retry plan".into(),
         Component::Images => "2 images".into(),
         Component::Links => "2 links · docs.rs, www.rfc-editor.org".into(),
+        Component::Pulls => "2 pull requests · acme/app#42, acme/app#37".into(),
         Component::Files => "3 files · login.rs, retry.rs, README.md".into(),
         Component::Prompts => "2 prompts · latest: Add a test for the second timeout".into(),
         Component::Processes => "2 processes · cargo, node".into(),

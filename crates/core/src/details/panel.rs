@@ -15,9 +15,9 @@ use adroit_protocol::{
 
 use super::{
     Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
-    Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TreeCard, View, about,
-    context_gauge, file_link, gauges, grouped, newest_first, related, running, task_detail,
-    timeline_entries, tree_at,
+    PullRow, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TreeCard,
+    View, about, context_gauge, file_link, gauges, grouped, newest_first, related, running,
+    task_detail, timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
@@ -182,6 +182,7 @@ fn group_of(component: Component) -> Option<Group> {
         Component::Artifacts => Group::Artifacts,
         Component::Images => Group::Images,
         Component::Links => Group::Links,
+        Component::Pulls => Group::Pulls,
         Component::Files => Group::Files,
         Component::Changes => Group::Changed,
         Component::Log => Group::Log,
@@ -606,6 +607,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         ),
         Entry::Tree(card) => copied(how, &card.title, format!("Copied {}", card.title)),
         Entry::Task(line) => copied(how, &line.title, format!("Copied {}", line.title)),
+        Entry::Pull(p) => use_pull(p, how, &details.shown.environment),
         Entry::SessionTree(row) => use_related(
             &Related {
                 name: row.name.clone(),
@@ -649,6 +651,31 @@ fn use_link(link: &Link, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
             text: link.target.clone(),
             done: format!("Copied {}", link.target),
         }],
+    }
+}
+
+/// Show `pull`, of `environment`, in Adroit while the repository shown lists
+/// it open, or else on GitHub, or copy its page.
+fn use_pull(pull: &PullRow, how: Use, environment: &EnvironmentId) -> Vec<Effect> {
+    match (how, &pull.root) {
+        (Use::Open(how), Some(root)) => vec![Effect::Show {
+            thing: Tab::GitHub {
+                environment: environment.clone(),
+                repository: root.clone(),
+                listing: adroit_model::github::Listing::Pulls,
+                number: pull.number,
+            },
+            how,
+        }],
+        (Use::Open(_), None) => vec![Effect::Open {
+            environment: environment.clone(),
+            target: pull.url.clone(),
+        }],
+        (Use::Copy, _) => vec![Effect::Copy {
+            text: pull.url.clone(),
+            done: format!("Copied {}", pull.url),
+        }],
+        (Use::Reveal, _) => Vec::new(),
     }
 }
 
@@ -895,6 +922,15 @@ fn rows_of(
                 opened,
                 first(d.links_shown),
             )
+        }
+        Component::Pulls => {
+            let repository = shown_repository(details, work);
+            let shown = repository.as_ref().map(|(root, r)| (root.as_path(), *r));
+            let rows = super::pull_rows(&links.urls, shown)
+                .into_iter()
+                .map(Entry::Pull)
+                .collect();
+            grouped(Group::Pulls, rows, &folded, opened, first(d.links_shown))
         }
         Component::Prompts => {
             let rows = links
@@ -1196,16 +1232,32 @@ pub fn timelines_wanted(details: &Details, work: Option<&WorkSnapshot>) -> BTree
 }
 
 /// The root of the repository whose pull requests the host keeps read for
-/// **github**, while it is in sight of what a window shows.
+/// **github** and **pulls**, while one is in sight of what a window shows.
 pub fn pulls_wanted(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
     let shown = details.shown.open
         && details.shown.subject() == Subject::Session
         && in_sight(details)
             .iter()
-            .any(|(p, _)| p.component.is_github());
-    let worktree = details.shown.worktree.as_ref().filter(|_| shown)?;
+            .any(|(p, _)| p.component.is_github() || p.component == Component::Pulls);
+    details.shown.worktree.as_ref().filter(|_| shown)?;
+    shown_root(details, work)
+}
+
+/// The root of the git repository of the worktree shown.
+fn shown_root(details: &Details, work: Option<&WorkSnapshot>) -> Option<PathBuf> {
+    let worktree = details.shown.worktree.as_ref()?;
     let workspace = crate::tree::listed(work).workspace_of(worktree)?;
     workspace.git.then(|| workspace.root.clone())
+}
+
+/// The GitHub repository of the worktree shown, at its root, as last read.
+fn shown_repository<'a>(
+    details: &Details,
+    work: Option<&'a WorkSnapshot>,
+) -> Option<(PathBuf, &'a adroit_model::github::Repository)> {
+    let root = shown_root(details, work)?;
+    let repository = crate::tree::github(work, &root)?;
+    Some((root, repository))
 }
 
 /// The pull request open for the branch the worktree shown has checked out,
@@ -1262,6 +1314,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
         Component::Artifacts,
         Component::Images,
         Component::Links,
+        Component::Pulls,
         Component::Files,
     ]
     .into_iter()
@@ -3029,10 +3082,132 @@ pub(crate) mod tests {
             "any component of the branch's pull request reads them"
         );
         assert_eq!(
+            reads("[[panel.session.tabs]]\ntitle = \"P\"\ncomponents = [\"pulls\"]\n"),
+            Some(pulls.clone()),
+            "the pull requests brought up are told of as they are listed"
+        );
+        assert_eq!(
             reads("[[panel.session.tabs]]\ntitle = \"F\"\ncomponents = [\"files\"]\n"),
             Some(Default::default())
         );
     }
+    /// The session `a` shown in the repository `o/r` at `/r`, which GitHub
+    /// says has `#2` open, its conversation having brought up `#2` twice,
+    /// `#5` of the same repository, `#9` of another and a page that is no
+    /// pull request; the panel shows the pull requests alone in a tab.
+    fn brought_up_pulls() -> Scenario {
+        let mut repository = adroit_model::github::Repository::new("o/r");
+        repository.pulls = Some(Ok(vec![adroit_model::github::Item {
+            number: 2,
+            title: "Fix the login".into(),
+            url: "https://github.com/o/r/pull/2".into(),
+            pull: Some(adroit_model::github::Pull {
+                head: "fix".into(),
+                base: "main".into(),
+                additions: 0,
+                deletions: 0,
+                changed_files: 0,
+                review: None,
+                requested: Vec::new(),
+                checks: adroit_model::github::Checks {
+                    passed: 2,
+                    ..Default::default()
+                },
+            }),
+            ..Default::default()
+        }]));
+        let urls = [
+            "https://github.com/o/r/pull/2/files",
+            "https://github.com/x/y/pull/9",
+            "https://docs.rs/tokio",
+            "https://github.com/o/r/pull/2",
+            "https://github.com/o/r/pull/5#issuecomment-1",
+        ];
+        let links = Links {
+            urls: urls.iter().map(|u| link(LinkKind::Url, u)).collect(),
+            ..Default::default()
+        };
+        Scenario::new()
+            .event(crate::config::testing::configured(
+                "[[panel.session.tabs]]\ntitle = \"P\"\ncomponents = [\"pulls\"]\n",
+            ))
+            .event(
+                snapshot()
+                    .listed(listed().session(session("a").cwd("/r")))
+                    .details(read("a", with_links(links))),
+            )
+            .event(patch(2).change(adroit_protocol::TreeChange::GitHub {
+                repository: "/r".into(),
+                github: Some(Box::new(repository)),
+            }))
+            .send(shown(Some("a"), Some("/r")))
+    }
+
+    fn pull_rows(run: &Scenario) -> Vec<String> {
+        let Some(Listing::Entries(entries)) = entries_of(run) else {
+            return Vec::new();
+        };
+        entries
+            .iter()
+            .map(|e| match e {
+                Entry::Pull(p) => format!(
+                    "{}#{} {:?} {}",
+                    p.repo,
+                    p.number,
+                    p.state,
+                    p.title.as_deref().unwrap_or("-")
+                ),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_pull_requests_brought_up_are_listed_once_each_as_github_last_told_of_them() {
+        assert_eq!(
+            pull_rows(&brought_up_pulls()),
+            [
+                "o/r#2 Open Fix the login",
+                "x/y#9 Unknown -",
+                "o/r#5 Closed -",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pull_request_open_in_the_repository_shown_opens_in_adroit_and_any_other_on_github() {
+        let open = brought_up_pulls().send(Msg::DetailsKey(Key::Open));
+        assert_eq!(
+            local(&open),
+            [Effect::Show {
+                thing: Tab::GitHub {
+                    environment: here(),
+                    repository: "/r".into(),
+                    listing: adroit_model::github::Listing::Pulls,
+                    number: 2,
+                },
+                how: Opening::Existing,
+            }]
+        );
+        let elsewhere =
+            brought_up_pulls().send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
+        assert_eq!(
+            local(&elsewhere),
+            [Effect::Open {
+                environment: here(),
+                target: "https://github.com/x/y/pull/9".into(),
+            }]
+        );
+        let copied = brought_up_pulls().send(Msg::DetailsKey(Key::Copy));
+        assert_eq!(
+            local(&copied),
+            [Effect::Copy {
+                text: "https://github.com/o/r/pull/2".into(),
+                done: "Copied https://github.com/o/r/pull/2".into(),
+            }]
+        );
+    }
+
     #[test]
     fn the_prompts_sent_open_whole_and_copy_their_text() {
         let prompt = |turn: u64, text: &str| adroit_model::links::Prompt {
