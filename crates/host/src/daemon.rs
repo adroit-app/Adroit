@@ -160,7 +160,10 @@ pub fn cli(asked: DaemonCommand) -> i32 {
 }
 
 fn serve(rt: &tokio::runtime::Runtime) -> adroit_term::Result<()> {
-    let mut keeper = Keeper::new(|| Assertion::take(awake::NAME)).watching(Assertion::lost);
+    let keeper = Keeper::new(|| Assertion::take(awake::NAME));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let keeper = keeper.watching(Assertion::look);
+    let mut keeper = keeper;
     rt.block_on(async {
         crate::environment::spawn(async {
             let daemon = daemon();
