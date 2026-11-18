@@ -182,6 +182,12 @@ local function watch()
   end)
   if ok then
     state.watcher = watcher
+    -- A watch may see changes only a moment after it starts, as macOS's
+    -- FSEvents does, all the more on a busy machine: a file replaced in that
+    -- moment is read again once the watch surely sees.
+    for _, after in ipairs({ 1000, 4000 }) do
+      vim.defer_fn(changed, after)
+    end
     return
   end
   watcher:close()

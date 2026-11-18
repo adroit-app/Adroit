@@ -15,6 +15,16 @@ fn main() {
     if args.first().is_some_and(|arg| arg == adroit_host::HOLD) {
         std::process::exit(adroit_host::hold(&args[1..]));
     }
+    // Ahead of everything that changes the environment: the program started
+    // again is handed it as this one was.
+    #[cfg(all(windows, feature = "desktop"))]
+    if matches!(
+        adroit_host::cli::command(&args),
+        Some(adroit_host::cli::Command::Window { .. })
+    ) && adroit_window::reopened_without_console_window()
+    {
+        return;
+    }
     use adroit_host::cli::{
         Command, ROUTING, RemoteCommand, USAGE, command, set_aside, settle_instance,
     };

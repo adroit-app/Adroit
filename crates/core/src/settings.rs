@@ -61,6 +61,17 @@ impl OptionAsAlt {
             OptionAsAlt::None => "none",
         }
     }
+
+    /// The keys that count as Alt here: as chosen on macOS, and elsewhere
+    /// both, as no other system types a character of its own with Alt. One
+    /// chosen on a Mac and read on another machine leaves Alt working there.
+    pub fn in_force(self) -> Self {
+        if cfg!(target_os = "macos") {
+            self
+        } else {
+            OptionAsAlt::Both
+        }
+    }
 }
 
 /// Which of the light and the dark theme is drawn.
@@ -122,7 +133,8 @@ impl Default for DetailsSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct ConsoleSettings {
     /// Which Option keys send Alt to what runs there, `both`, `left`, `right` or
-    /// `none`, the others typing what macOS makes of the key.
+    /// `none`, the others typing what macOS makes of the key. Read on macOS
+    /// only; elsewhere both Alt keys send Alt.
     pub option_as_alt: OptionAsAlt,
     /// Whether the cursor blinks when the program lets it.
     pub cursor_blink: bool,
@@ -190,8 +202,8 @@ pub struct Settings {
     #[serde(skip_serializing)]
     #[schemars(skip)]
     pub theme: Option<String>,
-    /// Keep the Mac from idle sleep while a session or a shell runs, the window
-    /// open or not; the display still sleeps.
+    /// Keep the machine from idle sleep while a session or a shell runs, the
+    /// window open or not; the display still sleeps.
     pub keep_awake: bool,
     /// Show a notification when a session starts waiting on you while the window
     /// is not in front; with several windows open, the one holding the lowest

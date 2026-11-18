@@ -1035,9 +1035,35 @@ pub(crate) fn open<const N: usize>(args: [String; N]) {
 /// `/usr/bin/open` run with `args`, without waiting for it: `-R` and a path
 /// shows it in the Finder, `-t` and a path opens it in the text editor, and a
 /// path or an address alone opens it as the Finder would.
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub(crate) fn open_args(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) {
     run_detached("/usr/bin/open", args);
+}
+
+/// What `/usr/bin/open` does with `args` on a Mac, done by `xdg-open`, which
+/// hands a path or an address to the program the desktop opens it with.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn open_args(args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) {
+    let args: Vec<std::ffi::OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
+    if let Some(target) = xdg_open_target(&args) {
+        run_detached("xdg-open", [target]);
+    }
+}
+
+/// What `xdg-open` opens for `/usr/bin/open`'s `args`: the folder a path is
+/// in, to show it in, as the desktop's file manager is told no file to
+/// select; a text file as its type says, as no editor is the desktop's own.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn xdg_open_target(args: &[std::ffi::OsString]) -> Option<std::ffi::OsString> {
+    match args {
+        [how, path] if how == "-R" => std::path::Path::new(path)
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(|parent| parent.as_os_str().to_owned()),
+        [how, path] if how == "-t" => Some(path.clone()),
+        [target] => Some(target.clone()),
+        _ => None,
+    }
 }
 
 /// What `/usr/bin/open` does with `args` on a Mac, done by Windows' own:
@@ -1272,6 +1298,28 @@ mod tests {
     use tokio::sync::mpsc::UnboundedSender;
 
     use super::*;
+
+    #[test]
+    fn xdg_open_shows_a_path_in_its_folder_and_opens_anything_else_itself() {
+        let target = |args: &[&str]| {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            xdg_open_target(&args).map(|t| t.to_string_lossy().into_owned())
+        };
+        assert_eq!(
+            target(&["-R", "/home/u/a/b.txt"]).as_deref(),
+            Some("/home/u/a")
+        );
+        assert_eq!(target(&["-R", "b.txt"]), None);
+        assert_eq!(
+            target(&["-t", "/home/u/init.lua"]).as_deref(),
+            Some("/home/u/init.lua")
+        );
+        assert_eq!(
+            target(&["https://example.com/"]).as_deref(),
+            Some("https://example.com/")
+        );
+        assert_eq!(target(&["-a", "App", "x"]), None);
+    }
 
     /// A work host holding `work`, which answers hello as one does.
     struct Answering {

@@ -322,15 +322,19 @@ A session can open sessions beside it and talk with other sessions, and
 `adroit session start` starts one from a terminal
 ([sessions that open sessions](opening-sessions.md)).
 
-## Keeping the Mac awake
+## Keeping the machine awake
 
-While a session or a shell runs, the window open or not, the Mac does not go
-to idle sleep, so they go on with no one at it; the display still sleeps as
-the Energy settings say. Closing the lid on battery, sleeping it by hand and
-the system's own emergencies still sleep it. `pmset -g assertions` lists what
-keeps it awake under Adroit's name. Within seconds of the last one ending, or
-of `keep_awake` being turned off in the [settings](settings.md), the Mac
-sleeps when idle again.
+While a session or a shell runs, the window open or not, the machine does not
+go to idle sleep, so they go on with no one at it; the display still sleeps as
+the system's power settings say. Closing the lid on battery, sleeping it by
+hand and the system's own emergencies still sleep it. The system lists what
+keeps it awake under Adroit's name: `pmset -g assertions` on macOS,
+`powercfg /requests` on Windows and `systemd-inhibit --list` on Linux. On
+Linux logind is kept from idling it and GNOME's session from suspending it,
+where each runs; another desktop that suspends the machine on a timer of its
+own may still. Within seconds of the last one
+ending, or of `keep_awake` being turned off in the [settings](settings.md),
+the machine sleeps when idle again.
 
 ## How a session stands
 

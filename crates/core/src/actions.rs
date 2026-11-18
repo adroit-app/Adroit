@@ -329,9 +329,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorCopy, "cursor.copy", "copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path")
         .icon(Icon::Copy)
         .row("Copy", Go),
-    S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the Finder")
+    S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the system's file manager")
         .icon(Icon::FolderSearch)
-        .row("Reveal in Finder", Go),
+        .row(crate::chrome::REVEAL_IN_FILE_MANAGER, Go),
     S::new(A::CursorBrowse, "cursor.browse", "open the selected pull request or issue on GitHub in the browser")
         .icon(Icon::BrandGithub)
         .row("Open on GitHub", Go),

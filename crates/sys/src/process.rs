@@ -67,6 +67,25 @@ pub fn terminate(pid: u32) {
     kill(pid)
 }
 
+/// The creation flag that starts a console program on a console of its own
+/// that has no window; the console programs it starts share that console, so
+/// they show no window either.
+#[cfg(windows)]
+pub const CREATE_NO_WINDOW: u32 = Threading::CREATE_NO_WINDOW;
+
+/// Whether this process is the only one on a console that has a window: one
+/// Windows opened for it when it was started from Explorer or a shortcut,
+/// rather than a terminal's, which the terminal's shell shares, or one with
+/// no window, as [`CREATE_NO_WINDOW`] gives.
+#[cfg(windows)]
+pub fn console_window_alone() -> bool {
+    use windows_sys::Win32::System::Console::{GetConsoleProcessList, GetConsoleWindow};
+    let mut ids = [0u32; 2];
+    // SAFETY: the list holds as many ids as the length passed says, and
+    // asking for the console's window has no preconditions.
+    unsafe { GetConsoleProcessList(ids.as_mut_ptr(), 2) == 1 && !GetConsoleWindow().is_null() }
+}
+
 /// End process `pid` at once.
 #[cfg(windows)]
 pub fn kill(pid: u32) {
@@ -108,6 +127,59 @@ mod tests {
         kill(child.id());
         child.wait().unwrap();
         assert!(!alive(child.id()));
+    }
+
+    /// Where [`reports_whether_its_console_is_its_own`] writes what it found.
+    #[cfg(windows)]
+    const REPORT: &str = "ADROIT_TEST_CONSOLE_REPORT";
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "run by a test that starts it on a console of its own"]
+    fn reports_whether_its_console_is_its_own() {
+        if let Some(report) = std::env::var_os(REPORT) {
+            std::fs::write(report, console_window_alone().to_string()).unwrap();
+        }
+    }
+
+    /// What [`console_window_alone`] says in this test program started with
+    /// the creation flags `flags`.
+    #[cfg(windows)]
+    fn console_window_alone_started_with(flags: u32) -> String {
+        use std::os::windows::process::CommandExt;
+        let dir = tempfile::tempdir().unwrap();
+        let report = dir.path().join("report");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "process::tests::reports_whether_its_console_is_its_own",
+            ])
+            .env(REPORT, &report)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(flags)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        std::fs::read_to_string(report).unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_program_given_a_console_window_of_its_own_is_alone_on_it() {
+        const CREATE_NEW_CONSOLE: u32 = Threading::CREATE_NEW_CONSOLE;
+        assert_eq!(
+            console_window_alone_started_with(CREATE_NEW_CONSOLE),
+            "true"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_program_on_a_console_with_no_window_has_no_console_window_to_leave() {
+        assert_eq!(console_window_alone_started_with(CREATE_NO_WINDOW), "false");
     }
 
     #[test]

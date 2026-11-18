@@ -384,7 +384,15 @@ fn use_menu_bar(ui: &Ui) {
     });
     // The page learns which Option keys count as Alt, now and as the settings
     // change.
-    let as_alt = use_memo(move || app.config.read().settings.console.option_as_alt.name());
+    let as_alt = use_memo(move || {
+        app.config
+            .read()
+            .settings
+            .console
+            .option_as_alt
+            .in_force()
+            .name()
+    });
     use_effect(move || {
         let as_alt = as_alt();
         document::eval(&format!("window.adroitOptionAsAlt = '{as_alt}';"));

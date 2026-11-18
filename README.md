@@ -127,7 +127,18 @@ cargo run --release -p adroit
 ```
 
 Shells there run PowerShell. One `adroit` opens one window, and Claude Code's
-external editor is not handed to it.
+external editor is not handed to it. Started from Explorer or a shortcut
+rather than a terminal, it opens no console window beside its own, though
+Windows shows one for a moment before it does. Start `adroitw.exe`, built
+beside `adroit.exe`, from a shortcut instead, and none shows at all.
+
+On Linux, the Nix development shell has what the window builds with. Outside
+it, install the development packages of WebKitGTK 4.1, GTK 3, libxdo and
+OpenSSL (on Debian and Ubuntu, `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
+`libxdo-dev` and `libssl-dev`), then build as above. The window copies with
+`wl-copy` on Wayland, else `xclip` or `xsel`, opens paths and addresses with
+`xdg-open` and tells of a session waiting with `notify-send`; each is left
+undone where its program is not installed.
 
 CI lints and tests it on Windows with `just ci-windows`, run from Git Bash. To
 check that the source still builds on Windows from another machine,

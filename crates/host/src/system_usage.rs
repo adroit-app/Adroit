@@ -101,32 +101,21 @@ impl Sampler {
     }
 }
 
-// fsblkcnt_t is u32 on macOS and u64 on Linux.
-#[cfg(unix)]
-#[allow(clippy::unnecessary_cast)]
+/// How much of the volume the system runs from is in use, and its size.
 fn storage_capacity() -> Option<(u64, u64)> {
-    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    // SAFETY: the path is NUL-terminated and stats points to writable storage.
-    if unsafe { libc::statvfs(c"/".as_ptr(), stats.as_mut_ptr()) } != 0 {
-        return None;
-    }
-    // SAFETY: statvfs initialized stats on success.
-    let stats = unsafe { stats.assume_init() };
-    let block_size = if stats.f_frsize > 0 {
-        stats.f_frsize
-    } else {
-        stats.f_bsize
-    } as u64;
-    let total = (stats.f_blocks as u64).checked_mul(block_size)?;
-    let used = (stats.f_blocks as u64)
-        .saturating_sub(stats.f_bavail as u64)
-        .checked_mul(block_size)?;
-    (total > 0).then_some((used, total))
+    adroit_sys::fs::capacity(system_volume())
 }
 
-#[cfg(not(unix))]
-fn storage_capacity() -> Option<(u64, u64)> {
-    None
+#[cfg(unix)]
+fn system_volume() -> std::path::PathBuf {
+    "/".into()
+}
+
+/// The root of the drive Windows runs from, as `SystemDrive` names it.
+#[cfg(windows)]
+fn system_volume() -> std::path::PathBuf {
+    let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+    std::path::PathBuf::from(format!("{drive}\\"))
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -205,7 +194,6 @@ pub async fn gpu_usage() -> GpuSample {
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn live_samples_prime_cpu_counters_and_read_memory_and_startup_capacity() {
         let mut sampler = Sampler::default();

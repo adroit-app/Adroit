@@ -370,7 +370,7 @@ it starts; their other files are kept in `adroit/prompt/nvim` and
 `'background'` set to the theme's, light or dark, as it starts and whenever
 the theme changes, so its colour scheme draws text that shows on the theme.
 The Settings window's Console panel page names each configuration's
-folder, copy its path, show it in the Finder, and edit its `init.lua` in a
+folder, copy its path, show it in the file manager, and edit its `init.lua` in a
 Neovim of the main window, as a file of the tree is edited; the folder is made
 when it is not there yet.
 

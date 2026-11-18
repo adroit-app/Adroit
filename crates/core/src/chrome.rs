@@ -51,6 +51,27 @@ pub fn title(described: Option<&str>) -> String {
     }
 }
 
+/// The label of what shows a file or a folder in the system's file manager:
+/// the Finder on macOS, Explorer on Windows, and elsewhere the folder it is
+/// in, as the desktop opens it.
+pub const SHOW_IN_FILE_MANAGER: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else if cfg!(windows) {
+    "Show in Explorer"
+} else {
+    "Show in Folder"
+};
+
+/// The label of the row that shows the selected file in the system's file
+/// manager, as [`SHOW_IN_FILE_MANAGER`] names it.
+pub const REVEAL_IN_FILE_MANAGER: &str = if cfg!(target_os = "macos") {
+    "Reveal in Finder"
+} else if cfg!(windows) {
+    "Reveal in Explorer"
+} else {
+    "Reveal in Folder"
+};
+
 /// A key asked to zoom in, out or back.
 pub(crate) fn step(chrome: &mut Chrome, step: Step) -> Vec<Effect> {
     chrome.zoom = match step {
@@ -99,6 +120,21 @@ mod tests {
     use crate::msg::Msg;
     use crate::scenario::Scenario;
     use crate::zoom::Step;
+
+    #[test]
+    fn a_file_is_shown_in_the_file_manager_the_system_has() {
+        let named = [super::SHOW_IN_FILE_MANAGER, super::REVEAL_IN_FILE_MANAGER];
+        let manager = if cfg!(target_os = "macos") {
+            "Finder"
+        } else if cfg!(windows) {
+            "Explorer"
+        } else {
+            "Folder"
+        };
+        for label in named {
+            assert!(label.ends_with(manager), "{label}");
+        }
+    }
 
     #[test]
     fn the_zoom_follows_the_keys_and_the_settings() {

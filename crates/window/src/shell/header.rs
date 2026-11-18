@@ -1,6 +1,8 @@
 //! The header: the panels' switches, where the content's focused window is,
 //! in which environment, and how many sessions wait or work.
 
+use adroit_core::actions::Action;
+use adroit_core::keymap::Context;
 use adroit_core::tree;
 use dioxus::prelude::*;
 
@@ -33,11 +35,24 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
         )
     };
     let kind = crate::connection::standing_of(&app, &environment).kind;
+    let (tree_title, details_title, settings_title) = {
+        let chrome = app.chrome.read();
+        let titled =
+            |what: &str, action: Action| match chrome.keymap.keys_in(&[Context::Global], &action) {
+                Some(keys) => format!("{what} ({keys})"),
+                None => what.to_string(),
+            };
+        (
+            titled("Show or hide the tree", Action::TreeToggle),
+            titled("Show or hide the details panel", Action::DetailsToggle),
+            titled("Settings", Action::SettingsOpen),
+        )
+    };
     rsx! {
         div { class: "header",
             span {
                 class: if layout.show_sidebar { "pane-toggle on" } else { "pane-toggle" },
-                title: "Show or hide the tree (⌘B)",
+                title: "{tree_title}",
                 onclick: move |_| ontoggle.call(Side::Sidebar),
                 IconView { icon: Icon::LayoutSidebar, size: 16 }
             }
@@ -63,13 +78,13 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
             }
             span {
                 class: if layout.show_details { "pane-toggle on" } else { "pane-toggle" },
-                title: "Show or hide the details panel (⌥⌘B)",
+                title: "{details_title}",
                 onclick: move |_| ontoggle.call(Side::Details),
                 IconView { icon: Icon::LayoutSidebarRight, size: 16 }
             }
             span {
                 class: "pane-toggle",
-                title: "Settings (⌘,)",
+                title: "{settings_title}",
                 onclick: move |_| app.open_settings(&app.active_environment()),
                 IconView { icon: Icon::Settings, size: 16 }
             }

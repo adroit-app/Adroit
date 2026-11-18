@@ -15,7 +15,7 @@ when the file does not name it, and what it does
 | `font_family` | string | `""` | The font the console and the prompt are drawn in, as the system names its family; empty for Adroit's own, JetBrainsMono Nerd Font Mono. Adroit's own stands behind any other, so Nerd Font glyphs draw whatever font is chosen, and a Japanese font behind that. A line is as tall as the font asks, as in a terminal. |
 | `font_size` | number | `13.0` | The font's size, in points, from 8 to 32. |
 | `font_weight` | integer | `400` | The font's weight, from 100 to 900; Adroit's own comes in regular and bold, and draws other weights in the nearer of them. |
-| `keep_awake` | boolean | `true` | Keep the Mac from idle sleep while a session or a shell runs, the window open or not; the display still sleeps. |
+| `keep_awake` | boolean | `true` | Keep the machine from idle sleep while a session or a shell runs, the window open or not; the display still sleeps. |
 | `light_theme` | string | `"Dawnfox"` | The theme drawn while the appearance is light, by name: one adroit comes with, or one in `themes/` beside `settings.toml`. |
 | `notify_waiting` | boolean | `false` | Show a notification when a session starts waiting on you while the window is not in front; with several windows open, the one holding the lowest number tells. |
 | `profile` | string | `"claude"` | The profile a new session starts from, by id, when it names neither a profile nor an agent; left out, the first profile. A session not started yet can be switched to another agent for the current run of the window. |
@@ -33,7 +33,7 @@ How the console takes keys and draws its cursor.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `console.cursor_blink` | boolean | `false` | Whether the cursor blinks when the program lets it. |
-| `console.option_as_alt` | one of `both`, `left`, `right`, `none` | `"both"` | Which Option keys send Alt to what runs there, `both`, `left`, `right` or `none`, the others typing what macOS makes of the key. |
+| `console.option_as_alt` | one of `both`, `left`, `right`, `none` | `"both"` | Which Option keys send Alt to what runs there, `both`, `left`, `right` or `none`, the others typing what macOS makes of the key. Read on macOS only; elsewhere both Alt keys send Alt. |
 
 ## `[delegation]`
 

@@ -90,8 +90,9 @@ async fn saving_the_configuration_asks_for_a_restart_and_reads_nothing_itself() 
 async fn an_editor_s_save_of_several_writes_asks_for_one_restart() {
     let (_e, mut rx, config) = start_configured("").await;
     save_until_told(&mut rx, || config.write("-- saved")).await;
-    // The last save's own events, told once.
-    saves_told(&mut rx, Duration::from_millis(300)).await;
+    // Every save made until one was told, each told late on a loaded
+    // machine: none is to be counted below.
+    while saves_told(&mut rx, Duration::from_millis(500)).await > 0 {}
     for n in 0..3 {
         config.write(&format!("vim.g.read = {n}"));
     }

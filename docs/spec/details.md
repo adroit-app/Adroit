@@ -220,7 +220,7 @@ so once it is no longer kept.
 Opening a link of **artifacts**, **links** or **files** hands it to macOS: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to
-reveal it in the Finder. A click on a group's heading folds the group under it
+reveal it in the file manager. A click on a group's heading folds the group under it
 or unfolds it, and a group stays folded as other sessions are shown. The list
 follows the conversation as it goes on, and to the one `/clear` or `/resume`
 moves the session to.
