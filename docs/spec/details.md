@@ -20,8 +20,9 @@ no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
 change, the branch's pull request, the pull requests it brought up, the
-three newest trees of its timeline,
-the timelines of the sessions tied to it, what runs for it and About), Code (changes and log), Timeline, Conversation (prompts,
+timelines of it and the sessions tied to it, what runs for it and About),
+Code (changes and log), Timeline (the timelines of every session of its
+environment), Conversation (prompts,
 messages, subagents and sessions) and Resources (files, links, artifacts and
 images), over a foot of the conversation's context, the account's limits and
 the machine's load. An environment's has the tabs Overview (its connection,
@@ -49,12 +50,13 @@ window or such a row is described.
   ([below](#the-timeline)). Each tree folds on its own; `shown` is how many
   of the newest it shows before a row that shows them all.
 - **timelines** — the session and the others its `scope` takes in, side by
-  side, each by the newest tree its agent recorded. `related`, as Adroit
-  has it, takes in the
-  sessions tied to it as **sessions** lists them; `workspace` every session
-  of its workspace; `environment` every session of its environment. A
-  session whose agent recorded no tree is left out. Opening one shows the
-  session; copying it copies its name.
+  side, each by the newest tree its agent recorded, with its tasks until it
+  is folded. `related`, as Adroit has it, takes in the sessions tied to it
+  as **sessions** lists them; `workspace` every session of its workspace;
+  `environment` every session of its environment. A session whose agent
+  recorded no tree is left out. A tree folds and opens its tasks as one of
+  **timeline** does, its session's name shows the session, and copying it
+  copies that name.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
 - **processes** — its live work processes alone.

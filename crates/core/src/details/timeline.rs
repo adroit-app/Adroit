@@ -115,6 +115,11 @@ impl TreeCard {
 /// A task as its tree lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskLine {
+    /// What tells its row apart from every other.
+    pub key: String,
+    /// The session it is of, for a task of the session timelines; none for
+    /// one of the session shown.
+    pub session: Option<String>,
     pub id: String,
     pub title: String,
     pub status: Status,
@@ -169,8 +174,20 @@ pub fn timeline_entries(
     entries
 }
 
+/// What tells apart the row of the task `id` of `session`, or of the
+/// session shown.
+pub(crate) fn task_key(session: Option<&str>, id: &str) -> String {
+    match session {
+        // No task id starts with a NUL.
+        Some(session) => format!("\0task {session} {id}"),
+        None => id.to_owned(),
+    }
+}
+
 fn line(task: &Task, depth: usize, shares: &Shares) -> TaskLine {
     TaskLine {
+        key: task_key(None, &task.id),
+        session: None,
         id: task.id.clone(),
         title: task.title.clone(),
         status: task.status,
@@ -192,8 +209,13 @@ pub struct SessionTree {
 }
 
 impl SessionTree {
-    /// The row of `session`, none while its agent has recorded no tree.
-    pub fn of(session: &adroit_model::Session, timeline: &Timeline) -> Option<SessionTree> {
+    /// The row of `session`, its tree `folded` or not, none while its agent
+    /// has recorded no tree.
+    pub fn of(
+        session: &adroit_model::Session,
+        timeline: &Timeline,
+        folded: bool,
+    ) -> Option<SessionTree> {
         let newest = timeline.trees().pop()?;
         Some(SessionTree {
             // No address, path or session name starts with a NUL.
@@ -201,9 +223,42 @@ impl SessionTree {
             session: session.id.clone(),
             name: session.name.clone(),
             state: session.state.clone(),
-            card: TreeCard::of(&newest, true),
+            card: TreeCard::of(&newest, folded),
         })
     }
+
+    /// Its card, then, unless it is folded, the tasks of its tree in
+    /// `timeline`.
+    pub fn entries(self, timeline: &Timeline) -> Vec<Entry> {
+        let tasks: Vec<Entry> = if self.card.folded {
+            Vec::new()
+        } else {
+            timeline
+                .rows(&self.card.id)
+                .into_iter()
+                .map(|row| {
+                    let line = line(&row.task, row.depth, &row.shares);
+                    Entry::Task(TaskLine {
+                        key: task_key(Some(&self.session), &line.id),
+                        session: Some(self.session.clone()),
+                        ..line
+                    })
+                })
+                .collect()
+        };
+        std::iter::once(Entry::SessionTree(self))
+            .chain(tasks)
+            .collect()
+    }
+}
+
+/// The session's tree `at` lists a task of, or is the card of, in the
+/// session timelines.
+pub fn session_tree_at(entries: &[Entry], at: usize) -> Option<&SessionTree> {
+    entries.get(..=at)?.iter().rev().find_map(|e| match e {
+        Entry::SessionTree(row) => Some(row),
+        _ => None,
+    })
 }
 
 /// The tree `at` lists a task of, or is the card of.
