@@ -384,8 +384,9 @@ fn timelines() -> Element {
         div { class: "details-block details-links timeline",
             {heading("2 sessions · fix-login-timeout, review-login-retry")}
             for (tone , name , status , tree , share , bar , tag) in sessions {
-                ListRow { key: "{name}", kind: "timeline-tree session-timeline", title: "Show {name}",
+                ListRow { key: "{name}", kind: "timeline-tree session-timeline", title: "Hide its tasks",
                     div { class: "timeline-tree-head",
+                        IconView { icon: Icon::ChevronDown, size: 12 }
                         span { class: "state-glyph {tone}", IconView { icon: Icon::Terminal2, size: 12 } }
                         span { class: "list-row-name timeline-tree-title", "{name}" }
                         span { class: "state-badge {tone}", "{status}" }

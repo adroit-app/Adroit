@@ -636,7 +636,7 @@ impl Entry {
             Entry::Pull(p) => p.key.as_str(),
             Entry::Image(s) => s.key.as_str(),
             Entry::Tree(card) => card.key.as_str(),
-            Entry::Task(line) => line.id.as_str(),
+            Entry::Task(line) => line.key.as_str(),
             Entry::SessionTree(row) => row.key.as_str(),
             Entry::Changed(c) => c.path.as_str(),
             Entry::Commit(c) => c.id.as_str(),
@@ -1171,8 +1171,9 @@ enum Opened {
     /// A message of Agents, by its id, and its first line.
     Message(String, String),
     Process(String, String),
-    /// A task of the timeline, by its id, and its title.
-    Task(String, String),
+    /// A task of the timeline, by the session it is of when not the one
+    /// shown, its id, and its title.
+    Task(Option<String>, String, String),
     /// A prompt, by its row's key, and its first line.
     Prompt(String, String),
 }
@@ -1239,7 +1240,15 @@ impl Drill {
     /// The task opened, by its id.
     pub fn task(&self) -> Option<&str> {
         match self.opened.last() {
-            Some(Opened::Task(id, _)) => Some(id),
+            Some(Opened::Task(_, id, _)) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The session the task opened is of, when it is not the one shown.
+    pub fn task_session(&self) -> Option<&str> {
+        match self.opened.last() {
+            Some(Opened::Task(session, ..)) => session.as_deref(),
             _ => None,
         }
     }
@@ -1283,7 +1292,7 @@ impl Drill {
                 Opened::Agent(_, description) => description.clone(),
                 Opened::Message(_, summary) => summary.clone(),
                 Opened::Process(_, name) => name.clone(),
-                Opened::Task(_, title) => title.clone(),
+                Opened::Task(_, _, title) => title.clone(),
                 Opened::Prompt(_, summary) => summary.clone(),
             })
             .collect()
@@ -1351,7 +1360,7 @@ impl Drill {
                 Entry::Agent(a) => Opened::Agent(a.call.clone(), shown_agent(a, 0).0),
                 Entry::Message(n) => Opened::Message(n.id.clone(), n.summary().to_owned()),
                 Entry::Process(p) => Opened::Process(p.key.clone(), p.name.clone()),
-                Entry::Task(t) => Opened::Task(t.id.clone(), t.title.clone()),
+                Entry::Task(t) => Opened::Task(t.session.clone(), t.id.clone(), t.title.clone()),
                 Entry::Changed(c) => Opened::File(c.clone()),
                 Entry::Commit(c) => Opened::Commit(c.clone()),
                 Entry::Prompt(p) => Opened::Prompt(p.key.clone(), p.summary().to_owned()),
@@ -1385,7 +1394,7 @@ impl Drill {
             Opened::Agent(call, _) => call,
             Opened::Message(id, _) => id,
             Opened::Process(key, _) => key,
-            Opened::Task(id, _) => id,
+            Opened::Task(session, id, _) => task_key(session.as_deref(), &id),
             Opened::Prompt(key, _) => key,
         };
         // Where it was is not kept; should it be gone meanwhile, the list's

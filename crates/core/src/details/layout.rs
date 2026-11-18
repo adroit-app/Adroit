@@ -745,13 +745,13 @@ impl Placed {
         self
     }
 
-    const fn shown(mut self, rows: usize) -> Self {
-        self.shown = Some(rows);
+    const fn beside(mut self) -> Self {
+        self.beside = true;
         self
     }
 
-    const fn beside(mut self) -> Self {
-        self.beside = true;
+    const fn scoped(mut self, scope: Scope) -> Self {
+        self.scope = Some(scope);
         self
     }
 
@@ -955,14 +955,17 @@ impl Surface {
                         p(C::Change),
                         p(C::Github),
                         p(C::Pulls),
-                        p(C::Timeline).shown(3),
                         p(C::Timelines),
                         p(C::Running).folded(),
                         p(C::About).folded(),
                     ],
                 ),
                 DetailsTab::new("Code", Icon::GitBranch, &[p(C::Changes), p(C::Log)]),
-                DetailsTab::new("Timeline", Icon::TimelineEvent, &[p(C::Timeline)]),
+                DetailsTab::new(
+                    "Timeline",
+                    Icon::TimelineEvent,
+                    &[p(C::Timelines).scoped(Scope::Environment)],
+                ),
                 DetailsTab::new(
                     "Conversation",
                     Icon::Message,
@@ -1441,7 +1444,7 @@ components = ["timeline"]
                 .map(|p| p.component.name())
                 .collect()
         };
-        s.shift(Slot::Tab(0), 6, -4);
+        s.shift(Slot::Tab(0), 5, -3);
         assert_eq!(
             names(&s),
             [
@@ -1450,7 +1453,6 @@ components = ["timeline"]
                 "running",
                 "github",
                 "pulls",
-                "timeline",
                 "timelines",
                 "about"
             ]
@@ -1463,7 +1465,6 @@ components = ["timeline"]
                 "running",
                 "github",
                 "pulls",
-                "timeline",
                 "timelines",
                 "about",
                 "session"

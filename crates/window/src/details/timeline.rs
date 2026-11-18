@@ -74,7 +74,7 @@ pub(super) fn TimelineRows(
                         TreeRow { key: "{card.key}", card, at, selected: selected == Some(at), now_ms }
                     },
                     Entry::Task(line) => rsx! {
-                        TaskRow { key: "{line.id}", line, at, selected: selected == Some(at) }
+                        TaskRow { key: "{line.key}", line, at, selected: selected == Some(at) }
                     },
                     Entry::More { hidden, .. } => rsx! {
                         MoreRow { key: "more-{at}", hidden, at, selected: selected == Some(at) }
@@ -117,6 +117,9 @@ pub(super) fn SessionTimelineRows(
                     Entry::SessionTree(row) => rsx! {
                         SessionTreeRow { key: "{row.key}", row, at, selected: selected == Some(at), now_ms }
                     },
+                    Entry::Task(line) => rsx! {
+                        TaskRow { key: "{line.key}", line, at, selected: selected == Some(at) }
+                    },
                     Entry::More { hidden, .. } => rsx! {
                         MoreRow { key: "more-{at}", hidden, at, selected: selected == Some(at) }
                     },
@@ -127,22 +130,38 @@ pub(super) fn SessionTimelineRows(
     }
 }
 
-/// A session by its newest tree: its name and the tree's status, bar and
-/// share, with the tree's title beside how far it has come.
+/// A session by its newest tree, which folds and unfolds its tasks: its
+/// name, which shows the session, and the tree's status, bar and share, with
+/// the tree's title beside how far it has come.
 #[component]
 fn SessionTreeRow(row: SessionTree, at: usize, selected: bool, now_ms: u64) -> Element {
     let app = use_context::<AppCtx>();
     let card = &row.card;
     let tone = state_tone(&row.state);
+    let session = row.session.clone();
     rsx! {
         ListRow {
             kind: "timeline-tree session-timeline",
             selected,
-            title: "Show {row.name}",
+            title: if card.folded { "Show its tasks" } else { "Hide its tasks" },
             onclick: move |_| app.dispatch(Msg::DetailsClick(at)),
             div { class: "timeline-tree-head",
+                crate::icons::IconView {
+                    icon: if card.folded { crate::icons::Icon::ChevronRight } else { crate::icons::Icon::ChevronDown },
+                    size: 12,
+                }
                 span { class: "state-glyph {tone}", crate::icons::IconView { icon: crate::icons::Icon::Terminal2, size: 12 } }
-                span { class: "list-row-name timeline-tree-title", "{row.name}" }
+                button {
+                    class: "list-row-name timeline-tree-title session-timeline-name",
+                    r#type: "button",
+                    title: "Show {row.name}",
+                    onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+                    onclick: move |e: Event<MouseData>| {
+                        e.stop_propagation();
+                        app.dispatch(Msg::ShowSession(app.shown_environment(), session.clone()));
+                    },
+                    "{row.name}"
+                }
                 Chip { status: card.status }
             }
             div { class: "timeline-tree-bar",

@@ -155,6 +155,8 @@
 .timeline-tree-title { font-weight: 500; }
 .timeline-tree-head .icon { flex: none; color: var(--text-3); }
 .timeline-tree-title { white-space: normal; overflow-wrap: anywhere; }
+.session-timeline-name { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 500; text-align: left; cursor: pointer; }
+.session-timeline-name:hover { text-decoration: underline; }
 .timeline { container-type: inline-size; }
 @container (max-width: 320px) {
   .timeline .timeline-bar.small { display: none; }

@@ -15,9 +15,9 @@ use adroit_protocol::{
 
 use super::{
     Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, Listing, Placed,
-    PullRow, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TreeCard,
-    View, about, context_gauge, file_link, gauges, grouped, newest_first, related, running,
-    task_detail, timeline_entries, tree_at,
+    PullRow, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TaskLine,
+    TreeCard, View, about, context_gauge, file_link, gauges, grouped, newest_first, related,
+    running, session_tree_at, task_detail, timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
@@ -84,6 +84,9 @@ pub struct Details {
     /// The timeline's trees the user folded or unfolded against how they
     /// show at first, by the session and the tree.
     pub trees: HashSet<(String, String)>,
+    /// The trees of the session timelines the user folded, by the session
+    /// and the tree; the rest show their tasks.
+    pub session_trees: HashSet<(String, String)>,
     pub shown: Shown,
     /// The tab last shown of each subject.
     tabs: HashMap<Subject, usize>,
@@ -377,6 +380,10 @@ pub(crate) fn click(details: &mut Details, work: Option<&WorkSnapshot>, at: usiz
             fold_tree(details, card, !card.folded);
             Vec::new()
         }
+        Some(Entry::SessionTree(row)) => {
+            fold_session_tree(details, row, !row.card.folded);
+            Vec::new()
+        }
         Some(entry) => opened(details, &l, entry, Opening::Existing),
         None => Vec::new(),
     }
@@ -511,6 +518,10 @@ fn opened(details: &mut Details, l: &Listing, entry: &Entry, how: Opening) -> Ve
             fold_tree(details, card, !card.folded);
             Vec::new()
         }
+        Entry::SessionTree(row) => {
+            fold_session_tree(details, row, !row.card.folded);
+            Vec::new()
+        }
         entry => used(details, entry, Use::Open(how)),
     }
 }
@@ -529,15 +540,35 @@ fn pressed_on_timeline(
         return None;
     };
     let at = details.drill.selected(l)?;
-    let (card, shut) = match (chosen?, key) {
-        (Entry::Tree(card), Key::Open | Key::OpenIn(Opening::Existing)) => {
-            (card.clone(), !card.folded)
+    let opens = matches!(key, Key::Open | Key::OpenIn(Opening::Existing));
+    let aimed = match (chosen?, key) {
+        (Entry::Tree(card), _) if opens => {
+            fold_tree(details, card, !card.folded);
+            card.key.clone()
         }
-        (Entry::Tree(_) | Entry::Task(_), Key::Fold) => (tree_at(entries, at)?.clone(), true),
+        (Entry::SessionTree(row), _) if opens => {
+            fold_session_tree(details, row, !row.card.folded);
+            row.key.clone()
+        }
+        (Entry::SessionTree(_), Key::Fold)
+        | (
+            Entry::Task(TaskLine {
+                session: Some(_), ..
+            }),
+            Key::Fold,
+        ) => {
+            let row = session_tree_at(entries, at)?.clone();
+            fold_session_tree(details, &row, true);
+            row.key
+        }
+        (Entry::Tree(_) | Entry::Task(_), Key::Fold) => {
+            let card = tree_at(entries, at)?.clone();
+            fold_tree(details, &card, true);
+            card.key
+        }
         _ => return None,
     };
-    fold_tree(details, &card, shut);
-    details.drill.aim(&card.key);
+    details.drill.aim(&aimed);
     if let Some(now) = entry_listing(details, work) {
         details.drill.refreshed(&now);
     }
@@ -554,6 +585,54 @@ fn fold_tree(details: &mut Details, card: &TreeCard, shut: bool) {
         details.trees.remove(&key);
     } else {
         details.trees.insert(key);
+    }
+}
+
+/// The session timelines' `rows` under their heading, each card with its
+/// tasks unless folded: a `folded` group shows its heading alone, and one not
+/// among those `opened` shows its `first` sessions and a row for the rest.
+fn session_timelines(
+    rows: Vec<(SessionTree, Timeline)>,
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let group = Group::Timelines;
+    let shut = folded.contains(&group);
+    let mut out = vec![Entry::Heading {
+        group,
+        count: rows.len(),
+        folded: shut,
+    }];
+    if shut {
+        return out;
+    }
+    let shown = if opened.contains(&group) {
+        rows.len()
+    } else {
+        first.min(rows.len())
+    };
+    let hidden = rows.len() - shown;
+    for (row, timeline) in rows.into_iter().take(shown) {
+        out.extend(row.entries(&timeline));
+    }
+    if hidden > 0 {
+        out.push(Entry::More { group, hidden });
+    }
+    out
+}
+
+/// The tree of the session timelines' `row` folded, when `shut`, or
+/// unfolded.
+fn fold_session_tree(details: &mut Details, row: &SessionTree, shut: bool) {
+    let key = (row.session.clone(), row.card.id.clone());
+    if shut {
+        details.session_trees.insert(key);
+    } else {
+        details.session_trees.remove(&key);
     }
 }
 
@@ -859,16 +938,16 @@ fn rows_of(
                 .unwrap_or_default();
             let row = |s: &Session| {
                 let read = work.and_then(|w| w.details.sessions.get(&s.id));
-                SessionTree::of(s, &timeline_of(read))
+                let timeline = timeline_of(read);
+                let newest = timeline.trees().pop()?;
+                let shut = details.session_trees.contains(&(s.id.clone(), newest.id));
+                SessionTree::of(s, &timeline, shut).map(|row| (row, timeline))
             };
-            let mut rows: Vec<SessionTree> = others.into_iter().filter_map(row).collect();
-            rows.sort_by_key(|r| std::cmp::Reverse(r.card.started_ms));
-            let rows = row(shown)
-                .into_iter()
-                .chain(rows)
-                .map(Entry::SessionTree)
-                .collect();
-            grouped(Group::Timelines, rows, &folded, opened, first(usize::MAX))
+            let mut rows: Vec<(SessionTree, Timeline)> =
+                others.into_iter().filter_map(row).collect();
+            rows.sort_by_key(|(r, _)| std::cmp::Reverse(r.card.started_ms));
+            let rows: Vec<(SessionTree, Timeline)> = row(shown).into_iter().chain(rows).collect();
+            session_timelines(rows, &folded, opened, first(usize::MAX))
         }
         Component::Running => {
             let processes = read
@@ -1178,10 +1257,18 @@ pub fn opened_prompt(
         .cloned()
 }
 
-/// The task opened.
+/// The task opened, of the session it was opened from.
 pub fn opened_task(details: &Details, work: Option<&WorkSnapshot>) -> Option<TaskDetail> {
     let id = details.drill.task()?;
-    task_detail(&timeline_of(session_read(details, work)), id)
+    task_detail(&timeline_of(task_read(details, work)), id)
+}
+
+/// What was read of the session the task opened is of.
+fn task_read<'a>(details: &Details, work: Option<&'a WorkSnapshot>) -> Option<&'a SessionRead> {
+    match details.drill.task_session() {
+        Some(session) => work?.details.sessions.get(session),
+        None => session_read(details, work),
+    }
 }
 
 /// The sessions of `tree` besides `shown` that `scope` takes in: those tied
@@ -1388,10 +1475,13 @@ pub(crate) fn forget_gone(details: &mut Details, work: Option<&DetailsWork>) {
         !read
             .and_then(|r| r.processes.as_ref())
             .is_some_and(|rows| rows.iter().any(|p| p.key == key))
-    }) || details
-        .drill
-        .task()
-        .is_some_and(|id| timeline_of(read).task(id).is_none());
+    }) || details.drill.task().is_some_and(|id| {
+        let read = match details.drill.task_session() {
+            Some(session) => work.and_then(|w| w.sessions.get(session)),
+            None => read,
+        };
+        timeline_of(read).task(id).is_none()
+    });
     if gone {
         details.drill.back();
     }
@@ -2074,6 +2164,7 @@ pub(crate) mod tests {
         Some(match &entries[at] {
             Entry::Tree(card) => format!("tree {}", card.id),
             Entry::Task(line) => line.id.clone(),
+            Entry::SessionTree(row) => row.key.clone(),
             other => format!("{other:?}"),
         })
     }
@@ -2292,7 +2383,8 @@ pub(crate) mod tests {
             .send(shown(Some("a"), Some("/w")))
     }
 
-    fn session_trees(run: &Scenario) -> Vec<String> {
+    /// The rows of the session timelines, the sessions' tasks among them.
+    fn session_rows(run: &Scenario) -> Vec<String> {
         let Some(Listing::Entries(entries)) = entries_of(run) else {
             return Vec::new();
         };
@@ -2300,10 +2392,23 @@ pub(crate) mod tests {
             .iter()
             .map(|e| match e {
                 Entry::SessionTree(row) => format!("{} {}", row.session, row.card.id),
+                Entry::Task(TaskLine {
+                    session: Some(session),
+                    id,
+                    ..
+                }) => format!("{session}: {id}"),
                 Entry::Heading { group, .. } => group.title().to_string(),
                 Entry::More { hidden, .. } => format!("more {hidden}"),
                 other => format!("{other:?}"),
             })
+            .collect()
+    }
+
+    /// The rows of the session timelines, their tasks left out.
+    fn session_trees(run: &Scenario) -> Vec<String> {
+        session_rows(run)
+            .into_iter()
+            .filter(|r| !r.contains(": "))
             .collect()
     }
 
@@ -2352,10 +2457,54 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn opening_a_session_s_timeline_shows_the_session_and_copying_it_copies_its_name() {
-        let run = || crew("\"timelines\"").send(Msg::DetailsKey(Key::Down));
-        let opened = run().send(Msg::DetailsKey(Key::Open));
-        assert_eq!(local(&opened), [Effect::ShowSession(here(), "b".into())]);
+    fn each_session_s_tree_shows_its_tasks_until_its_card_folds_it() {
+        let run = crew("\"timelines\"");
+        assert_eq!(
+            session_rows(&run),
+            ["a ta", "a: ta-1", "a: ta-2", "b tb", "b: tb-1", "b: tb-2"]
+        );
+        let folded = run.send_all([
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Down),
+            Msg::DetailsKey(Key::Open),
+        ]);
+        assert_eq!(
+            session_rows(&folded),
+            ["a ta", "a: ta-1", "a: ta-2", "b tb"]
+        );
+        assert_eq!(selected_key(&folded).as_deref(), Some("\0session tree:b"));
+        let from_task = folded.send_all([
+            Msg::DetailsClick(3),
+            Msg::DetailsKey(Key::Up),
+            Msg::DetailsKey(Key::Fold),
+        ]);
+        assert_eq!(
+            session_rows(&from_task),
+            ["a ta", "b tb", "b: tb-1", "b: tb-2"]
+        );
+    }
+
+    #[test]
+    fn a_task_of_another_session_opens_its_history() {
+        let opened = crew("\"timelines\"").send_all([Msg::DetailsClick(5)]);
+        let detail = opened_task(
+            &opened.state().details,
+            opened.state().hosts.own().work.as_ref(),
+        )
+        .unwrap();
+        assert_eq!(
+            (detail.tree.as_str(), detail.task.title.as_str()),
+            ("TB", "Two")
+        );
+        let back = opened.send(Msg::DetailsKey(Key::Fold));
+        assert_eq!(back.state().details.drill.task(), None);
+        assert_eq!(selected_key(&back).as_deref(), Some("tb-2"));
+    }
+
+    #[test]
+    fn copying_a_session_s_tree_copies_the_session_s_name() {
+        let run = || crew("\"timelines\"").send(Msg::DetailsClick(3));
         let copied = run().send(Msg::DetailsKey(Key::Copy));
         assert_eq!(
             local(&copied),
