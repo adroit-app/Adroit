@@ -142,13 +142,19 @@ local function apply(theme)
 end
 
 local function stop()
-  for _, key in ipairs({ 'watcher', 'retry' }) do
-    if state[key] then
-      state[key]:stop()
-      state[key]:close()
-      state[key] = nil
-    end
+  if state.poll then
+    state.poll:stop()
+    state.poll:close()
+    state.poll = nil
   end
+end
+
+-- What tells one file put in the theme file's place from another.
+local function stamp()
+  local stat = file and vim.uv.fs_stat(file)
+  return stat
+      and string.format('%d %d.%09d %d', stat.ino, stat.mtime.sec, stat.mtime.nsec, stat.size)
+    or ''
 end
 
 local function current()
@@ -160,65 +166,32 @@ local function changed()
     stop()
     return
   end
-  local text = current()
-  if text and text ~= state.text then
+  if stamp() ~= state.stamp then
     vim.cmd.colorscheme('adroit')
   end
 end
 
--- The work host replaces the file rather than writing into it, so it is the
--- folder that is watched: a watch on the file would end with the file it was
--- put on.
+-- Looked at again and again rather than watched for events: a watch sees
+-- changes only a moment after it starts, as macOS's FSEvents does, and one on
+-- a folder not made yet cannot start at all, while each look here compares the
+-- file with the one stamped before it was read.
 local function watch()
-  if state.watcher or state.retry or not file then
+  if state.poll or not file then
     return
   end
-  local watcher = vim.uv.new_fs_event()
-  if not watcher then
+  local poll = vim.uv.new_timer()
+  if not poll then
     return
   end
-  local ok = watcher:start(vim.fs.dirname(file), {}, function()
+  state.poll = poll
+  poll:start(250, 250, function()
     vim.schedule(changed)
-  end)
-  if ok then
-    state.watcher = watcher
-    -- A watch may see changes only a moment after it starts, as macOS's
-    -- FSEvents does, all the more on a busy machine: a file replaced in that
-    -- moment is read again once the watch surely sees.
-    for _, after in ipairs({ 1000, 4000 }) do
-      vim.defer_fn(changed, after)
-    end
-    return
-  end
-  watcher:close()
-  -- The folder is made with the work host's first write, which a Neovim
-  -- started at once may come before: tried again until it can be watched.
-  local retry = vim.uv.new_timer()
-  if not retry then
-    return
-  end
-  state.retry = retry
-  retry:start(1000, 1000, function()
-    vim.schedule(function()
-      if state.retry ~= retry then
-        return
-      end
-      if vim.fn.isdirectory(vim.fs.dirname(file)) == 1 then
-        retry:stop()
-        retry:close()
-        state.retry = nil
-        watch()
-        changed()
-      elseif vim.g.colors_name ~= 'adroit' then
-        stop()
-      end
-    end)
   end)
 end
 
+state.stamp = stamp()
 local text = current()
 local theme = text and read(text)
-state.text = theme and text or nil
 if theme then
   apply(theme)
 else
