@@ -18,6 +18,7 @@ pub use adroit_model::Note;
 mod environment;
 mod layout;
 pub(crate) mod panel;
+mod pulls;
 mod rows;
 mod system;
 mod timeline;
@@ -25,6 +26,7 @@ mod timeline;
 pub use environment::*;
 pub use layout::*;
 pub use panel::*;
+pub use pulls::*;
 pub use rows::*;
 pub use system::*;
 pub use timeline::*;
@@ -521,6 +523,7 @@ pub enum Group {
     Artifacts,
     Images,
     Links,
+    Pulls,
     Files,
     Timeline,
     /// The newest tree of each session in scope.
@@ -553,6 +556,7 @@ impl Group {
             Group::Artifacts => "Artifacts",
             Group::Images => "Images",
             Group::Links => "Links",
+            Group::Pulls => "Pull requests",
             Group::Files => "Files",
             Group::Timeline => "Timeline",
             Group::Timelines => "Session timelines",
@@ -578,6 +582,8 @@ pub enum Entry {
     Process(adroit_model::Process),
     Fact(Fact),
     Link(Link),
+    /// A pull request the conversation brought up.
+    Pull(PullRow),
     Image(Shot),
     /// A tree of the timeline, heading its tasks.
     Tree(TreeCard),
@@ -612,6 +618,7 @@ impl Entry {
                 Group::Artifacts => "\0artifacts",
                 Group::Images => "\0images",
                 Group::Links => "\0links",
+                Group::Pulls => "\0pulls",
                 Group::Files => "\0files",
                 Group::Timeline => "\0timeline",
                 Group::Timelines => "\0timelines",
@@ -626,6 +633,7 @@ impl Entry {
             Entry::Process(p) => &p.key,
             Entry::Fact(f) => f.label,
             Entry::Link(l) => l.target.as_str(),
+            Entry::Pull(p) => p.key.as_str(),
             Entry::Image(s) => s.key.as_str(),
             Entry::Tree(card) => card.key.as_str(),
             Entry::Task(line) => line.id.as_str(),
@@ -642,6 +650,7 @@ impl Entry {
                 Group::Artifacts => "\0more artifacts",
                 Group::Images => "\0more images",
                 Group::Links => "\0more links",
+                Group::Pulls => "\0more pulls",
                 Group::Files => "\0more files",
                 Group::Timeline => "\0more timeline",
                 Group::Timelines => "\0more timelines",
@@ -663,6 +672,7 @@ impl Entry {
             Entry::Process(_) => Group::Running,
             Entry::Fact(_) => Group::About,
             Entry::Link(l) => Group::of(&l.kind),
+            Entry::Pull(_) => Group::Pulls,
             Entry::Image(_) => Group::Images,
             Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
             Entry::SessionTree(_) => Group::Timelines,
@@ -1046,6 +1056,13 @@ pub fn said(group: Group, rows: &[Entry]) -> String {
             )
         }
         Group::Images => plural(n as u64, "image", "images"),
+        Group::Pulls => line(
+            plural(n as u64, "pull request", "pull requests"),
+            names(&|e| match e {
+                Entry::Pull(p) => Some(p.reference()),
+                _ => None,
+            }),
+        ),
         Group::Prompts => line(
             plural(n as u64, "prompt", "prompts"),
             rows.iter()

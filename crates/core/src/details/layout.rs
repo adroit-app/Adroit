@@ -54,6 +54,8 @@ pub enum Component {
     Images,
     /// The other web addresses the conversation brought up.
     Links,
+    /// The GitHub pull requests the conversation brought up.
+    Pulls,
     /// The files the session wrote, edited, read or named.
     Files,
     /// The current change's description and the files it changes.
@@ -172,6 +174,7 @@ impl Component {
         Component::Artifacts,
         Component::Images,
         Component::Links,
+        Component::Pulls,
         Component::Files,
         Component::Changes,
         Component::Log,
@@ -216,6 +219,7 @@ impl Component {
             Component::Artifacts => "artifacts",
             Component::Images => "images",
             Component::Links => "links",
+            Component::Pulls => "pulls",
             Component::Files => "files",
             Component::Changes => "changes",
             Component::Log => "log",
@@ -261,6 +265,7 @@ impl Component {
             Component::Artifacts => "Artifacts",
             Component::Images => "Images",
             Component::Links => "Links",
+            Component::Pulls => "Pull requests",
             Component::Files => "Files",
             Component::Changes => "Changes",
             Component::Log => "Log",
@@ -316,6 +321,9 @@ impl Component {
             Component::Artifacts => "The claude.ai artifacts the conversation brought up.",
             Component::Images => "The images the console drew and the image files seen.",
             Component::Links => "The other web addresses the conversation brought up.",
+            Component::Pulls => {
+                "The pull requests the conversation brought up, as GitHub last told of them."
+            }
             Component::Files => "The files the session wrote, edited, read or named.",
             Component::Changes => "The current change's description and its files.",
             Component::Log => "The changes that lead to the worktree, as a graph.",
@@ -371,6 +379,7 @@ impl Component {
             Component::Artifacts => Icon::AppWindow,
             Component::Images => Icon::Photo,
             Component::Links => Icon::Link,
+            Component::Pulls => Icon::GitPullRequest,
             Component::Files => Icon::File,
             Component::Changes => Icon::FileDiff,
             Component::Log => Icon::GitCommit,
@@ -414,9 +423,11 @@ impl Component {
             | Component::Messages
             | Component::Subagents
             | Component::Prompts => Kind::Session,
-            Component::Artifacts | Component::Images | Component::Links | Component::Files => {
-                Kind::Resources
-            }
+            Component::Artifacts
+            | Component::Images
+            | Component::Links
+            | Component::Pulls
+            | Component::Files => Kind::Resources,
             Component::Changes
             | Component::Log
             | Component::Github
@@ -588,6 +599,7 @@ impl Component {
                 | Component::Artifacts
                 | Component::Images
                 | Component::Links
+                | Component::Pulls
                 | Component::Files
                 | Component::Prompts
                 | Component::Profiles
@@ -942,6 +954,7 @@ impl Surface {
                         p(C::Session),
                         p(C::Change),
                         p(C::Github),
+                        p(C::Pulls),
                         p(C::Timeline).shown(3),
                         p(C::Timelines),
                         p(C::Running).folded(),
@@ -1428,7 +1441,7 @@ components = ["timeline"]
                 .map(|p| p.component.name())
                 .collect()
         };
-        s.shift(Slot::Tab(0), 5, -3);
+        s.shift(Slot::Tab(0), 6, -4);
         assert_eq!(
             names(&s),
             [
@@ -1436,6 +1449,7 @@ components = ["timeline"]
                 "change",
                 "running",
                 "github",
+                "pulls",
                 "timeline",
                 "timelines",
                 "about"
@@ -1448,6 +1462,7 @@ components = ["timeline"]
                 "change",
                 "running",
                 "github",
+                "pulls",
                 "timeline",
                 "timelines",
                 "about",

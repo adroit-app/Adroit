@@ -88,6 +88,7 @@ icons! {
     FolderUp => "folder-up",
     GitBranch => "git-branch",
     GitCommit => "git-commit",
+    GitPullRequest => "git-pull-request",
     Gpu => "gpu",
     InfoCircle => "info-circle",
     Keyboard => "keyboard",
