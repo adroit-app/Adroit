@@ -32,6 +32,8 @@ pub enum Component {
     /// The task trees the session's agent recorded; folded, a summary of the
     /// one at work.
     Timeline,
+    /// The newest task tree of each session its scope takes in.
+    Timelines,
     /// What works for the session right now: subagents at work, live work
     /// processes and sessions tied to it that still run.
     Running,
@@ -160,6 +162,7 @@ impl Component {
         Component::Session,
         Component::Change,
         Component::Timeline,
+        Component::Timelines,
         Component::Running,
         Component::Processes,
         Component::About,
@@ -203,6 +206,7 @@ impl Component {
             Component::Session => "session",
             Component::Change => "change",
             Component::Timeline => "timeline",
+            Component::Timelines => "timelines",
             Component::Running => "running",
             Component::Processes => "processes",
             Component::About => "about",
@@ -247,6 +251,7 @@ impl Component {
             Component::Session => "Session",
             Component::Change => "Current change",
             Component::Timeline => "Timeline",
+            Component::Timelines => "Session timelines",
             Component::Running => "Running",
             Component::Processes => "Processes",
             Component::About => "About",
@@ -296,6 +301,9 @@ impl Component {
             }
             Component::Timeline => {
                 "The task trees the session's agent recorded, the newest first, each folding on its own."
+            }
+            Component::Timelines => {
+                "The newest task tree of each session its scope takes in, side by side."
             }
             Component::Running => {
                 "Subagents at work, live processes and tied sessions still running; folded, how many of each."
@@ -353,6 +361,7 @@ impl Component {
             Component::Session => Icon::Terminal2,
             Component::Change => Icon::GitBranch,
             Component::Timeline => Icon::TimelineEvent,
+            Component::Timelines => Icon::Timeline,
             Component::Running => Icon::Loader,
             Component::Processes => Icon::Terminal,
             Component::About => Icon::InfoCircle,
@@ -397,6 +406,7 @@ impl Component {
             Component::Session
             | Component::Change
             | Component::Timeline
+            | Component::Timelines
             | Component::Running
             | Component::Processes
             | Component::About
@@ -568,7 +578,8 @@ impl Component {
     pub fn folds(self) -> bool {
         matches!(
             self,
-            Component::Running
+            Component::Timelines
+                | Component::Running
                 | Component::Processes
                 | Component::About
                 | Component::Sessions
@@ -606,6 +617,45 @@ pub struct Placed {
     pub icon: Option<String>,
     /// Whether a button shows its icon alone, its label only as its tip.
     pub icon_only: bool,
+    /// The sessions the session timelines take in; as Adroit has it when
+    /// unset.
+    pub scope: Option<Scope>,
+}
+
+/// Which sessions the session timelines take in, beside the one shown.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum Scope {
+    /// The one that opened it, those it opened, and those it messaged or
+    /// heard from.
+    #[default]
+    Related,
+    /// Every session in its workspace.
+    Workspace,
+    /// Every session of its environment.
+    Environment,
+}
+
+impl Scope {
+    pub const ALL: [Scope; 3] = [Scope::Related, Scope::Workspace, Scope::Environment];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Scope::Related => "related",
+            Scope::Workspace => "workspace",
+            Scope::Environment => "environment",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Scope::Related => "Related sessions",
+            Scope::Workspace => "Its workspace",
+            Scope::Environment => "Its environment",
+        }
+    }
 }
 
 /// How a button is coloured.
@@ -659,6 +709,11 @@ impl Placed {
         self.tone.unwrap_or(self.component.tone())
     }
 
+    /// The sessions it takes in, of the session timelines.
+    pub fn scope(&self) -> Scope {
+        self.scope.unwrap_or_default()
+    }
+
     pub const fn new(component: Component) -> Self {
         Self {
             component,
@@ -669,6 +724,7 @@ impl Placed {
             tone: None,
             icon: None,
             icon_only: false,
+            scope: None,
         }
     }
 
@@ -708,6 +764,7 @@ impl Placed {
             && self.tone.is_none()
             && self.icon.is_none()
             && !self.icon_only
+            && self.scope.is_none()
     }
 }
 
@@ -745,6 +802,9 @@ enum PlacedFile {
             skip_serializing_if = "std::ops::Not::not"
         )]
         icon_only: bool,
+        /// The sessions the session timelines take in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<Scope>,
     },
 }
 
@@ -778,6 +838,7 @@ impl Serialize for Placed {
                 tone: self.tone,
                 icon: self.icon.clone(),
                 icon_only: self.icon_only,
+                scope: self.scope,
             }
             .serialize(s)
         }
@@ -797,6 +858,7 @@ impl<'de> Deserialize<'de> for Placed {
                 tone,
                 icon,
                 icon_only,
+                scope,
             } => Placed {
                 component,
                 title,
@@ -806,6 +868,7 @@ impl<'de> Deserialize<'de> for Placed {
                 tone,
                 icon,
                 icon_only,
+                scope,
             },
         })
     }
@@ -880,6 +943,7 @@ impl Surface {
                         p(C::Change),
                         p(C::Github),
                         p(C::Timeline).shown(3),
+                        p(C::Timelines),
                         p(C::Running).folded(),
                         p(C::About).folded(),
                     ],
@@ -1364,18 +1428,30 @@ components = ["timeline"]
                 .map(|p| p.component.name())
                 .collect()
         };
-        s.shift(Slot::Tab(0), 4, -2);
+        s.shift(Slot::Tab(0), 5, -3);
         assert_eq!(
             names(&s),
             [
-                "session", "change", "running", "github", "timeline", "about"
+                "session",
+                "change",
+                "running",
+                "github",
+                "timeline",
+                "timelines",
+                "about"
             ]
         );
         s.shift(Slot::Tab(0), 0, 9);
         assert_eq!(
             names(&s),
             [
-                "change", "running", "github", "timeline", "about", "session"
+                "change",
+                "running",
+                "github",
+                "timeline",
+                "timelines",
+                "about",
+                "session"
             ]
         );
     }
@@ -1482,6 +1558,31 @@ components = ["timeline"]
         assert_eq!(start.tone(), Tone::Plain);
         let text = toml::to_string(&layout).unwrap();
         assert_eq!(parse(&text).unwrap(), layout);
+    }
+
+    #[test]
+    fn the_session_timelines_take_in_the_sessions_tied_to_the_one_shown_unless_placed_wider() {
+        let layout = parse(
+            "[[session.tabs]]\ntitle = \"T\"\n\
+             components = [\"timelines\", { component = \"timelines\", scope = \"workspace\" }, { component = \"timelines\", scope = \"environment\" }]\n",
+        )
+        .unwrap();
+        let surface = layout.session.clone().unwrap();
+        let scopes: Vec<Scope> = surface.tabs[0]
+            .components
+            .iter()
+            .map(Placed::scope)
+            .collect();
+        assert_eq!(
+            scopes,
+            [Scope::Related, Scope::Workspace, Scope::Environment]
+        );
+        let text = toml::to_string(&layout).unwrap();
+        assert_eq!(parse(&text).unwrap(), layout);
+        assert!(
+            parse("[[session.tabs]]\ntitle = \"T\"\ncomponents = [{ component = \"timelines\", scope = \"galaxy\" }]\n")
+                .is_err()
+        );
     }
 
     #[test]

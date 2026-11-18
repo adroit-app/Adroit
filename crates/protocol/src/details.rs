@@ -56,6 +56,11 @@ pub struct Sight {
     /// The terminals the window's tabs show, in any of their windows.
     #[serde(with = "crate::wire::wide_set")]
     pub terminals: BTreeSet<u128>,
+    /// The sessions besides the one shown, by their ids, whose timelines the
+    /// details list while they are open. Left off the wire when none, so a
+    /// sight reads the same to a host that knows nothing of it.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub timelines: BTreeSet<String>,
 }
 
 impl Sight {

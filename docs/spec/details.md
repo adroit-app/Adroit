@@ -20,7 +20,7 @@ no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
 change, the branch's pull request, the three newest trees of its timeline,
-what runs for it and About), Code (changes and log), Timeline, Conversation (prompts,
+the timelines of the sessions tied to it, what runs for it and About), Code (changes and log), Timeline, Conversation (prompts,
 messages, subagents and sessions) and Resources (files, links, artifacts and
 images), over a foot of the conversation's context, the account's limits and
 the machine's load. An environment's has the tabs Overview (its connection,
@@ -47,6 +47,13 @@ window or such a row is described.
 - **timeline** — the task trees the session's agent recorded of its work
   ([below](#the-timeline)). Each tree folds on its own; `shown` is how many
   of the newest it shows before a row that shows them all.
+- **timelines** — the session and the others its `scope` takes in, side by
+  side, each by the newest tree its agent recorded. `related`, as Adroit
+  has it, takes in the
+  sessions tied to it as **sessions** lists them; `workspace` every session
+  of its workspace; `environment` every session of its environment. A
+  session whose agent recorded no tree is left out. Opening one shows the
+  session; copying it copies its name.
 - **running** — what works for the session right now: the subagents still at
   work, its live work processes, and the sessions tied to it that still run.
 - **processes** — its live work processes alone.
@@ -165,7 +172,8 @@ components = [
 - A component is written by its name, or as a table with its name in
   `component` and how it shows there: `folded` starts it folded or
   unfolded, `shown` is how many rows it shows before a row that shows them
-  all, and `beside` puts it beside the one before it on the same line. A
+  all, `beside` puts it beside the one before it on the same line, and
+  `scope` is which sessions **timelines** takes in. A
   section's `title` is what it says; a button's `title` is its label,
   `icon` its icon, none when empty, `icon-only` hides its label, and `tone`
   colours it `plain`, `primary` or `danger`. Unset, a component shows as

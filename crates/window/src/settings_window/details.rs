@@ -4,7 +4,7 @@
 //! given onto it.
 
 use adroit_core::details::{
-    Component, DetailsLayout, Kind, Part, Placed, Slot, Subject, Surface, Tone, runs,
+    Component, DetailsLayout, Kind, Part, Placed, Scope, Slot, Subject, Surface, Tone, runs,
 };
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -449,6 +449,22 @@ fn Options(
                     }
                 }
             }
+            if c == Component::Timelines {
+                div { class: "dl-option",
+                    span { "Sessions" }
+                    div { class: "dl-tones",
+                        for scope in Scope::ALL {
+                            button {
+                                key: "{scope.name()}",
+                                class: if placed.scope() == scope { "dl-tone on" } else { "dl-tone" },
+                                r#type: "button",
+                                onclick: move |_| change(Box::new(move |p: &mut Placed| p.scope = Some(scope))),
+                                "{scope.title()}"
+                            }
+                        }
+                    }
+                }
+            }
             if c.folds() {
                 div { class: "dl-option",
                     span { "Starts folded" }
@@ -460,7 +476,7 @@ fn Options(
             }
             if c.pages() {
                 div { class: "dl-option",
-                    span { if c == Component::Timeline { "Trees before Show all" } else { "Rows before Show all" } }
+                    span { match c { Component::Timeline => "Trees before Show all", Component::Timelines => "Sessions before Show all", _ => "Rows before Show all" } }
                     NumberField {
                         min: "1",
                         max: "99",

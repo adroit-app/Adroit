@@ -366,6 +366,7 @@ pub(crate) fn sight(state: &ViewState, environment: &EnvironmentId) -> Sight {
     let shown_part = if shown {
         Sight {
             commands: prompt::commands_sight(state),
+            timelines: details::timelines_wanted(&state.details, state.hosts.work(environment)),
             ..details::sight(&state.details)
         }
     } else {

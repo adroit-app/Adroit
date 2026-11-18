@@ -54,6 +54,17 @@ impl Fact {
     }
 }
 
+/// The tone a session's `state` is drawn in.
+pub fn state_tone(state: &State) -> &'static str {
+    match state {
+        State::Waiting(_) => "wait",
+        State::Working | State::Background => "run",
+        State::Done => "done",
+        State::Failed => "fail",
+        State::Starting | State::Idle => "idle",
+    }
+}
+
 /// What the overview's head says of how the session `s` stands now, at
 /// `now_ms` since the Unix epoch.
 pub fn overview_facts(
@@ -66,13 +77,13 @@ pub fn overview_facts(
     if let Some(model) = &stats.model {
         out.push(Fact::plain("Model", model.clone()));
     }
-    let (state, tone) = match &s.state {
-        State::Waiting(why) => (format!("waiting · {why}"), "wait"),
-        other @ (State::Working | State::Background) => (other.word().into(), "run"),
-        State::Done => ("done".into(), "done"),
-        State::Failed => ("failed".into(), "fail"),
-        other @ (State::Starting | State::Idle) => (other.word().into(), "idle"),
+    let state = match &s.state {
+        State::Waiting(why) => format!("waiting · {why}"),
+        State::Done => "done".into(),
+        State::Failed => "failed".into(),
+        other => other.word().into(),
     };
+    let tone = state_tone(&s.state);
     // What a program says while it works or once it is done tends to be its
     // session's name, which the details already lead with.
     let note = match (&s.state, &s.status_message) {
@@ -512,6 +523,8 @@ pub enum Group {
     Links,
     Files,
     Timeline,
+    /// The newest tree of each session in scope.
+    Timelines,
     /// The files the working copy changes.
     Changed,
     /// The changes leading to the worktree.
@@ -542,6 +555,7 @@ impl Group {
             Group::Links => "Links",
             Group::Files => "Files",
             Group::Timeline => "Timeline",
+            Group::Timelines => "Session timelines",
             Group::Changed => "Changes",
             Group::Log => "Log",
             Group::Prompts => "Prompts",
@@ -569,6 +583,8 @@ pub enum Entry {
     Tree(TreeCard),
     /// A task of a tree, which opens its history.
     Task(TaskLine),
+    /// A session's newest tree, which shows the session.
+    SessionTree(SessionTree),
     /// A file the working copy changes, which opens its diff.
     Changed(Change),
     /// A change of the log, which opens the files it changed.
@@ -598,6 +614,7 @@ impl Entry {
                 Group::Links => "\0links",
                 Group::Files => "\0files",
                 Group::Timeline => "\0timeline",
+                Group::Timelines => "\0timelines",
                 Group::Changed => "\0changed",
                 Group::Log => "\0log",
                 Group::Prompts => "\0prompts",
@@ -612,6 +629,7 @@ impl Entry {
             Entry::Image(s) => s.key.as_str(),
             Entry::Tree(card) => card.key.as_str(),
             Entry::Task(line) => line.id.as_str(),
+            Entry::SessionTree(row) => row.key.as_str(),
             Entry::Changed(c) => c.path.as_str(),
             Entry::Commit(c) => c.id.as_str(),
             Entry::Prompt(p) => p.key.as_str(),
@@ -626,6 +644,7 @@ impl Entry {
                 Group::Links => "\0more links",
                 Group::Files => "\0more files",
                 Group::Timeline => "\0more timeline",
+                Group::Timelines => "\0more timelines",
                 Group::Changed => "\0more changed",
                 Group::Log => "\0more log",
                 Group::Prompts => "\0more prompts",
@@ -646,6 +665,7 @@ impl Entry {
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Image(_) => Group::Images,
             Entry::Tree(_) | Entry::Task(_) => Group::Timeline,
+            Entry::SessionTree(_) => Group::Timelines,
             Entry::Changed(_) => Group::Changed,
             Entry::Commit(_) => Group::Log,
             Entry::Prompt(_) => Group::Prompts,
@@ -1044,6 +1064,13 @@ pub fn said(group: Group, rows: &[Entry]) -> String {
                     _ => None,
                 })
                 .unwrap_or_default(),
+        ),
+        Group::Timelines => line(
+            plural(n as u64, "session", "sessions"),
+            names(&|e| match e {
+                Entry::SessionTree(row) => Some(row.name.clone()),
+                _ => None,
+            }),
         ),
         Group::Timeline => rows
             .iter()

@@ -500,6 +500,42 @@ fn what_the_host_reads_reaches_the_window_once_and_only_while_shown() {
     assert_eq!(host.work().snapshot().seq, Seq(2));
 }
 
+fn timeline(session: &str) -> DetailsChange {
+    DetailsChange::Timeline {
+        session: session.into(),
+        entries: Vec::new(),
+    }
+}
+
+/// Showing `session` and listing the timelines of `others`.
+fn watch_timelines(session: &str, others: &[&str]) -> Request {
+    Request::Watch(Box::new(Sight {
+        session: Some(session.into()),
+        timelines: others.iter().map(|s| s.to_string()).collect(),
+        ..Default::default()
+    }))
+}
+
+#[test]
+fn the_timelines_of_other_sessions_reach_the_window_only_while_it_lists_them() {
+    let mut host = Host::default();
+    host.on(watch_timelines("a", &["b"]));
+    // (read, what the window is sent)
+    let cases = [
+        (vec![timeline("b")], vec![timeline("b")]),
+        (vec![links("b"), timeline("c")], vec![]),
+    ];
+    for (read, want) in cases {
+        assert_eq!(changes(host.read(read.clone())), want, "{read:?}");
+    }
+    assert_eq!(
+        changes(host.on(watch_timelines("a", &[])).into_iter().next()),
+        vec![DetailsChange::SessionLeft {
+            session: "b".into()
+        }]
+    );
+}
+
 fn listing(dir: Option<&str>) -> Request {
     Request::Watch(Box::new(Sight {
         past: Some(PastSight {

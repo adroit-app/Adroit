@@ -473,6 +473,17 @@ impl Host {
             .cloned()
     }
 
+    /// The sessions listed whose ids are among `ids`.
+    pub(crate) fn listed_among(&self, ids: &BTreeSet<String>) -> Vec<Session> {
+        self.work
+            .tree()
+            .sessions()
+            .iter()
+            .filter(|s| ids.contains(&s.id))
+            .cloned()
+            .collect()
+    }
+
     /// The window `window` opened `terminal`, which every window sees in
     /// its tree at once rather than when the sessions are next listed.
     pub fn terminal_opened(&mut self, terminal: TerminalSession) -> Vec<Sent> {
@@ -724,9 +735,10 @@ fn details_in_sight(change: &DetailsChange, sight: &Sight) -> bool {
         | DetailsChange::Links { session, .. }
         | DetailsChange::Thumbs { session, .. }
         | DetailsChange::Notes { session, .. }
-        | DetailsChange::Processes { session, .. }
-        | DetailsChange::Timeline { session, .. }
-        | DetailsChange::SessionLeft { session } => sight.session.as_ref() == Some(session),
+        | DetailsChange::Processes { session, .. } => sight.session.as_ref() == Some(session),
+        DetailsChange::Timeline { session, .. } | DetailsChange::SessionLeft { session } => {
+            sight.session.as_ref() == Some(session) || sight.timelines.contains(session)
+        }
         DetailsChange::Repository {
             worktree,
             read: RepositoryRead { spot, .. },
