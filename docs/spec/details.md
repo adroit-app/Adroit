@@ -19,7 +19,8 @@ the panel, show the tab of that number ([keys](keys.md)). With a single tab,
 no tabs are drawn.
 
 As Adroit comes, a window's panel has the tabs Overview (the session, its
-change, the branch's pull request, the pull requests it brought up, the
+change, the branch's pull request, the pull requests and issues it brought
+up, the
 timelines of it and the sessions tied to it, what runs for it and About),
 Code (changes and log), Timeline (the timelines of every session of its
 environment), Conversation (prompts,
@@ -92,6 +93,9 @@ window or such a row is described.
   it is a draft and how its checks stand, and one of that repository it no
   longer lists is merged or closed. Opening one open there shows it in
   Adroit, and any other on GitHub; copying one copies its page.
+- **issues** — the GitHub issues the conversation brought up, as **pulls**
+  does pull requests: one GitHub lists open shows its title, and one of the
+  worktree's repository it no longer lists is closed.
 - **prompts** — what was said to the session in its turns, newest first, for
   Claude Code, Codex, Pi and OpenCode alike, each with how long ago; opening
   one shows it whole, and copying it copies its text. What Adroit or the

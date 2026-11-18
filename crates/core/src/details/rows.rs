@@ -8,7 +8,7 @@ use adroit_model::github::Standing as Checked;
 use adroit_model::links::{Kind as LinkKind, Touch};
 use adroit_model::subagents::Standing;
 
-use super::{Entry, Group, PullState, Source, Tie, shown_agent, shown_link, shown_shot};
+use super::{Entry, Group, ItemState, Source, Tie, shown_agent, shown_link, shown_shot};
 use crate::icons::Icon;
 
 /// How a subagent is marked, by how it stands: the class that colours its
@@ -191,21 +191,25 @@ pub fn link_sections(
                     ..LinkRow::plain(at, icon, label, tag, a.call.clone())
                 })
             }
-            Entry::Pull(p) => {
+            Entry::Item(p) => {
                 let tone = match (p.state, p.checks.as_ref().and_then(|c| c.standing())) {
-                    (PullState::Closed, _) => "state-glyph done",
-                    (PullState::Open, Some(Checked::Failed)) => "state-glyph fail",
-                    (PullState::Open, Some(Checked::Pending)) => "state-glyph run",
-                    (PullState::Open, _) => "state-glyph wait",
-                    (PullState::Unknown, _) => "",
+                    (ItemState::Closed, _) => "state-glyph done",
+                    (ItemState::Open, Some(Checked::Failed)) => "state-glyph fail",
+                    (ItemState::Open, Some(Checked::Pending)) => "state-glyph run",
+                    (ItemState::Open, _) => "state-glyph wait",
+                    (ItemState::Unknown, _) => "",
                 };
                 let label = match &p.title {
                     Some(title) => title.clone(),
                     None => p.reference(),
                 };
+                let icon = match p.listing {
+                    adroit_model::github::Listing::Pulls => Icon::GitPullRequest,
+                    adroit_model::github::Listing::Issues => Icon::CircleDot,
+                };
                 Some(LinkRow {
                     tone,
-                    ..LinkRow::plain(at, Icon::GitPullRequest, label, p.tag(), p.url.clone())
+                    ..LinkRow::plain(at, icon, label, p.tag(), p.url.clone())
                 })
             }
             Entry::Link(link) => {

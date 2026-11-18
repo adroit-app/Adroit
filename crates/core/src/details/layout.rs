@@ -56,6 +56,8 @@ pub enum Component {
     Links,
     /// The GitHub pull requests the conversation brought up.
     Pulls,
+    /// The GitHub issues the conversation brought up.
+    Issues,
     /// The files the session wrote, edited, read or named.
     Files,
     /// The current change's description and the files it changes.
@@ -175,6 +177,7 @@ impl Component {
         Component::Images,
         Component::Links,
         Component::Pulls,
+        Component::Issues,
         Component::Files,
         Component::Changes,
         Component::Log,
@@ -220,6 +223,7 @@ impl Component {
             Component::Images => "images",
             Component::Links => "links",
             Component::Pulls => "pulls",
+            Component::Issues => "issues",
             Component::Files => "files",
             Component::Changes => "changes",
             Component::Log => "log",
@@ -266,6 +270,7 @@ impl Component {
             Component::Images => "Images",
             Component::Links => "Links",
             Component::Pulls => "Pull requests",
+            Component::Issues => "Issues",
             Component::Files => "Files",
             Component::Changes => "Changes",
             Component::Log => "Log",
@@ -324,6 +329,9 @@ impl Component {
             Component::Pulls => {
                 "The pull requests the conversation brought up, as GitHub last told of them."
             }
+            Component::Issues => {
+                "The issues the conversation brought up, as GitHub last told of them."
+            }
             Component::Files => "The files the session wrote, edited, read or named.",
             Component::Changes => "The current change's description and its files.",
             Component::Log => "The changes that lead to the worktree, as a graph.",
@@ -380,6 +388,7 @@ impl Component {
             Component::Images => Icon::Photo,
             Component::Links => Icon::Link,
             Component::Pulls => Icon::GitPullRequest,
+            Component::Issues => Icon::CircleDot,
             Component::Files => Icon::File,
             Component::Changes => Icon::FileDiff,
             Component::Log => Icon::GitCommit,
@@ -427,6 +436,7 @@ impl Component {
             | Component::Images
             | Component::Links
             | Component::Pulls
+            | Component::Issues
             | Component::Files => Kind::Resources,
             Component::Changes
             | Component::Log
@@ -600,6 +610,7 @@ impl Component {
                 | Component::Images
                 | Component::Links
                 | Component::Pulls
+                | Component::Issues
                 | Component::Files
                 | Component::Prompts
                 | Component::Profiles
@@ -955,6 +966,7 @@ impl Surface {
                         p(C::Change),
                         p(C::Github),
                         p(C::Pulls),
+                        p(C::Issues),
                         p(C::Timelines),
                         p(C::Running).folded(),
                         p(C::About).folded(),
@@ -1444,7 +1456,7 @@ components = ["timeline"]
                 .map(|p| p.component.name())
                 .collect()
         };
-        s.shift(Slot::Tab(0), 5, -3);
+        s.shift(Slot::Tab(0), 6, -4);
         assert_eq!(
             names(&s),
             [
@@ -1453,6 +1465,7 @@ components = ["timeline"]
                 "running",
                 "github",
                 "pulls",
+                "issues",
                 "timelines",
                 "about"
             ]
@@ -1465,6 +1478,7 @@ components = ["timeline"]
                 "running",
                 "github",
                 "pulls",
+                "issues",
                 "timelines",
                 "about",
                 "session"

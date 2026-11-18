@@ -121,6 +121,23 @@ pub(super) fn Specimen(placed: Placed) -> Element {
                 },
             ],
         ),
+        Component::Issues => links(
+            "2 issues · acme/app#40, acme/app#12",
+            &[
+                Link {
+                    tone: "state-glyph wait",
+                    ..Link::new(
+                        Icon::CircleDot,
+                        "The login times out behind a proxy",
+                        "open · acme/app#40",
+                    )
+                },
+                Link {
+                    tone: "state-glyph done",
+                    ..Link::new(Icon::CircleDot, "acme/app#12", "closed")
+                },
+            ],
+        ),
         Component::Files => links(
             "3 files · login.rs, retry.rs, README.md",
             &[
@@ -284,6 +301,7 @@ fn folded_said(c: Component) -> String {
         Component::Images => "2 images".into(),
         Component::Links => "2 links · docs.rs, www.rfc-editor.org".into(),
         Component::Pulls => "2 pull requests · acme/app#42, acme/app#37".into(),
+        Component::Issues => "2 issues · acme/app#40, acme/app#12".into(),
         Component::Files => "3 files · login.rs, retry.rs, README.md".into(),
         Component::Prompts => "2 prompts · latest: Add a test for the second timeout".into(),
         Component::Processes => "2 processes · cargo, node".into(),
