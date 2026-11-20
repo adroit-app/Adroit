@@ -29,8 +29,8 @@ const MODULES: &[(&str, &str)] = &[
 ];
 
 /// The Neovim adroit runs for the Neovims it embeds: the program
-/// `ADROIT_NVIM` names, else the one the app carries, else `nvim` found on
-/// `PATH`. Tests run it too, so that a Neovim to be shipped is tested by
+/// `ADROIT_NVIM` names, else the one the release carries, else `nvim` found
+/// on `PATH`. Tests run it too, so that a Neovim to be shipped is tested by
 /// naming it.
 pub fn program() -> String {
     chosen(
@@ -39,8 +39,8 @@ pub fn program() -> String {
     )
 }
 
-/// The Neovim `named` names, else the one the app whose executable is `exe`
-/// carries, else `nvim` found on `PATH`.
+/// The Neovim `named` names, else the one the release whose executable is
+/// `exe` carries, else `nvim` found on `PATH`.
 fn chosen(named: Option<String>, exe: Option<&Path>) -> String {
     if let Some(named) = named.filter(|n| !n.is_empty()) {
         return named;
@@ -50,11 +50,24 @@ fn chosen(named: Option<String>, exe: Option<&Path>) -> String {
         .unwrap_or_else(|| "nvim".into())
 }
 
-/// The Neovim an app carries beside its executable `exe`, as
-/// `Contents/Resources/neovim/bin/nvim` beside `Contents/MacOS/adroit`.
+/// The Neovim a release carries beside its executable `exe`: in
+/// `neovim/` beside `adroit`, as the Windows zip and the Linux tarball hold
+/// it, or as `Contents/Resources/neovim/bin/nvim` beside
+/// `Contents/MacOS/adroit` in the macOS app.
 fn carried(exe: &Path) -> Option<PathBuf> {
-    let nvim = exe.parent()?.parent()?.join("Resources/neovim/bin/nvim");
-    nvim.is_file().then_some(nvim)
+    let dir = exe.parent()?;
+    let program = format!("nvim{}", std::env::consts::EXE_SUFFIX);
+    let beside = dir.join("neovim").join("bin").join(&program);
+    let in_app = dir.parent().map(|contents| {
+        contents
+            .join("Resources")
+            .join("neovim")
+            .join("bin")
+            .join(&program)
+    });
+    std::iter::once(beside)
+        .chain(in_app)
+        .find(|nvim| nvim.is_file())
 }
 
 /// The version of the Neovim adroit runs, as it names itself, such as
@@ -141,6 +154,42 @@ mod tests {
         );
         assert_eq!(chosen(None, Some(&bare)), "nvim");
         assert_eq!(chosen(None, None), "nvim");
+    }
+
+    /// A release folder at `dir`, as the Windows zip and the Linux tarball
+    /// unpack, whose executable is `adroit`, carrying a Neovim in `neovim/`
+    /// when `carries`; the executable's path.
+    fn folder(dir: &Path, carries: bool) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        if carries {
+            let bin = dir.join("neovim").join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::write(bin.join(exe("nvim")), "").unwrap();
+        }
+        dir.join(exe("adroit"))
+    }
+
+    fn exe(name: &str) -> String {
+        format!("{name}{}", std::env::consts::EXE_SUFFIX)
+    }
+
+    #[test]
+    fn a_release_folder_runs_the_neovim_it_carries_beside_adroit() {
+        let dir = tempfile::tempdir().unwrap();
+        let carrying = folder(&dir.path().join("a"), true);
+        let bare = folder(&dir.path().join("b"), false);
+        let carried = dir
+            .path()
+            .join("a")
+            .join("neovim")
+            .join("bin")
+            .join(exe("nvim"));
+        assert_eq!(chosen(None, Some(&carrying)), carried.to_string_lossy());
+        assert_eq!(
+            chosen(Some("/opt/nvim".into()), Some(&carrying)),
+            "/opt/nvim"
+        );
+        assert_eq!(chosen(None, Some(&bare)), "nvim");
     }
 
     #[test]

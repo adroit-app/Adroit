@@ -1,9 +1,9 @@
 name: Release
 
 # Publishing a GitHub Release starts this: write the notes, publish, and the
-# disk image, the Nix build and the Homebrew cask follow. The release exists
-# before its assets do — expect a few minutes with the notes up and nothing
-# attached.
+# macOS disk image, the Windows zip, the Linux tarballs, the Nix build and the
+# Homebrew cask follow. The release exists before its assets do — expect a
+# few minutes with the notes up and nothing attached.
 #
 # The tag is the only record of the version. `version` in Cargo.toml is a
 # placeholder that the bundle stamps from the tag before it builds. The flake
@@ -22,7 +22,7 @@ env:
   TAG: ${{ github.event.release.tag_name }}
 
 jobs:
-  # The tag without its leading v, which the bundle stamps and names by.
+  # The tag without its leading v, which the bundles stamp and are named by.
   version:
     runs-on: ubuntu-latest
     outputs:
