@@ -114,16 +114,59 @@ fn this_computer(catalog: &Catalog) -> Next {
     })
 }
 
+/// A work machine this computer paired with, as the environments kept for it
+/// know it: called `name`, reached at `address`, known by `key`.
+#[derive(Debug, Clone, PartialEq)]
+struct Known {
+    name: String,
+    address: String,
+    key: String,
+    next: Next,
+}
+
+/// The work machines the environments `catalog` keeps are on, each once, in
+/// the order they were first kept, each leading to what it serves.
+fn paired_machines(catalog: &Catalog) -> Vec<Known> {
+    let mut servers: Vec<&str> = Vec::new();
+    for environment in &catalog.environments {
+        if let Target::Native { server, .. } = &environment.target
+            && !servers.contains(&server.as_str())
+        {
+            servers.push(server);
+        }
+    }
+    servers
+        .into_iter()
+        .filter_map(|server| {
+            let kept = of_machine(catalog, |_, kept| kept == server)?;
+            let Target::Native { address, .. } = &kept.target else {
+                return None;
+            };
+            Some(Known {
+                name: machine_name(address),
+                address: address.clone(),
+                key: server.chars().take(16).collect(),
+                next: served_by(catalog, kept),
+            })
+        })
+        .collect()
+}
+
 /// What the work machine `kept` already serves, or else `pairing`.
 fn machine(catalog: &Catalog, kept: Option<&Environment>, pairing: Step) -> Next {
     match kept {
-        Some(kept) => Next::Step(Step::Join {
-            target: kept.target.clone(),
-            name: fresh_name(catalog, &kept.name),
-            paired: None,
-        }),
+        Some(kept) => served_by(catalog, kept),
         None => Next::Step(pairing),
     }
+}
+
+/// What the work machine of the environment `kept` serves.
+fn served_by(catalog: &Catalog, kept: &Environment) -> Next {
+    Next::Step(Step::Join {
+        target: kept.target.clone(),
+        name: fresh_name(catalog, &kept.name),
+        paired: None,
+    })
 }
 
 /// Where choosing `served`, of the work host `target` reaches, leads: the
@@ -426,6 +469,7 @@ fn Where(adding: Adding) -> Element {
         .iter()
         .map(|found| (found.clone(), heard(&catalog, found)))
         .collect();
+    let known = paired_machines(&catalog);
     let pair_typed = move || {
         let typed = address.peek().clone();
         if !typed.trim().is_empty() {
@@ -492,9 +536,10 @@ fn Where(adding: Adding) -> Element {
             }
             Button { kind: "primary", onclick: move |_| pair_typed(), "Pair" }
         }
-        div { class: "adding-label", "On this computer" }
-        div { class: "adding-options",
+        div { class: "adding-label", "On this computer or one paired" }
+        div { class: "adding-options", role: "list",
             button {
+                role: "listitem",
                 r#type: "button",
                 class: "adding-option",
                 onclick: move |_| adding.go(this_computer(&adding.catalog.peek().clone().unwrap_or_default())),
@@ -504,6 +549,21 @@ fn Where(adding: Adding) -> Element {
                     small { "Join an environment it serves, or start another" }
                 }
                 span { class: "adding-option-go", "Next →" }
+            }
+            for machine in known {
+                button {
+                    key: "{machine.key}",
+                    r#type: "button",
+                    role: "listitem",
+                    class: "adding-option",
+                    onclick: move |_| adding.go(machine.next.clone()),
+                    IconView { icon: Icon::Server, size: 16 }
+                    span { class: "adding-option-text",
+                        "{machine.name}"
+                        small { "{machine.address} · key {machine.key}" }
+                    }
+                    span { class: "adding-option-go", "Paired · Next →" }
+                }
             }
         }
         div { class: "dialog-actions",
@@ -897,6 +957,44 @@ mod tests {
                 name: "This computer 2".into(),
                 paired: None
             })
+        );
+    }
+
+    #[test]
+    fn the_machines_paired_are_listed_once_each_leading_to_what_they_serve() {
+        let work = kept("aa", "Work", "box.local:47130", false);
+        let personal = kept("aa", "Personal", "box.local:47130", false);
+        let removed = kept("bb", "Old", "10.0.0.3:47130", true);
+        let catalog = catalog([
+            Environment::new("This computer", Target::Local),
+            work.clone(),
+            personal,
+            removed.clone(),
+        ]);
+        assert_eq!(
+            paired_machines(&catalog),
+            vec![
+                Known {
+                    name: "box.local".into(),
+                    address: "box.local:47130".into(),
+                    key: format!("{:0<16}", "aa"),
+                    next: Next::Step(Step::Join {
+                        target: work.target,
+                        name: "Work 2".into(),
+                        paired: None
+                    }),
+                },
+                Known {
+                    name: "10.0.0.3".into(),
+                    address: "10.0.0.3:47130".into(),
+                    key: format!("{:0<16}", "bb"),
+                    next: Next::Step(Step::Join {
+                        target: removed.target,
+                        name: "Old".into(),
+                        paired: None
+                    }),
+                },
+            ]
         );
     }
 

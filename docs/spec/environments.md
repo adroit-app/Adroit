@@ -31,7 +31,8 @@ of its heading list them, each with its login and the usage left on it
 An environment uses this computer or a work machine this computer paired with
 ([paired work machines](remote-execution.md#paired-work-machines)). Adding an
 environment, from below the tree, asks where it works: this computer, a work
-machine heard on the local network, or one at an address typed. A work machine
+machine one of its environments is already on, a work machine heard on the
+local network, or one at an address typed. A work machine
 not paired yet is paired then: the window shows the code to type on the work
 machine. Adding then lists the environments that machine's work host already
 serves: its own, and each one made there from any computer, under the name a
