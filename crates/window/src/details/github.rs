@@ -114,7 +114,7 @@ pub(crate) fn GitHubCard(
                                 }
                                 if pull.checks.pending > 0 {
                                     span { class: "github-card-check state-glyph run",
-                                        IconView { icon: Icon::Loader, size: 12 }
+                                        IconView { icon: Icon::Progress, size: 12 }
                                         "{pull.checks.pending}"
                                     }
                                 }
@@ -397,7 +397,7 @@ fn status_letter(status: &str) -> &'static str {
 fn outcome_glyph(outcome: Outcome) -> (&'static str, Icon) {
     match outcome {
         Outcome::Failed => ("fail", Icon::X),
-        Outcome::Pending => ("run", Icon::Loader),
+        Outcome::Pending => ("run", Icon::Progress),
         Outcome::Passed => ("done", Icon::Check),
         Outcome::Skipped => ("idle", Icon::SquareMinus),
     }

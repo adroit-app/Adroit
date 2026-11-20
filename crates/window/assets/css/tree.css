@@ -25,11 +25,12 @@
 .state-glyph.done { color: var(--done); }
 .state-glyph.idle { color: var(--text-3); }
 .state-glyph.fail { color: var(--fail); }
-.state-glyph.run .icon svg { animation: spin 1.8s linear infinite; }
+/* Only the spinner turns: a mark in the running colour that is not one, as a pending check's, stands still. */
+.state-glyph.run .icon-loader-2 svg { animation: spin 1.8s linear infinite; }
 .state-glyph.behind .icon svg { animation: behind-pulse 1.4s ease-in-out infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes behind-pulse { 50% { opacity: 0.25; } }
-@media (prefers-reduced-motion: reduce) { .state-glyph.run .icon svg, .state-glyph.behind .icon svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .state-glyph.run .icon-loader-2 svg, .state-glyph.behind .icon svg { animation: none; } }
 .reads-only-mark { flex: none; color: var(--text-3); display: inline-flex; }
 .shell-mark, .place-mark { flex: none; color: var(--text-3); display: inline-flex; }
 .list-row.head .place-mark { color: var(--text-2); }
