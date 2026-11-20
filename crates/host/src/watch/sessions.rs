@@ -273,6 +273,11 @@ pub async fn read_sessions(
                 if let Ok(context) = crate::programs::of_session(&c).await {
                     c.profile_name = context.profile_name;
                 }
+                if let Some(record) = c.delegation {
+                    let waiting = matches!(c.state, State::Waiting(_));
+                    c.asking = crate::hooked::asking(record, waiting, adroit_model::time::now_ms())
+                        .map(Box::new);
+                }
                 own.push(c);
             }
             Some(Kept::Terminal(sh)) => kept_shells.push(sh),
@@ -282,6 +287,8 @@ pub async fn read_sessions(
     let ids: Vec<u128> = kept.iter().map(|s| s.id).collect();
     super::hold::keep_only(&ids);
     super::behind::keep_only(&ids);
+    let records: Vec<_> = own.iter().filter_map(|s| s.delegation).collect();
+    crate::hooked::keep_only(&records);
     // Without Claude Code, or with a listing it cannot give, nothing is
     // learned; the sessions are listed all the same.
     // Each login lists the sessions running in it alone, so each is asked as

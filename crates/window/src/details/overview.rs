@@ -229,7 +229,7 @@ pub(super) fn GroupedRows(
                             (false, false) => "details-link",
                         };
                         rsx! {
-                            ListRow { key: "{r.target}",
+                            ListRow { key: "{r.key}",
                                 kind,
                                 selected: selected == Some(at),
                                 title: "{r.target}",

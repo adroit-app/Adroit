@@ -16,8 +16,8 @@ use adroit_protocol::{
 use super::{
     Component, DetailsLayout, DetailsTab, Drill, Entry, Fact, Gauge, Group, ItemRow, Listing,
     Placed, Related, Scope, SessionTree, Shot, Source, Subject, Surface, TaskDetail, TaskLine,
-    TreeCard, View, about, context_gauge, file_link, gauges, grouped, newest_first, related,
-    running, session_tree_at, task_detail, timeline_entries, tree_at,
+    TreeCard, View, about, activity, context_gauge, file_link, gauges, grouped, newest_first,
+    related, running, session_tree_at, task_detail, timeline_entries, tree_at,
 };
 use crate::content::{Opening, Showing, Tab};
 use crate::effect::Effect;
@@ -177,6 +177,7 @@ fn group_of(component: Component) -> Option<Group> {
         Component::Timeline => Group::Timeline,
         Component::Timelines => Group::Timelines,
         Component::Running => Group::Running,
+        Component::Activity => Group::Activity,
         Component::Processes => Group::Processes,
         Component::About => Group::About,
         Component::Sessions => Group::Sessions,
@@ -700,6 +701,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
         Entry::Changed(c) => copied(how, &c.path, format!("Copied {}", c.path)),
         Entry::Commit(c) => copied(how, &c.short, format!("Copied {}", c.short)),
         Entry::Prompt(p) => copied(how, &p.prompt.text, "Copied the prompt".into()),
+        Entry::Step(line) => copied(how, &line.text(), "Copied the step".into()),
         Entry::Heading { .. } | Entry::More { .. } => Vec::new(),
     }
 }
@@ -980,6 +982,13 @@ fn rows_of(
             )
         }
         Component::About => about(&details.shown.about, &folded),
+        Component::Activity => {
+            let turns = read
+                .and_then(|r| r.conversation.as_ref())
+                .and_then(|c| c.turns.as_deref())
+                .unwrap_or_default();
+            activity(turns, &folded, opened, first(d.links_shown))
+        }
         Component::Sessions => {
             let rows = ties().into_iter().map(Entry::Session).collect();
             grouped(Group::Sessions, rows, &folded, opened, first(usize::MAX))
@@ -2579,6 +2588,7 @@ pub(crate) mod tests {
         let conversation = |id: &str| ConversationRead {
             id: id.into(),
             stats: ConversationStats::default(),
+            turns: None,
         };
         let asked = |id: &str| ContextRead {
             conversation: id.into(),
@@ -2731,6 +2741,36 @@ pub(crate) mod tests {
         assert_eq!(
             run.state().details.drill.selected(&listing),
             listing.heading(Group::Running)
+        );
+    }
+
+    #[test]
+    fn the_overview_lists_what_the_session_did_in_its_turns_and_copies_a_step() {
+        use adroit_model::steps::{Step, Turn};
+        let turns = SessionRead {
+            conversation: Some(ConversationRead {
+                turns: Some(vec![Turn {
+                    started_ms: 1,
+                    ended_ms: None,
+                    steps: vec![Step::Prompted("Stamp the date".into())],
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let run = Scenario::new()
+            .event(work(read("a", turns)))
+            .send(shown(Some("a"), None));
+        let listing = entries_of(&run).unwrap();
+        let at = listing.heading(Group::Activity).unwrap();
+        assert_eq!(listing.group_at(at + 1), Some(Group::Activity));
+        let copied = run.send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Copy)]);
+        assert_eq!(
+            local(&copied),
+            [Effect::Copy {
+                text: "Stamp the date".into(),
+                done: "Copied the step".into(),
+            }]
         );
     }
 

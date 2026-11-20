@@ -37,6 +37,9 @@ pub enum Component {
     /// What works for the session right now: subagents at work, live work
     /// processes and sessions tied to it that still run.
     Running,
+    /// What the session did in its latest turns, the latest step first, as
+    /// its agent's hooks told.
+    Activity,
     /// The live processes the session started, each to stop.
     Processes,
     /// The facts of the session that change little.
@@ -168,6 +171,7 @@ impl Component {
         Component::Timeline,
         Component::Timelines,
         Component::Running,
+        Component::Activity,
         Component::Processes,
         Component::About,
         Component::Sessions,
@@ -214,6 +218,7 @@ impl Component {
             Component::Timeline => "timeline",
             Component::Timelines => "timelines",
             Component::Running => "running",
+            Component::Activity => "activity",
             Component::Processes => "processes",
             Component::About => "about",
             Component::Sessions => "sessions",
@@ -261,6 +266,7 @@ impl Component {
             Component::Timeline => "Timeline",
             Component::Timelines => "Session timelines",
             Component::Running => "Running",
+            Component::Activity => "Activity",
             Component::Processes => "Processes",
             Component::About => "About",
             Component::Sessions => "Sessions",
@@ -317,6 +323,9 @@ impl Component {
             }
             Component::Running => {
                 "Subagents at work, live processes and tied sessions still running; folded, how many of each."
+            }
+            Component::Activity => {
+                "What the session did in its latest turns: prompts, tool calls, answers and replies."
             }
             Component::Processes => "The live processes the session started, each to stop.",
             Component::About => "The facts of the session that change little.",
@@ -379,6 +388,7 @@ impl Component {
             Component::Timeline => Icon::TimelineEvent,
             Component::Timelines => Icon::Timeline,
             Component::Running => Icon::Loader,
+            Component::Activity => Icon::Restore,
             Component::Processes => Icon::Terminal,
             Component::About => Icon::InfoCircle,
             Component::Sessions => Icon::UsersGroup,
@@ -426,6 +436,7 @@ impl Component {
             | Component::Timeline
             | Component::Timelines
             | Component::Running
+            | Component::Activity
             | Component::Processes
             | Component::About
             | Component::Sessions
@@ -601,6 +612,7 @@ impl Component {
             self,
             Component::Timelines
                 | Component::Running
+                | Component::Activity
                 | Component::Processes
                 | Component::About
                 | Component::Sessions
@@ -969,6 +981,7 @@ impl Surface {
                         p(C::Issues),
                         p(C::Timelines),
                         p(C::Running).folded(),
+                        p(C::Activity),
                         p(C::About).folded(),
                     ],
                 ),
@@ -1467,6 +1480,7 @@ components = ["timeline"]
                 "pulls",
                 "issues",
                 "timelines",
+                "activity",
                 "about"
             ]
         );
@@ -1480,6 +1494,7 @@ components = ["timeline"]
                 "pulls",
                 "issues",
                 "timelines",
+                "activity",
                 "about",
                 "session"
             ]

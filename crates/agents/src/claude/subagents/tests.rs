@@ -403,6 +403,7 @@ fn tool(name: &str, about: &str) -> Step {
     Step::Tool {
         name: name.into(),
         about: about.into(),
+        outcome: None,
     }
 }
 

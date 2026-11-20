@@ -164,7 +164,8 @@ mod tests {
 
     #[test]
     fn a_transcript_lists_the_subagents_it_runs_with_their_steps() {
-        use crate::claude::subagents::{Standing, Step};
+        use crate::claude::subagents::Standing;
+        use adroit_model::steps::Step;
         let path = scratch("agents");
         let own = path.with_extension("").join("subagents");
         std::fs::create_dir_all(&own).unwrap();

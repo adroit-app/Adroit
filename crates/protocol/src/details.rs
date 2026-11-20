@@ -126,6 +126,16 @@ pub struct SessionRead {
 pub struct ConversationRead {
     pub id: String,
     pub stats: ConversationStats,
+    /// What the session did in its latest turns, the latest last, as its
+    /// agent's hooks told; none for an agent whose hooks are not read. Left
+    /// off the wire when none, and read as none when it cannot be, so a
+    /// peer of another build reads the rest all the same.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "adroit_model::steps::lenient"
+    )]
+    pub turns: Option<Vec<adroit_model::steps::Turn>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -296,6 +306,7 @@ mod tests {
                 user_turns: turns,
                 ..Default::default()
             },
+            turns: None,
         }
     }
 
@@ -323,6 +334,39 @@ mod tests {
         assert_eq!(a.notes, Some(Vec::new()));
         assert_eq!(a.links, None);
         assert_eq!(work.sessions["b"].processes, Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_conversation_read_without_turns_reads_alike_on_either_side_of_the_field() {
+        let without = serde_json::to_value(conversation("c1", 1)).unwrap();
+        assert!(without.get("turns").is_none(), "{without}");
+        let older: ConversationRead = serde_json::from_value(without).unwrap();
+        assert_eq!(older, conversation("c1", 1));
+    }
+
+    #[test]
+    fn a_conversation_s_turns_read_back_as_they_were_written() {
+        let read = ConversationRead {
+            turns: Some(vec![adroit_model::steps::Turn {
+                started_ms: 1,
+                ended_ms: None,
+                steps: vec![adroit_model::steps::Step::Prompted("Go".into())],
+            }]),
+            ..conversation("c1", 1)
+        };
+        let sent = serde_json::to_string(&read).unwrap();
+        assert_eq!(
+            serde_json::from_str::<ConversationRead>(&sent).unwrap(),
+            read
+        );
+    }
+
+    #[test]
+    fn turns_this_build_cannot_read_leave_the_rest_of_the_conversation_readable() {
+        let mut sent = serde_json::to_value(conversation("c1", 3)).unwrap();
+        sent["turns"] = serde_json::json!([{"began": "later"}]);
+        let read: ConversationRead = serde_json::from_value(sent).unwrap();
+        assert_eq!(read, conversation("c1", 3));
     }
 
     #[test]

@@ -62,6 +62,7 @@ pub(super) async fn watch(mut watched: Watched) {
                     conversation: ConversationRead {
                         id: s.session_id.clone(),
                         stats,
+                        turns: turns_of(&s),
                     },
                 }];
                 if let Some(links) = links {
@@ -114,6 +115,15 @@ async fn overview_changes(
         links,
     });
     changes
+}
+
+/// What `session` did in its latest turns, as its agent's hooks told: only a
+/// session Adroit started loads the hooks, and only Claude Code's are read.
+fn turns_of(session: &Session) -> Option<Vec<adroit_model::steps::Turn>> {
+    let record = session
+        .delegation
+        .filter(|_| session.agent == adroit_model::Agent::Claude)?;
+    Some(crate::hooked::turns(record))
 }
 
 /// Which conversation a reader reads: it changes when the session goes on
@@ -199,5 +209,16 @@ mod tests {
         assert_ne!(Key::of(&shown), Key::of(&session));
         session.cwd = "/other".into();
         assert_ne!(Key::of(&shown), Key::of(&session));
+    }
+
+    #[test]
+    fn only_a_claude_code_session_adroit_started_tells_what_its_turns_did() {
+        use adroit_model::{Agent, SessionId};
+        let record = SessionId::new();
+        let started = session("a").delegation(record).build();
+        assert_eq!(turns_of(&started), Some(Vec::new()));
+        assert_eq!(turns_of(&session("b").build()), None);
+        let codex = session("c").agent(Agent::Codex).delegation(record).build();
+        assert_eq!(turns_of(&codex), None);
     }
 }

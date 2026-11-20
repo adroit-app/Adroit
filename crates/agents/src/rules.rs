@@ -9,6 +9,8 @@ mod screen;
 mod spec;
 
 use adroit_model::{Agent, StartupReadiness, State};
+use regex::Regex;
+use serde::Deserialize;
 
 use crate::{Judgement, Verdict};
 use compile::{Gate, Line, Region, Rule};
@@ -35,6 +37,7 @@ pub struct Rules {
     conditions: Vec<Gate>,
     state: Vec<Rule>,
     startup: Vec<Rule>,
+    answers: Option<Answers>,
 }
 
 /// The rule that decided, and the rows whose signs it matched.
@@ -62,6 +65,40 @@ pub struct Reading {
 pub struct StartupReading {
     pub readiness: Option<StartupReadiness>,
     pub matched: Matched,
+}
+
+/// The labels of the options that allow and deny, as a dialog draws them;
+/// none to deny when its dialog offers no option that does.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Labels {
+    pub allow: String,
+    pub deny: Option<String>,
+}
+
+/// Where a dialog asking the user is drawn, how its options are, and which
+/// of them allow and deny a tool and a plan.
+#[derive(Debug)]
+pub struct Answers {
+    within: usize,
+    option: Regex,
+    pub tool: Labels,
+    pub plan: Labels,
+}
+
+/// An option a dialog offers: what is typed to choose it, and its label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offered {
+    pub key: String,
+    pub label: String,
+}
+
+/// A dialog holding the keys, as the rows of the region it asks in and the
+/// options found there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown {
+    pub rows: Vec<String>,
+    pub options: Vec<Offered>,
 }
 
 impl Matched {

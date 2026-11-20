@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use adroit_model::{StartupReadiness, State, Wait};
 use serde::Deserialize;
 
+use super::Labels;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct File {
@@ -20,6 +22,17 @@ pub(super) struct File {
     pub(super) rules: Vec<RuleSpec>,
     #[serde(default)]
     pub(super) startup: Vec<RuleSpec>,
+    pub(super) answers: Option<AnswersSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AnswersSpec {
+    #[serde(rename = "in")]
+    pub(super) within: String,
+    pub(super) option: String,
+    pub(super) tool: Labels,
+    pub(super) plan: Labels,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +46,7 @@ pub(super) enum LineSpec {
 #[serde(deny_unknown_fields)]
 pub(super) struct RegionSpec {
     pub(super) within: Option<String>,
+    pub(super) first: Option<String>,
     pub(super) last: Option<String>,
     pub(super) since: Option<String>,
     pub(super) after: Option<String>,

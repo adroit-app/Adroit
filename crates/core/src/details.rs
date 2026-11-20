@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use adroit_model::links::{Kind as LinkKind, Link, Peer, Touch};
+use adroit_model::steps::{Step, Turn};
 use adroit_model::subagents::{Agent, Standing};
 use adroit_model::time::ago;
 use adroit_model::usage::{Limit, Severity, Window};
@@ -88,10 +89,10 @@ pub fn overview_facts(
     let tone = state_tone(&s.state);
     // What a program says while it works or once it is done tends to be its
     // session's name, which the details already lead with.
-    let note = match (&s.state, &s.status_message) {
+    let note = crate::asking::waiting_on(s).or_else(|| match (&s.state, &s.status_message) {
         (State::Waiting(_) | State::Failed, Some(said)) => Some(said.clone()),
         _ => None,
-    };
+    });
     out.push(Fact {
         label: "State",
         value: state,
@@ -519,6 +520,7 @@ pub enum Group {
     Messages,
     Agents,
     Running,
+    Activity,
     About,
     Artifacts,
     Images,
@@ -553,6 +555,7 @@ impl Group {
             Group::Messages => "Messages",
             Group::Agents => "Subagents",
             Group::Running => "Running",
+            Group::Activity => "Activity",
             Group::About => "About",
             Group::Artifacts => "Artifacts",
             Group::Images => "Images",
@@ -599,6 +602,8 @@ pub enum Entry {
     Commit(Commit),
     /// What was said to the session in a turn, which opens it whole.
     Prompt(PromptRow),
+    /// A step the session took in one of its latest turns.
+    Step(StepLine),
     /// The row standing for a group's links not shown, which shows them all.
     More {
         group: Group,
@@ -616,6 +621,7 @@ impl Entry {
                 Group::Messages => "\0messages",
                 Group::Agents => "\0agents",
                 Group::Running => "\0running",
+                Group::Activity => "\0activity",
                 Group::About => "\0about",
                 Group::Artifacts => "\0artifacts",
                 Group::Images => "\0images",
@@ -644,11 +650,13 @@ impl Entry {
             Entry::Changed(c) => c.path.as_str(),
             Entry::Commit(c) => c.id.as_str(),
             Entry::Prompt(p) => p.key.as_str(),
+            Entry::Step(line) => line.key.as_str(),
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
                 Group::Agents => "\0more agents",
                 Group::Running => "\0more running",
+                Group::Activity => "\0more activity",
                 Group::About => "\0more about",
                 Group::Artifacts => "\0more artifacts",
                 Group::Images => "\0more images",
@@ -675,6 +683,7 @@ impl Entry {
             Entry::Agent(_) => Group::Agents,
             Entry::Process(_) => Group::Running,
             Entry::Fact(_) => Group::About,
+            Entry::Step(_) => Group::Activity,
             Entry::Link(l) => Group::of(&l.kind),
             Entry::Item(i) => match i.listing {
                 adroit_model::github::Listing::Pulls => Group::Pulls,
@@ -909,6 +918,59 @@ pub fn running(
     grouped(Group::Running, rows, folded, opened, first)
 }
 
+/// A step of one of the session's latest turns, as the overview lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepLine {
+    /// What tells it apart: its turn and its place in it.
+    pub key: String,
+    pub step: Step,
+    /// Whether its turn ended, so a call it made that never told how it
+    /// ended runs no more.
+    pub ended: bool,
+}
+
+impl StepLine {
+    /// What it says whole, as it is copied.
+    pub fn text(&self) -> String {
+        match &self.step {
+            Step::Prompted(text) | Step::Said(text) => text.clone(),
+            Step::Tool { name, about, .. } if about.is_empty() => name.clone(),
+            Step::Tool { about, .. } => about.clone(),
+            Step::Answered(answers) => answers
+                .iter()
+                .map(|a| format!("{} → {}", a.question, a.answer))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
+/// What the session did in its latest `turns`, under one heading, the
+/// latest step first, showing their `first` and a row for the rest unless
+/// the group is among those `opened`; a `folded` group shows its heading
+/// alone.
+pub fn activity(
+    turns: &[Turn],
+    folded: &HashSet<Group>,
+    opened: &HashSet<Group>,
+    first: usize,
+) -> Vec<Entry> {
+    let rows = turns
+        .iter()
+        .rev()
+        .flat_map(|turn| {
+            turn.steps.iter().enumerate().rev().map(|(at, step)| {
+                Entry::Step(StepLine {
+                    key: format!("\0step {} {at}", turn.started_ms),
+                    step: step.clone(),
+                    ended: turn.ended_ms.is_some(),
+                })
+            })
+        })
+        .collect();
+    grouped(Group::Activity, rows, folded, opened, first)
+}
+
 /// The `facts` that change little, under their heading; a `folded` group
 /// shows its heading alone.
 pub fn about(facts: &[Fact], folded: &HashSet<Group>) -> Vec<Entry> {
@@ -1073,6 +1135,7 @@ pub fn said(group: Group, rows: &[Entry]) -> String {
                 _ => None,
             }),
         ),
+        Group::Activity => plural(n as u64, "step", "steps"),
         Group::Prompts => line(
             plural(n as u64, "prompt", "prompts"),
             rows.iter()
@@ -1525,6 +1588,112 @@ mod tests {
         assert!(running(&r[1..], &a[1..], &[], &none, &none, 5).is_empty());
     }
 
+    fn turn(started_ms: u64, ended: bool, steps: Vec<Step>) -> Turn {
+        Turn {
+            started_ms,
+            ended_ms: ended.then_some(started_ms + 1),
+            steps,
+        }
+    }
+
+    fn call(name: &str, about: &str) -> Step {
+        Step::Tool {
+            name: name.into(),
+            about: about.into(),
+            outcome: None,
+        }
+    }
+
+    fn steps_of(entries: &[Entry]) -> Vec<(Step, bool)> {
+        entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Step(line) => Some((line.step.clone(), line.ended)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn activity_lists_the_steps_of_the_latest_turns_the_latest_first() {
+        let turns = [
+            turn(
+                1,
+                true,
+                vec![Step::Prompted("One".into()), Step::Said("Done.".into())],
+            ),
+            turn(
+                5,
+                false,
+                vec![Step::Prompted("Two".into()), call("Bash", "ls")],
+            ),
+        ];
+        let none = HashSet::new();
+        let entries = activity(&turns, &none, &none, usize::MAX);
+        assert_eq!(entries[0], heading(Group::Activity, 4, false));
+        assert_eq!(
+            steps_of(&entries),
+            [
+                (call("Bash", "ls"), false),
+                (Step::Prompted("Two".into()), false),
+                (Step::Said("Done.".into()), true),
+                (Step::Prompted("One".into()), true),
+            ]
+        );
+        let list = Listing::Entries(entries);
+        assert_eq!(list.group_at(3), Some(Group::Activity));
+        assert_eq!(list.keys().iter().collect::<HashSet<_>>().len(), 5);
+    }
+
+    #[test]
+    fn activity_shows_its_first_few_folds_and_is_left_out_with_nothing_done() {
+        let turns = [turn(
+            1,
+            false,
+            (0..3).map(|n| call("Read", &n.to_string())).collect(),
+        )];
+        let none = HashSet::new();
+        let entries = activity(&turns, &none, &none, 1);
+        assert_eq!(
+            entries[2..],
+            [Entry::More {
+                group: Group::Activity,
+                hidden: 2
+            }]
+        );
+        assert_eq!(
+            activity(&turns, &HashSet::from([Group::Activity]), &none, 1),
+            [heading(Group::Activity, 3, true)]
+        );
+        assert!(activity(&[], &none, &none, 1).is_empty());
+        assert!(activity(&[turn(1, false, Vec::new())], &none, &none, 1).is_empty());
+    }
+
+    #[test]
+    fn a_step_is_copied_as_all_it_says() {
+        let line = |step: Step| StepLine {
+            key: String::new(),
+            step,
+            ended: false,
+        };
+        assert_eq!(line(call("Bash", "cargo test")).text(), "cargo test");
+        assert_eq!(line(call("TodoWrite", "")).text(), "TodoWrite");
+        assert_eq!(
+            line(Step::Answered(vec![
+                adroit_model::steps::Answer {
+                    question: "Size?".into(),
+                    answer: "Large".into()
+                },
+                adroit_model::steps::Answer {
+                    question: "Colour?".into(),
+                    answer: "Red".into()
+                },
+            ]))
+            .text(),
+            "Size? → Large\nColour? → Red"
+        );
+    }
+
     #[test]
     fn running_shows_its_first_few_and_opens_a_process_and_back_to_it() {
         let rows: Vec<_> = (1..=3).map(process).collect();
@@ -1756,6 +1925,21 @@ mod tests {
         assert_eq!(state(State::Failed), ("failed".to_string(), said));
         assert_eq!(state(State::Working), ("working".to_string(), None));
         assert_eq!(state(State::Done), ("done".to_string(), None));
+    }
+
+    #[test]
+    fn what_a_waiting_session_asks_follows_its_state_before_what_its_program_says() {
+        let s = session("s")
+            .waiting(Wait::Permission)
+            .says("Claude needs your permission")
+            .asking(adroit_model::asking::Asked::Tool {
+                name: "Bash".into(),
+                about: "date > stamp.txt".into(),
+            })
+            .build();
+        let fact =
+            overview_facts(&s, &adroit_model::ConversationStats::default(), None, 0).remove(0);
+        assert_eq!(fact.note.as_deref(), Some("Bash: date > stamp.txt"));
     }
 
     #[test]

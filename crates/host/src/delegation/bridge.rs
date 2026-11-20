@@ -328,11 +328,21 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
     .await
 }
 
+/// How long a hook waits for the work host to take its event, as the agent's
+/// turn waits on the hook.
+const TELLING: Duration = Duration::from_secs(1);
+
 /// What a Claude Code hook `event` is answered with: what the work host
 /// tells the agent as a prompt arrives or once the conversation was cleared;
-/// nothing for any other event, or while the work host cannot say.
+/// nothing for any other event, or while the work host cannot say. Every
+/// event is first handed to the work host, whose answer is passed over: a
+/// hook never decides for the user.
 async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
     let name = event["hook_event_name"].as_str()?;
+    let told = Command::Hooked {
+        event: adroit_agents::claude::hooks::bounded(event.clone()),
+    };
+    let _ = tokio::time::timeout(TELLING, daemon.ask(told, None)).await;
     let cleared = match name {
         "UserPromptSubmit" => false,
         "SessionStart" if event["source"] == "clear" => true,
@@ -488,14 +498,43 @@ mod tests {
             let daemon = Fake::new();
             let event = json!({"hook_event_name": "SessionStart", "source": source});
             assert_eq!(hook(&event, daemon.clone()).await, None, "{source}");
-            assert!(daemon.asked.lock().unwrap().is_empty(), "{source}");
+            assert_eq!(*daemon.asked.lock().unwrap(), ["hooked"], "{source}");
         }
+    }
+
+    #[tokio::test]
+    async fn every_event_is_handed_to_the_work_host_and_answered_with_nothing() {
+        for name in ["PreToolUse", "PermissionRequest", "PostToolUse", "Stop"] {
+            let daemon = Fake::new();
+            let event = json!({"hook_event_name": name, "tool_name": "Bash"});
+            assert_eq!(hook(&event, daemon.clone()).await, None, "{name}");
+            assert_eq!(*daemon.asked.lock().unwrap(), ["hooked"], "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_prompt_is_handed_to_the_work_host_before_it_is_told_of_its_name() {
+        let daemon = Fake::new();
+        let event = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
+        assert!(hook(&event, daemon.clone()).await.is_some());
+        assert_eq!(*daemon.asked.lock().unwrap(), ["hooked", "prompted"]);
+    }
+
+    #[tokio::test]
+    async fn the_name_is_still_told_when_the_work_host_did_not_take_the_event() {
+        let daemon = Fake::new();
+        *daemon.away.lock().unwrap() = 1;
+        let event = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
+        assert_eq!(
+            added(hook(&event, daemon).await),
+            Some(("UserPromptSubmit".into(), "cleared=false".into()))
+        );
     }
 
     #[tokio::test]
     async fn nothing_is_added_while_the_work_host_cannot_be_reached() {
         let daemon = Fake::new();
-        *daemon.away.lock().unwrap() = 1;
+        *daemon.away.lock().unwrap() = 2;
         let event = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
         assert_eq!(hook(&event, daemon).await, None);
     }

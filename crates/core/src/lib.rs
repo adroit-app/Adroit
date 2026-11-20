@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod agent_pages;
+pub mod asking;
 pub mod attention;
 pub mod chrome;
 pub mod complete;

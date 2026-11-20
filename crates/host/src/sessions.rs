@@ -130,6 +130,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
                 .map(|s| State::reported(&s.state, s.kind.as_deref()))
                 .unwrap_or(State::Starting),
             status_message: session.status.as_ref().and_then(|s| s.msg.clone()),
+            asking: None,
             started_ms: tags::value(t, STARTED).and_then(|s| s.parse().ok()),
             last_input_ms: tags::value(t, LAST_INPUT).and_then(|s| s.parse().ok()),
             permissions: match tags::value(t, PERMISSIONS) {
