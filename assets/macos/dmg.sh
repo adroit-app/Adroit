@@ -33,6 +33,19 @@ mkdir -p "$stage/Adroit" "$dist"
 # ditto keeps the signatures and the symbolic links Neovim's folders hold.
 ditto "$app" "$stage/Adroit/Adroit.app"
 ln -s /Applications "$stage/Adroit/Applications"
-hdiutil create -quiet -volname Adroit -srcfolder "$stage/Adroit" -ov \
-  -format UDZO "$dist/Adroit_${version}_${arch}.dmg"
+# hdiutil create fails now and then on GitHub's macOS runners while the
+# diskimages-helper of an earlier image still holds the device ("Resource
+# busy"), and succeeds when run again a moment later.
+for attempt in 1 2 3; do
+  if hdiutil create -volname Adroit -srcfolder "$stage/Adroit" -ov \
+    -format UDZO "$dist/Adroit_${version}_${arch}.dmg"; then
+    break
+  fi
+  if [ "$attempt" = 3 ]; then
+    echo "error: hdiutil create failed $attempt times" >&2
+    exit 1
+  fi
+  echo "hdiutil create failed; trying again" >&2
+  sleep $((attempt * 10))
+done
 ls -l "$dist"
