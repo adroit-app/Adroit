@@ -90,17 +90,28 @@ async fn saving_the_configuration_asks_for_a_restart_and_reads_nothing_itself() 
 async fn an_editor_s_save_of_several_writes_asks_for_one_restart() {
     let (_e, mut rx, config) = start_configured("").await;
     save_until_told(&mut rx, || config.write("-- saved")).await;
-    // Every save made until one was told, each told late on a loaded
-    // machine: none is to be counted below.
-    let quiet = tokio::time::timeout(Duration::from_secs(10), async {
-        while saves_told(&mut rx, Duration::from_millis(500)).await > 0 {}
-    })
-    .await;
-    assert!(quiet.is_ok(), "saves were still told 10s after the last");
-    for n in 0..3 {
-        config.write(&format!("vim.g.read = {n}"));
+    // The watch tells once its events stop for 100ms. Writes that took
+    // longer than that between them, as a loaded runner's disk can, are
+    // several saves rather than one, and are not judged.
+    let debounce = Duration::from_millis(100);
+    for _ in 0..5 {
+        // Every save made until one was told, each told late on a loaded
+        // machine: none is to be counted below.
+        let quiet = tokio::time::timeout(Duration::from_secs(10), async {
+            while saves_told(&mut rx, Duration::from_millis(500)).await > 0 {}
+        })
+        .await;
+        assert!(quiet.is_ok(), "saves were still told 10s after the last");
+        let started = std::time::Instant::now();
+        for n in 0..3 {
+            config.write(&format!("vim.g.read = {n}"));
+        }
+        if started.elapsed() < debounce {
+            assert_eq!(saves_told(&mut rx, Duration::from_secs(1)).await, 1);
+            return;
+        }
     }
-    assert_eq!(saves_told(&mut rx, Duration::from_secs(1)).await, 1);
+    panic!("three writes never took less than {debounce:?} in five tries");
 }
 
 #[tokio::test]
