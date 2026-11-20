@@ -33,12 +33,18 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: nix shell nixpkgs#pinact -c pinact run --check
 
+  # Named by the OS rather than the runner, as the Windows job below is.
   ci:
+    name: ci (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,6 +77,7 @@ jobs:
   # Nix does not run on Windows, so the toolchain comes from rustup, which
   # reads rust-toolchain.toml, and the recipes run in Git Bash.
   windows:
+    name: ci (windows)
     runs-on: windows-latest
     defaults:
       run:
