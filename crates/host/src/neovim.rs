@@ -273,4 +273,40 @@ io.stdout:write(drawn(), '\n')
             String::from_utf8_lossy(&out.stderr)
         );
     }
+
+    const UNCHANGED: &str = r#"
+local loads = 0
+vim.api.nvim_create_autocmd('ColorScheme', { callback = function() loads = loads + 1 end })
+vim.cmd.colorscheme('adroit')
+vim.wait(1500, function() return false end)
+io.stdout:write(loads, '\n')
+"#;
+
+    #[test]
+    fn a_theme_file_that_cannot_be_read_as_a_theme_is_not_drawn_again_until_it_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let share = dir.path().join("share");
+        install_colorscheme(&share).unwrap();
+        let file = dir.path().join("theme").join("colours");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "not a theme").unwrap();
+        let script = dir.path().join("unchanged.lua");
+        std::fs::write(&script, UNCHANGED).unwrap();
+        let out = std::process::Command::new(adroit_nvim::program())
+            .args(["--headless", "--clean", "-l"])
+            .arg(&script)
+            .env("XDG_DATA_DIRS", data_dirs(&share, None))
+            .env("XDG_CONFIG_HOME", dir.path().join("config"))
+            .env("XDG_DATA_HOME", dir.path().join("data"))
+            .env("XDG_STATE_HOME", dir.path().join("state"))
+            .env(THEME_FILE, &file)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim_end(),
+            "1",
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }

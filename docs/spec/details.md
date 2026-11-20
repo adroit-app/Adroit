@@ -238,7 +238,7 @@ drew is kept while Adroit runs, after the console has let it go, the newest
 few of each session; it has no file to copy or reveal, and its window says
 so once it is no longer kept.
 
-Opening a link of **artifacts**, **links** or **files** hands it to macOS: an address opens in the
+Opening a link of **artifacts**, **links** or **files** hands it to the system: an address opens in the
 default browser, a file in the app that opens it. A right click on a link
 also offers to copy it, its address or its file's path, and on a file to
 reveal it in the file manager. A click on a group's heading folds the group under it

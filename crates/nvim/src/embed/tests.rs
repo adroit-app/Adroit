@@ -92,7 +92,11 @@ async fn an_editor_s_save_of_several_writes_asks_for_one_restart() {
     save_until_told(&mut rx, || config.write("-- saved")).await;
     // Every save made until one was told, each told late on a loaded
     // machine: none is to be counted below.
-    while saves_told(&mut rx, Duration::from_millis(500)).await > 0 {}
+    let quiet = tokio::time::timeout(Duration::from_secs(10), async {
+        while saves_told(&mut rx, Duration::from_millis(500)).await > 0 {}
+    })
+    .await;
+    assert!(quiet.is_ok(), "saves were still told 10s after the last");
     for n in 0..3 {
         config.write(&format!("vim.g.read = {n}"));
     }

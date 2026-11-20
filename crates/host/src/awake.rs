@@ -23,7 +23,7 @@ pub fn environments_wanted(
 /// Holds what `take` gives, dropping it to let go, while it is wanted.
 pub struct Keeper<T> {
     take: fn() -> Option<T>,
-    lost: fn(&mut T) -> bool,
+    look: fn(&mut T),
     held: Option<T>,
 }
 
@@ -31,29 +31,28 @@ impl<T> Keeper<T> {
     pub fn new(take: fn() -> Option<T>) -> Self {
         Self {
             take,
-            lost: |_| false,
+            look: |_| {},
             held: None,
         }
     }
 
-    /// Ask `lost` of what is held whether the system let go of it, to take
-    /// it again.
-    pub fn watching(self, lost: fn(&mut T) -> bool) -> Self {
-        Self { lost, ..self }
+    /// Have `look` look after what is held on each keep while it is wanted,
+    /// to take again what of it the system let go of.
+    #[cfg(any(test, all(unix, not(target_os = "macos"))))]
+    pub fn watching(self, look: fn(&mut T)) -> Self {
+        Self { look, ..self }
     }
 
-    /// Hold it or let it go, as `wanted` says; a take that failed, or one
-    /// the system let go of, is tried again on the next.
+    /// Hold it or let it go, as `wanted` says; a take that failed is tried
+    /// again on the next.
     pub fn keep(&mut self, wanted: bool) {
         if !wanted {
             self.held = None;
             return;
         }
-        if self.held.as_mut().is_some_and(self.lost) {
-            self.held = None;
-        }
-        if self.held.is_none() {
-            self.held = (self.take)();
+        match self.held.as_mut() {
+            Some(held) => (self.look)(held),
+            None => self.held = (self.take)(),
         }
     }
 }
@@ -101,11 +100,6 @@ mod power {
                 )
             };
             (got == 0).then_some(Self(id))
-        }
-
-        /// Whether the system let go of it: an assertion is held until dropped.
-        pub fn lost(&mut self) -> bool {
-            false
         }
     }
 
@@ -166,11 +160,6 @@ mod power {
                 Some(Self(request))
             }
         }
-
-        /// Whether the system let go of it: a request is held until dropped.
-        pub fn lost(&mut self) -> bool {
-            false
-        }
     }
 
     impl Drop for Assertion {
@@ -198,26 +187,38 @@ mod power {
     #[derive(Debug)]
     pub struct Assertion(Held);
 
+    use std::time::{Duration, Instant};
+
+    /// How long a program that ended after holding waits to be started
+    /// again, first; each start that ends before it is seen holding doubles
+    /// it, up to `RETRY_MOST`.
+    const RETRY_FIRST: Duration = Duration::from_secs(5);
+    const RETRY_MOST: Duration = Duration::from_secs(300);
+
     impl Assertion {
         pub fn take(name: &str) -> Option<Self> {
-            Held::start(super::inhibitors(name)).map(Self)
+            Held::start(super::inhibitors(name), RETRY_FIRST).map(Self)
         }
 
-        /// Whether the system let go of it: no program holds an inhibitor
-        /// any more.
-        pub fn lost(&mut self) -> bool {
-            self.0.lost()
+        /// Start again the programs that ended after holding their
+        /// inhibitors, when their wait is over.
+        pub fn look(&mut self) {
+            self.0.look();
         }
     }
 
     /// The programs that hold inhibitors. One that has ever been seen holding
     /// its inhibitor is started again whenever it has ended, as what it
-    /// holds was let go or, restarting, refused it for a while; one that
-    /// ended before it was ever seen holding is let be, as what it asks does
-    /// not run here, and would refuse it again. One that cannot be started
-    /// again is tried on the next look.
+    /// holds was let go or, restarting, refused it for a while, each time a
+    /// while later than the last while it is not seen holding again; one
+    /// that ended before it was ever seen holding is let be, as what it asks
+    /// does not run here, and would refuse it again. One that cannot be
+    /// started again is tried when its wait is over.
     #[derive(Debug)]
-    pub(super) struct Held(Vec<Holding>);
+    pub(super) struct Held {
+        holding: Vec<Holding>,
+        retry: Duration,
+    }
 
     #[derive(Debug)]
     struct Holding {
@@ -225,6 +226,8 @@ mod power {
         args: Vec<String>,
         child: Option<std::process::Child>,
         held_once: bool,
+        refused: u32,
+        next: Instant,
     }
 
     fn spawn(program: &str, args: &[String]) -> Option<std::process::Child> {
@@ -238,7 +241,11 @@ mod power {
     }
 
     impl Held {
-        pub(super) fn start(programs: Vec<(&'static str, Vec<String>)>) -> Option<Self> {
+        pub(super) fn start(
+            programs: Vec<(&'static str, Vec<String>)>,
+            retry: Duration,
+        ) -> Option<Self> {
+            let now = Instant::now();
             let holding: Vec<_> = programs
                 .into_iter()
                 .filter_map(|(program, args)| {
@@ -248,39 +255,62 @@ mod power {
                         args,
                         child: Some(child),
                         held_once: false,
+                        refused: 0,
+                        next: now,
                     })
                 })
                 .collect();
-            (!holding.is_empty()).then_some(Self(holding))
+            (!holding.is_empty()).then_some(Self { holding, retry })
         }
 
-        pub(super) fn lost(&mut self) -> bool {
-            self.0.retain_mut(|held| {
+        pub(super) fn look(&mut self) {
+            let now = Instant::now();
+            let retry = self.retry;
+            self.holding.retain_mut(|held| {
                 let running = held
                     .child
                     .as_mut()
                     .is_some_and(|child| matches!(child.try_wait(), Ok(None)));
                 if running {
                     held.held_once = true;
+                    held.refused = 0;
                     return true;
                 }
                 if !held.held_once {
                     return false;
                 }
+                if now < held.next {
+                    return true;
+                }
                 held.child = spawn(held.program, &held.args);
+                held.next = now
+                    + retry
+                        .saturating_mul(1 << held.refused.min(16))
+                        .min(RETRY_MOST);
+                held.refused = held.refused.saturating_add(1);
                 true
             });
-            self.0.is_empty()
         }
     }
 
     impl Drop for Held {
         fn drop(&mut self) {
-            for child in self.0.iter_mut().filter_map(|held| held.child.as_mut()) {
+            let mut children: Vec<_> = self
+                .holding
+                .drain(..)
+                .filter_map(|held| held.child)
+                .collect();
+            for child in &mut children {
                 drop(child.stdin.take());
             }
-            for child in self.0.iter_mut().filter_map(|held| held.child.as_mut()) {
-                let _ = child.wait();
+            // Reaped apart: a program slow to end would otherwise hold up
+            // the daemon's loop, which drops this.
+            if !children.is_empty() {
+                std::thread::spawn(move || {
+                    for mut child in children {
+                        let _ = child.wait();
+                    }
+                });
             }
         }
     }
@@ -372,7 +402,11 @@ mod tests {
         });
         assert!(shown);
         drop(held);
-        assert_eq!(listed(&name), Some(false));
+        let gone = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            listed(&name) == Some(false)
+        });
+        assert!(gone);
     }
 
     #[test]
@@ -428,25 +462,37 @@ mod tests {
         let look_until = |held: &mut power::Held, done: &dyn Fn() -> bool| {
             let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
             while !done() && std::time::Instant::now() < until {
-                assert!(!held.lost());
+                held.look();
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             done()
         };
+        // Looks again and again for `long`.
+        let look_for = |held: &mut power::Held, long: std::time::Duration| {
+            let until = std::time::Instant::now() + long;
+            while std::time::Instant::now() < until {
+                held.look();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        let retry = std::time::Duration::from_millis(50);
 
         let (runs, refused, stop) = (file("runs"), file("refused"), file("stop"));
-        let mut held = power::Held::start(vec![
-            shell(format!("echo >> '{}'; exit 1", refused.display())),
-            shell(format!(
-                "echo >> '{}'; {}",
-                runs.display(),
-                holds_until(&stop)
-            )),
-            shell("cat".into()),
-        ])
+        let mut held = power::Held::start(
+            vec![
+                shell(format!("echo >> '{}'; exit 1", refused.display())),
+                shell(format!(
+                    "echo >> '{}'; {}",
+                    runs.display(),
+                    holds_until(&stop)
+                )),
+                shell("cat".into()),
+            ],
+            retry,
+        )
         .unwrap();
         ended(&refused);
-        assert!(!held.lost());
+        held.look();
         std::fs::write(&stop, "").unwrap();
         assert!(
             look_until(&mut held, &|| count(&runs) >= 2),
@@ -455,27 +501,55 @@ mod tests {
         assert_eq!(count(&refused), 1, "the one never seen holding ran once");
 
         let alone = file("alone");
-        let mut refused_alone = power::Held::start(vec![shell(format!(
-            "echo >> '{}'; exit 1",
-            alone.display()
-        ))])
+        let mut refused_alone = power::Held::start(
+            vec![shell(format!("echo >> '{}'; exit 1", alone.display()))],
+            retry,
+        )
         .unwrap();
         ended(&alone);
-        assert!(refused_alone.lost(), "the one refused alone is let be");
+        look_for(&mut refused_alone, std::time::Duration::from_millis(500));
+        assert_eq!(count(&alone), 1, "the one refused alone is let be");
 
         // Held once, then refused for a while, as while logind restarts.
         let (tries, again) = (file("tries"), file("again"));
-        let mut comes_back = power::Held::start(vec![shell(format!(
-            "echo >> '{0}'; case $(wc -l < '{0}') in 1) {1} ;; 2) exit 1 ;; *) cat ;; esac",
-            tries.display(),
-            holds_until(&again)
-        ))])
+        let mut comes_back = power::Held::start(
+            vec![shell(format!(
+                "echo >> '{0}'; case $(wc -l < '{0}') in 1) {1} ;; 2) exit 1 ;; *) cat ;; esac",
+                tries.display(),
+                holds_until(&again)
+            ))],
+            retry,
+        )
         .unwrap();
-        assert!(!comes_back.lost());
+        comes_back.look();
         std::fs::write(&again, "").unwrap();
         assert!(
             look_until(&mut comes_back, &|| count(&tries) >= 3),
             "one held once is tried again after a refusal"
+        );
+
+        // Held once, then refused for good, as once GNOME's session is gone:
+        // tried again ever later rather than on every look.
+        let (gave_up, end) = (file("gave_up"), file("end"));
+        let mut refuses_for_good = power::Held::start(
+            vec![shell(format!(
+                "echo >> '{0}'; [ \"$(wc -l < '{0}')\" -gt 1 ] && exit 1; {1}",
+                gave_up.display(),
+                holds_until(&end)
+            ))],
+            retry,
+        )
+        .unwrap();
+        refuses_for_good.look();
+        std::fs::write(&end, "").unwrap();
+        look_for(
+            &mut refuses_for_good,
+            std::time::Duration::from_millis(1500),
+        );
+        let tried = count(&gave_up);
+        assert!(
+            (3..=15).contains(&tried),
+            "tried {tried} times in 1.5s, rather than on each of ~75 looks"
         );
     }
 
@@ -511,7 +585,11 @@ mod tests {
         });
         assert!(shown);
         drop(held);
-        assert_eq!(inhibited(), Some(false));
+        let gone = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            inhibited() == Some(false)
+        });
+        assert!(gone);
     }
 
     #[test]
@@ -584,18 +662,22 @@ mod tests {
     }
 
     #[test]
-    fn one_the_system_let_go_of_is_taken_again_while_still_wanted() {
+    fn what_is_held_is_looked_after_on_each_keep_and_not_taken_again() {
         static TAKEN: AtomicUsize = AtomicUsize::new(0);
-        fn numbered() -> Option<usize> {
-            Some(TAKEN.fetch_add(1, Ordering::SeqCst))
+        fn looks() -> Option<usize> {
+            TAKEN.fetch_add(1, Ordering::SeqCst);
+            Some(0)
         }
-        let mut keeper = Keeper::new(numbered).watching(|held| *held == 0);
+        let mut keeper = Keeper::new(looks).watching(|held| *held += 1);
         keeper.keep(true);
         assert_eq!(keeper.held, Some(0));
         keeper.keep(true);
-        assert_eq!(keeper.held, Some(1));
         keeper.keep(true);
-        assert_eq!(keeper.held, Some(1));
+        assert_eq!(keeper.held, Some(2));
+        assert_eq!(TAKEN.load(Ordering::SeqCst), 1);
+        keeper.keep(false);
+        keeper.keep(true);
+        assert_eq!(keeper.held, Some(0));
         assert_eq!(TAKEN.load(Ordering::SeqCst), 2);
     }
 }
