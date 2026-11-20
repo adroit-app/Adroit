@@ -89,9 +89,17 @@ pub struct Served {
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Op {
     Stop,
-    Environment { id: String },
+    Environment {
+        id: String,
+        /// Whether only an environment the host already serves may be
+        /// selected, as a command asks; a window selecting one creates it.
+        #[serde(default)]
+        existing: bool,
+    },
     Environments,
-    ForgetEnvironment { id: String },
+    ForgetEnvironment {
+        id: String,
+    },
 }
 
 impl Served {
@@ -112,7 +120,7 @@ impl Served {
         }
     }
 
-    async fn environment(&self, id: &str) -> Result<Served, String> {
+    async fn environment(&self, id: &str, existing: bool) -> Result<Served, String> {
         let mut environments = self.environments.lock().await;
         if let Some(served) = environments.get(id) {
             return Ok(served.clone());
@@ -120,8 +128,14 @@ impl Served {
         if environments.len() >= 256 {
             return Err("Too many open working environments".into());
         }
-        let context =
-            crate::environment::Environment::at(id, &adroit_model::paths::instance_state())?;
+        let context = {
+            let state = adroit_model::paths::instance_state();
+            if existing {
+                crate::environment::Environment::existing(id, &state)?
+            } else {
+                crate::environment::Environment::at(id, &state)?
+            }
+        };
         // Served to every window that selects it, so what keeps it read is
         // not of the connection that happened to select it first.
         let served = crate::environment::asked_remotely(
@@ -219,11 +233,11 @@ impl Served {
                         let _ = stop.send(()).await;
                         break;
                     }
-                    Op::Environment { id } => {
+                    Op::Environment { id, existing } => {
                         if greeted || active.environment.is_some() {
                             break;
                         }
-                        let selected = self.environment(&id).await;
+                        let selected = self.environment(&id, existing).await;
                         match selected {
                             Ok(next) => {
                                 if crate::environment::select(

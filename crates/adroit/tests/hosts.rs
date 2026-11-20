@@ -414,6 +414,8 @@ fn environments_share_services_but_keep_terminals_settings_and_recovery_apart() 
         );
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
     };
+    opened_by_a_window(root, "personal");
+    opened_by_a_window(root, "work");
     let dir = root.to_str().unwrap();
     let a = run(
         Some("personal"),
@@ -512,6 +514,73 @@ fn environments_share_services_but_keep_terminals_settings_and_recovery_apart() 
         b["resource_id"]
     );
 }
+
+#[test]
+fn a_command_in_an_environment_the_work_host_does_not_serve_is_refused_and_keeps_nothing_for_it() {
+    let hosts = Hosts::new();
+    let root = hosts.0.path();
+    let dir = root.to_str().unwrap();
+    for args in [
+        &["terminal", "list", "--json"][..],
+        &[
+            "terminal",
+            "start",
+            "--program",
+            "command",
+            "--name",
+            "unseen",
+            "--dir",
+            dir,
+            "--json",
+            "--",
+            "/bin/sh",
+            "-c",
+            "read answer",
+        ][..],
+    ] {
+        let output = isolated(root)
+            .env("ADROIT_ENVIRONMENT", "unknown")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("unknown"), "{stderr}");
+    }
+    assert!(!environments(root).join("unknown").exists());
+    opened_by_a_window(root, "unknown");
+    let listed = isolated(root)
+        .env("ADROIT_ENVIRONMENT", "unknown")
+        .args(["terminal", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+}
+
+/// The environments the work host at `root` keeps.
+fn environments(root: &Path) -> PathBuf {
+    root.join("state/adroit/instances/headless-test/environments")
+}
+
+/// Have a window open the environment `id` of the work host at `root`, which
+/// makes it one the host serves.
+fn opened_by_a_window(root: &Path, id: &str) {
+    let started = isolated(root)
+        .args(["terminal", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    drop(environment_link(root, id, None));
+}
+
 /// A link to the work host at `root`, in the environment `id`, once it sent
 /// its snapshot, whose scratch folder is `expected_scratch` where given.
 fn environment_link(
@@ -570,6 +639,7 @@ fn a_window_in_an_environment_of_this_machine_restarts_the_sessions_daemon() {
     use std::io::{BufRead, Write};
     let hosts = Hosts::new();
     let root = hosts.0.path();
+    opened_by_a_window(root, "personal");
     let started = isolated(root)
         .env("ADROIT_ENVIRONMENT", "personal")
         .args([

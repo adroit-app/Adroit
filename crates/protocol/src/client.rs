@@ -160,10 +160,12 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// Connect to the work host at `socket` and read its hello.
+    /// Connect to the work host at `socket` and read its hello, as a command
+    /// does: in the environment `$ADROIT_ENVIRONMENT` names, which the host
+    /// must already serve.
     pub async fn open(socket: &Path) -> std::io::Result<Self> {
         let environment = std::env::var("ADROIT_ENVIRONMENT").ok();
-        Self::open_in(socket, environment.as_deref()).await
+        Self::open_selecting(socket, environment.as_deref(), true).await
     }
 
     /// Discover a service without selecting or creating a working environment.
@@ -171,7 +173,17 @@ impl Connection {
         Self::open_in(socket, None).await
     }
 
+    /// Connect to the work host at `socket` in `environment`, as a window
+    /// does, which creates it where the host serves none of that name.
     pub async fn open_in(socket: &Path, environment: Option<&str>) -> std::io::Result<Self> {
+        Self::open_selecting(socket, environment, false).await
+    }
+
+    async fn open_selecting(
+        socket: &Path,
+        environment: Option<&str>,
+        existing: bool,
+    ) -> std::io::Result<Self> {
         let (read, mut write) = connect(adroit_sys::local::address(socket)).await?;
         let mut lines = Frames::new(BufReader::new(read));
         let line = tokio::time::timeout(HELLO, lines.next())
@@ -183,11 +195,12 @@ impl Connection {
             if !adroit_model::paths::is_instance(id) {
                 return Err(std::io::Error::other("Invalid work environment"));
             }
-            write
-                .write_all(
-                    format!("{}\n", serde_json::json!({"op": "environment", "id": id})).as_bytes(),
-                )
-                .await?;
+            let select = if existing {
+                serde_json::json!({"op": "environment", "id": id, "existing": true})
+            } else {
+                serde_json::json!({"op": "environment", "id": id})
+            };
+            write.write_all(format!("{select}\n").as_bytes()).await?;
             let line = tokio::time::timeout(HELLO, lines.next())
                 .await
                 .map_err(|_| std::io::Error::other("work host does not support environments"))??
@@ -195,7 +208,10 @@ impl Connection {
             let reply: serde_json::Value =
                 serde_json::from_str(&line).map_err(std::io::Error::other)?;
             if reply.get("environment").and_then(|v| v.as_str()) != Some(id) {
-                return Err(std::io::Error::other("work host refused the environment"));
+                let error = reply.get("error").and_then(|v| v.as_str());
+                return Err(std::io::Error::other(
+                    error.unwrap_or("work host refused the environment"),
+                ));
             }
             hello.mutation_epoch = Some(
                 serde_json::from_value(reply["epoch"].clone()).map_err(std::io::Error::other)?,
