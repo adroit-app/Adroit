@@ -5,44 +5,104 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-/// Copy each of `sources` into `dir` by its own name, or move it there when
-/// `moving`. One whose name is taken in `dir` already, or a directory put
-/// into itself, is left where it is and said why; the rest are still done.
-pub(crate) fn paste(sources: &[PathBuf], dir: &Path, moving: bool) -> Result<(), String> {
-    let failed: Vec<String> = sources
-        .iter()
-        .filter_map(|source| pasted(source, dir, moving).err())
-        .collect();
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        Err(failed.join("; "))
-    }
+use adroit_protocol::PasteEntry;
+
+/// What a paste did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Pasted {
+    /// The entries pasted.
+    pub pasted: Vec<PasteEntry>,
+    /// The entries whose target was there already, left as they are.
+    pub taken: Vec<PasteEntry>,
+    /// Why the rest could not be pasted.
+    pub failed: Vec<String>,
 }
 
-fn pasted(source: &Path, dir: &Path, moving: bool) -> Result<(), String> {
-    let Some(name) = source.file_name() else {
-        return Err(format!("{} has no name to paste by", source.display()));
-    };
-    let target = dir.join(name);
+/// Copy each entry's source to its target, or move it there when `moving`.
+/// A target there already is left as it is and told as taken, unless the
+/// entry says to replace it, when `discard` takes it away first; one
+/// entry's failing does not stop the rest.
+pub(crate) fn paste(
+    entries: Vec<PasteEntry>,
+    moving: bool,
+    discard: impl Fn(&Path) -> Result<(), String>,
+) -> Pasted {
+    let mut done = Pasted::default();
+    for entry in entries {
+        match pasted(&entry, moving, &discard) {
+            Ok(true) => done.pasted.push(entry),
+            Ok(false) => done.taken.push(entry),
+            Err(why) => done.failed.push(why),
+        }
+    }
+    done
+}
+
+/// Whether `entry` was pasted, or else found its target taken.
+fn pasted(
+    entry: &PasteEntry,
+    moving: bool,
+    discard: impl Fn(&Path) -> Result<(), String>,
+) -> Result<bool, String> {
+    let PasteEntry {
+        source,
+        target,
+        replace,
+    } = entry;
     if fs::symlink_metadata(source).is_err() {
         return Err(format!("{} is not there", source.display()));
     }
-    if dir.starts_with(source) {
+    // Compared where they really are, so a link in the way cannot hide a
+    // directory pasted into itself.
+    let (real_source, real_target) = (real(source), real(target));
+    if real_target != real_source && real_target.starts_with(&real_source) {
         return Err(format!("{} cannot be put inside itself", source.display()));
     }
-    if fs::symlink_metadata(&target).is_ok() {
-        return Err(format!("{} is there already", target.display()));
+    if fs::symlink_metadata(target).is_ok() {
+        if !replace {
+            return Ok(false);
+        }
+        if real_target == real_source {
+            return Err(format!("{} cannot replace itself", source.display()));
+        }
+        if real_source.starts_with(&real_target) {
+            return Err(format!(
+                "{} holds {} and cannot be replaced by it",
+                target.display(),
+                source.display()
+            ));
+        }
+        discard(target)?;
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("{} could not be made: {e}", parent.display()))?;
     }
     let done = if moving {
-        moved(source, &target)
+        moved(source, target)
     } else {
-        copied(source, &target)
+        copied(source, target)
     };
-    done.map_err(|e| {
+    done.map(|()| true).map_err(|e| {
         let verb = if moving { "moved" } else { "copied" };
         format!("{} could not be {verb}: {e}", source.display())
     })
+}
+
+/// `path` with the directories it is in resolved to where they really are,
+/// the nearest of them that exists at least; its own name is kept as it
+/// is, as a link pasted is pasted as the link.
+fn real(path: &Path) -> PathBuf {
+    let mut names = Vec::new();
+    let mut at = path;
+    while let (Some(parent), Some(name)) = (at.parent(), at.file_name()) {
+        names.push(name);
+        if let Ok(resolved) = fs::canonicalize(parent) {
+            return names.iter().rev().fold(resolved, |p, n| p.join(n));
+        }
+        at = parent;
+    }
+    path.to_path_buf()
 }
 
 /// `source` renamed to `target`, or copied there and removed when they are
@@ -131,29 +191,54 @@ mod tests {
         root
     }
 
+    fn entry(source: PathBuf, target: PathBuf) -> PasteEntry {
+        PasteEntry {
+            source,
+            target,
+            replace: false,
+        }
+    }
+
+    fn targets(done: &Pasted) -> Vec<PathBuf> {
+        done.pasted.iter().map(|e| e.target.clone()).collect()
+    }
+
+    /// Takes a target away as the trash would, without the trash.
+    fn removed(path: &Path) -> Result<(), String> {
+        if path.is_dir() {
+            fs::remove_dir_all(path)
+        } else {
+            fs::remove_file(path)
+        }
+        .map_err(|e| e.to_string())
+    }
+
+    fn never(path: &Path) -> Result<(), String> {
+        panic!("{} discarded", path.display())
+    }
+
     #[test]
-    fn a_file_is_copied_into_the_directory_by_its_own_name() {
+    fn a_file_is_copied_to_its_target() {
         let root = tree();
         let file = root.path().join("src/main.rs");
-        paste(
-            std::slice::from_ref(&file),
-            &root.path().join("dest"),
-            false,
-        )
-        .unwrap();
-        assert_eq!(
-            fs::read_to_string(root.path().join("dest/main.rs")).unwrap(),
-            "fn main() {}"
-        );
+        let target = root.path().join("dest/main.rs");
+        let done = paste(vec![entry(file.clone(), target.clone())], false, never);
+        assert_eq!(targets(&done), std::slice::from_ref(&target));
+        assert_eq!(fs::read_to_string(target).unwrap(), "fn main() {}");
         assert!(file.exists());
     }
 
     #[test]
     fn a_directory_is_copied_with_all_it_holds() {
         let root = tree();
-        paste(&[root.path().join("src")], &root.path().join("dest"), false).unwrap();
+        let target = root.path().join("dest/src");
+        paste(
+            vec![entry(root.path().join("src"), target.clone())],
+            false,
+            never,
+        );
         assert_eq!(
-            fs::read_to_string(root.path().join("dest/src/nested/lib.rs")).unwrap(),
+            fs::read_to_string(target.join("nested/lib.rs")).unwrap(),
             "lib"
         );
         assert!(root.path().join("src/nested/lib.rs").exists());
@@ -163,57 +248,107 @@ mod tests {
     #[test]
     fn a_symbolic_link_is_copied_as_the_link() {
         let root = tree();
-        let link = root.path().join("src/up");
-        std::os::unix::fs::symlink("..", &link).unwrap();
-        paste(&[root.path().join("src")], &root.path().join("dest"), false).unwrap();
-        let copy = root.path().join("dest/src/up");
-        assert_eq!(fs::read_link(copy).unwrap(), Path::new(".."));
+        std::os::unix::fs::symlink("..", root.path().join("src/up")).unwrap();
+        let target = root.path().join("dest/src");
+        paste(
+            vec![entry(root.path().join("src"), target.clone())],
+            false,
+            never,
+        );
+        assert_eq!(fs::read_link(target.join("up")).unwrap(), Path::new(".."));
     }
 
     #[test]
     fn moving_leaves_nothing_where_it_was() {
         let root = tree();
         let src = root.path().join("src");
-        paste(std::slice::from_ref(&src), &root.path().join("dest"), true).unwrap();
+        paste(
+            vec![entry(src.clone(), root.path().join("dest/src"))],
+            true,
+            never,
+        );
         assert!(!src.exists());
         assert!(root.path().join("dest/src/main.rs").exists());
     }
 
     #[test]
-    fn a_name_taken_already_is_left_as_it_is_and_the_rest_are_done() {
+    fn a_target_taken_is_left_as_it_is_and_told_while_the_rest_are_done() {
         let root = tree();
         let dest = root.path().join("dest");
         fs::write(dest.join("main.rs"), "kept").unwrap();
         for moving in [false, true] {
-            let err = paste(&[root.path().join("src/main.rs")], &dest, moving).unwrap_err();
-            assert!(err.contains("there already"), "{err}");
+            let clash = entry(root.path().join("src/main.rs"), dest.join("main.rs"));
+            let free = entry(
+                root.path().join("src/nested"),
+                dest.join(format!("n{moving}")),
+            );
+            let done = paste(vec![clash.clone(), free.clone()], moving, never);
+            assert_eq!(done.taken, [clash]);
+            assert_eq!(targets(&done), [free.target]);
+            assert_eq!(done.failed, Vec::<String>::new());
         }
         assert_eq!(fs::read_to_string(dest.join("main.rs")).unwrap(), "kept");
         assert!(root.path().join("src/main.rs").exists());
-
-        let err = paste(
-            &[
-                root.path().join("src/main.rs"),
-                root.path().join("src/nested"),
-            ],
-            &dest,
-            false,
-        )
-        .unwrap_err();
-        assert!(err.contains("main.rs"), "{err}");
-        assert!(dest.join("nested/lib.rs").exists());
     }
 
     #[test]
-    fn pasting_beside_itself_is_a_name_taken() {
+    fn a_target_replaced_is_discarded_before_the_source_takes_its_place() {
         let root = tree();
-        let err = paste(
-            &[root.path().join("src/main.rs")],
-            &root.path().join("src"),
+        let dest = root.path().join("dest");
+        fs::create_dir(dest.join("main.rs")).unwrap();
+        fs::write(dest.join("main.rs/old"), "old").unwrap();
+        let replacing = PasteEntry {
+            replace: true,
+            ..entry(root.path().join("src/main.rs"), dest.join("main.rs"))
+        };
+        let done = paste(vec![replacing], false, removed);
+        assert_eq!(targets(&done), [dest.join("main.rs")]);
+        assert_eq!(
+            fs::read_to_string(dest.join("main.rs")).unwrap(),
+            "fn main() {}"
+        );
+    }
+
+    #[test]
+    fn a_target_that_cannot_be_discarded_is_kept_and_said_why() {
+        let root = tree();
+        let dest = root.path().join("dest");
+        fs::write(dest.join("main.rs"), "kept").unwrap();
+        let replacing = PasteEntry {
+            replace: true,
+            ..entry(root.path().join("src/main.rs"), dest.join("main.rs"))
+        };
+        let done = paste(vec![replacing], false, |_| Err("no trash".into()));
+        assert_eq!(done.failed, ["no trash"]);
+        assert_eq!(fs::read_to_string(dest.join("main.rs")).unwrap(), "kept");
+    }
+
+    #[test]
+    fn pasting_beside_itself_is_a_target_taken_and_never_replaces_itself() {
+        let root = tree();
+        let file = root.path().join("src/main.rs");
+        let done = paste(vec![entry(file.clone(), file.clone())], false, never);
+        assert_eq!(done.taken.len(), 1);
+        let replacing = PasteEntry {
+            replace: true,
+            ..entry(file.clone(), file.clone())
+        };
+        let done = paste(vec![replacing], false, never);
+        assert!(done.failed[0].contains("itself"), "{:?}", done.failed);
+        assert!(file.exists());
+    }
+
+    #[test]
+    fn a_renamed_target_makes_the_directories_it_passes_through() {
+        let root = tree();
+        let target = root.path().join("dest/a/b/copy.rs");
+        let done = paste(
+            vec![entry(root.path().join("src/main.rs"), target.clone())],
             false,
-        )
-        .unwrap_err();
-        assert!(err.contains("there already"), "{err}");
+            never,
+        );
+        assert_eq!(targets(&done), std::slice::from_ref(&target));
+        assert!(target.exists());
     }
 
     #[test]
@@ -221,22 +356,66 @@ mod tests {
         let root = tree();
         let src = root.path().join("src");
         for moving in [false, true] {
-            let err = paste(std::slice::from_ref(&src), &src.join("nested"), moving).unwrap_err();
-            assert!(err.contains("inside itself"), "{err}");
+            let done = paste(
+                vec![entry(src.clone(), src.join("nested/src"))],
+                moving,
+                never,
+            );
+            assert!(
+                done.failed[0].contains("inside itself"),
+                "{:?}",
+                done.failed
+            );
         }
         assert!(src.join("main.rs").exists());
         assert!(!src.join("nested/src").exists());
     }
 
     #[test]
+    fn a_directory_holding_the_source_is_never_replaced_by_it() {
+        let root = tree();
+        let source = root.path().join("src/nested");
+        let replacing = PasteEntry {
+            replace: true,
+            ..entry(source.clone(), root.path().join("src"))
+        };
+        for moving in [false, true] {
+            let done = paste(vec![replacing.clone()], moving, never);
+            assert!(done.failed[0].contains("holds"), "{:?}", done.failed);
+        }
+        assert!(source.join("lib.rs").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_is_never_put_inside_itself_through_a_link() {
+        let root = tree();
+        let src = root.path().join("src");
+        std::os::unix::fs::symlink(src.join("nested"), root.path().join("link")).unwrap();
+        let done = paste(
+            vec![entry(src.clone(), root.path().join("link/src"))],
+            false,
+            never,
+        );
+        assert!(
+            done.failed[0].contains("inside itself"),
+            "{:?}",
+            done.failed
+        );
+        assert!(!src.join("nested/src").exists());
+    }
+
+    #[test]
     fn what_is_not_there_is_said_so() {
         let root = tree();
-        let err = paste(
-            &[root.path().join("gone.rs")],
-            &root.path().join("dest"),
+        let done = paste(
+            vec![entry(
+                root.path().join("gone.rs"),
+                root.path().join("dest/gone.rs"),
+            )],
             false,
-        )
-        .unwrap_err();
-        assert!(err.contains("not there"), "{err}");
+            never,
+        );
+        assert!(done.failed[0].contains("not there"), "{:?}", done.failed);
     }
 }

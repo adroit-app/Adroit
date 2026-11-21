@@ -73,13 +73,13 @@ pub enum Effect {
         worktree: PathBuf,
         dir: PathBuf,
     },
-    /// Ask the work host of `environment` to copy `sources` into `dir` of
-    /// `worktree`, or move them there when `moving`.
+    /// Ask the work host of `environment` to paste `entries` in `worktree`,
+    /// moving them when `moving`, and tell
+    /// [`crate::msg::Msg::EntriesPasted`].
     PasteEntries {
         environment: EnvironmentId,
         worktree: PathBuf,
-        dir: PathBuf,
-        sources: Vec<PathBuf>,
+        entries: Vec<adroit_protocol::PasteEntry>,
         moving: bool,
     },
     /// Ask the work host of `environment` to put `paths` in its trash.

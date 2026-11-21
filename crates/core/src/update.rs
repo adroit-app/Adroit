@@ -319,10 +319,10 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::EntriesPasted {
             environment,
             worktree,
-            dir,
-            sources,
+            pasted,
+            taken,
             moving,
-        } => tree::clipboard::pasted(state, &environment, &worktree, &dir, &sources, moving),
+        } => tree::clipboard::pasted(state, environment, worktree, pasted, taken, moving),
         Msg::DaemonStanding { environment, note } => {
             overlay::daemon_standing(state, environment, note)
         }

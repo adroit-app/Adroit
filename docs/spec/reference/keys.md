@@ -72,6 +72,8 @@ changes them ([keys](../keys.md)).
 | `file.paste` |  | copy the files and directories on the system clipboard into the directory selected, the one the file selected is in, or the top of the worktree from its Files heading, as `file.new` makes there; move them, after asking, when `file.move` put them there; a name taken there already is left as it is | `tree`: `P` |
 | `file.trash` |  | move the file or directory selected to the work machine's trash, after asking | `tree`: `D` |
 | `file.mark` |  | mark the file or directory selected, or unmark it; `file.copy`, `file.move` and `file.trash` take every one marked rather than the one selected | `tree`: `-` |
+| `paste.overwrite` |  | when a name pasted is taken, put the one there in the trash and paste in its place | `confirm`: `f` |
+| `paste.rename` |  | when a name pasted is taken, type another name to paste it by | `confirm`: `r` |
 | `waiting.next` | Next Waiting | open the next session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
 | `waiting.prev` | Previous Waiting | open the previous session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
 | `session.next` | Next Session | open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, as `cursor.go` does; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
@@ -439,4 +441,6 @@ changes them ([keys](../keys.md)).
 [confirm]
 "y" = "overlay.choose"
 "n" = "overlay.close"
+"f" = "paste.overwrite"
+"r" = "paste.rename"
 ```

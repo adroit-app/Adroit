@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use adroit_model::EnvironmentId;
+use adroit_protocol::PasteEntry;
 
 use crate::chrome::status_line;
 use crate::effect::Effect;
@@ -14,12 +15,13 @@ use crate::state::ViewState;
 use crate::tree::nav::Item;
 
 /// The paths the tree last put on the clipboard, of `environment`'s work
-/// machine, to be moved where they are pasted when `moving`.
+/// machine, and of them those cut and not moved yet, which are moved where
+/// they are pasted; none for a copy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
     pub environment: EnvironmentId,
     pub paths: Vec<PathBuf>,
-    pub moving: bool,
+    pub unmoved: Vec<PathBuf>,
 }
 
 /// Mark the file or directory `row` is, or unmark it when it is marked.
@@ -77,7 +79,7 @@ pub(crate) fn hold(state: &mut ViewState, row: &Item, moving: bool) -> Vec<Effec
     state.tree.clipboard = Some(Held {
         environment: environment.clone(),
         paths: paths.clone(),
-        moving,
+        unmoved: if moving { paths.clone() } else { Vec::new() },
     });
     vec![Effect::Clip {
         environment,
@@ -114,55 +116,151 @@ pub(crate) fn clipped(
             "The clipboard holds no files to paste".into(),
         );
     }
-    let cut = state.tree.clipboard.as_ref().is_some_and(|held| {
-        held.moving
-            && held.environment == environment
-            && held.paths.iter().collect::<BTreeSet<_>>() == paths.iter().collect()
-    });
-    if cut {
+    let held = state
+        .tree
+        .clipboard
+        .as_ref()
+        .filter(|held| held.paths.iter().collect::<BTreeSet<_>>() == paths.iter().collect());
+    // The paths name files of the environment they were copied in; on another
+    // work machine the same paths are other files, or none.
+    if held.is_some_and(|held| held.environment != environment) {
+        return status_line::notice(
+            &mut state.chrome.status,
+            "The clipboard holds files of another environment, which cannot be pasted here".into(),
+        );
+    }
+    if let Some(held) = held.filter(|held| !held.unmoved.is_empty()) {
         state.overlays.confirm = Some(Ask::MoveEntries {
             environment,
             worktree,
             dir,
-            sources: paths,
+            sources: held.unmoved.clone(),
         });
         return Vec::new();
     }
     vec![Effect::PasteEntries {
         environment,
         worktree,
-        dir,
-        sources: paths,
+        entries: into(&dir, &paths),
         moving: false,
     }]
 }
 
-/// The work host pasted `sources` into `dir`: what was moved is no longer
-/// held, and the first pasted is selected once it is listed.
+/// Each of `sources` pasted into `dir` by its own name.
+pub(crate) fn into(dir: &Path, sources: &[PathBuf]) -> Vec<PasteEntry> {
+    sources
+        .iter()
+        .filter_map(|source| {
+            Some(PasteEntry {
+                source: source.clone(),
+                target: dir.join(source.file_name()?),
+                replace: false,
+            })
+        })
+        .collect()
+}
+
+/// A paste whose target was there already, waiting to be asked about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Clash {
+    pub environment: EnvironmentId,
+    pub worktree: PathBuf,
+    pub entry: PasteEntry,
+    pub moving: bool,
+}
+
+/// The work host pasted the entries `pasted`, and left alone the entries
+/// `taken`, which are asked about one by one; the first pasted is selected
+/// once it is listed. What was moved is cut no longer, and only that: what
+/// failed to move, or was cut since, stays cut.
 pub(crate) fn pasted(
     state: &mut ViewState,
-    environment: &EnvironmentId,
-    worktree: &Path,
-    dir: &Path,
-    sources: &[PathBuf],
+    environment: EnvironmentId,
+    worktree: PathBuf,
+    pasted: Vec<PasteEntry>,
+    taken: Vec<PasteEntry>,
     moving: bool,
 ) -> Vec<Effect> {
-    if moving {
-        state.tree.clipboard = None;
+    if moving
+        && let Some(held) = state.tree.clipboard.as_mut()
+        && held.environment == environment
+        && !held.unmoved.is_empty()
+    {
+        held.unmoved
+            .retain(|path| !pasted.iter().any(|entry| entry.source == *path));
+        if held.unmoved.is_empty() {
+            state.tree.clipboard = None;
+        }
     }
+    let pasted: Vec<PathBuf> = pasted.into_iter().map(|entry| entry.target).collect();
+    state
+        .tree
+        .clashes
+        .extend(taken.into_iter().map(|entry| Clash {
+            environment: environment.clone(),
+            worktree: worktree.clone(),
+            entry,
+            moving,
+        }));
+    let Some(first) = pasted.first() else {
+        return Vec::new();
+    };
     let verb = if moving { "Moved" } else { "Pasted" };
-    let told = format!("{verb} {}", named(sources));
+    let told = format!("{verb} {}", named(&pasted));
     let mut effects = status_line::notice(&mut state.chrome.status, told);
-    if let Some(name) = sources.first().and_then(|s| s.file_name()) {
-        effects.extend(super::made(
-            &mut state.tree,
-            environment,
-            worktree,
-            &dir.join(name),
-            false,
-        ));
-    }
+    effects.extend(super::made(
+        &mut state.tree,
+        &environment,
+        &worktree,
+        first,
+        false,
+    ));
     effects
+}
+
+/// The next target taken is asked about once nothing else is being asked
+/// or named.
+pub(crate) fn ask_next_clash(state: &mut ViewState) {
+    if state.overlays.confirm.is_some() || state.overlays.naming.is_some() {
+        return;
+    }
+    if let Some(clash) = state.tree.clashes.pop_front() {
+        state.overlays.confirm = Some(Ask::Clash(clash));
+    }
+}
+
+/// The target taken being asked about is overwritten: what is there goes
+/// to the trash and the source takes its place.
+pub(crate) fn overwrite(state: &mut ViewState) -> Vec<Effect> {
+    match state.overlays.confirm.take() {
+        Some(Ask::Clash(clash)) => vec![Effect::PasteEntries {
+            environment: clash.environment,
+            worktree: clash.worktree,
+            entries: vec![PasteEntry {
+                replace: true,
+                ..clash.entry
+            }],
+            moving: clash.moving,
+        }],
+        other => {
+            state.overlays.confirm = other;
+            Vec::new()
+        }
+    }
+}
+
+/// The target taken being asked about is named anew in place, its name
+/// typed over; the source is pasted by the name typed.
+pub(crate) fn rename(state: &mut ViewState) -> Vec<Effect> {
+    match state.overlays.confirm.take() {
+        Some(Ask::Clash(clash)) => {
+            let naming = crate::overlay::naming::Naming::pasting(clash);
+            state.tree.folds.set(&naming.under(), true);
+            state.overlays.naming = Some(naming);
+        }
+        other => state.overlays.confirm = other,
+    }
+    Vec::new()
 }
 
 /// What is marked, or else the file or directory `row` is, to be put in

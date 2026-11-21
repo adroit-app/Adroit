@@ -258,6 +258,8 @@ pub(crate) fn perform(
                 _ => tree::clipboard::trash(state, &row),
             }
         }
+        Action::PasteOverwrite => tree::clipboard::overwrite(state),
+        Action::PasteRename => tree::clipboard::rename(state),
         Action::FileNew | Action::DirectoryNew => match cur.filter(|_| on_list) {
             Some(row) => {
                 let kind = if action == Action::FileNew {

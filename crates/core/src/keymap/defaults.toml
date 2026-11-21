@@ -278,3 +278,5 @@
 [confirm]
 "y" = "overlay.choose"
 "n" = "overlay.close"
+"f" = "paste.overwrite"
+"r" = "paste.rename"

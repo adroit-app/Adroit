@@ -43,6 +43,8 @@ pub struct TreeView {
     pub clipboard: Option<clipboard::Held>,
     /// The files and directories marked, in the order they were marked.
     pub marks: Vec<Item>,
+    /// The pastes whose targets were taken, to be asked about in turn.
+    pub clashes: std::collections::VecDeque<clipboard::Clash>,
     /// The sessions finished that the user has seen since.
     pub completions: Completions,
     /// When the window saw each session's state last change.

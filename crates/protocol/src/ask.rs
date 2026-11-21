@@ -8,6 +8,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DraftChanges, Drafts, HostPath};
 
+/// A file or a directory to paste at `target`, putting what is there in
+/// the trash first when `replace`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PasteEntry {
+    pub source: PathBuf,
+    pub target: PathBuf,
+    pub replace: bool,
+}
+
 /// What is asked of the work host.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -56,11 +65,12 @@ pub enum Ask {
         path: PathBuf,
         dir: bool,
     },
-    /// Copy each of `sources` into `dir` by its own name, or move it there
-    /// when `moving`; a name taken in `dir` already is left as it is.
+    /// Copy each entry's source to its target, or move it there when
+    /// `moving`. A target already there is left as it is and answered as
+    /// taken, unless the entry says to replace it, which puts it in the
+    /// trash first.
     PasteEntries {
-        sources: Vec<PathBuf>,
-        dir: PathBuf,
+        entries: Vec<PasteEntry>,
         moving: bool,
     },
     /// Put each of `paths` in the work machine's trash.
@@ -272,6 +282,13 @@ pub enum Answer {
     /// The image was kept here.
     Kept {
         path: PathBuf,
+    },
+    /// What a paste did: the entries pasted, the entries whose target was
+    /// taken and left alone, and why the rest failed.
+    Pasted {
+        pasted: Vec<PasteEntry>,
+        taken: Vec<PasteEntry>,
+        failed: Vec<String>,
     },
     /// The worktree was made here.
     Worktree {

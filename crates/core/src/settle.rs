@@ -43,6 +43,7 @@ const RULES: &[Rule] = &[
     tree_filter_left,
     overlay_rename,
     overlay_naming,
+    overlay_clash,
     details_shown,
     details_told,
     details_usage,
@@ -245,6 +246,11 @@ fn overlay_rename(state: &mut ViewState, _: &mut Vec<Effect>) {
 /// A new entry being named goes when its directory is no longer shown.
 fn overlay_naming(state: &mut ViewState, _: &mut Vec<Effect>) {
     overlay::keep_naming(state);
+}
+
+/// A paste whose target was taken is asked about once nothing else is.
+fn overlay_clash(state: &mut ViewState, _: &mut Vec<Effect>) {
+    crate::tree::clipboard::ask_next_clash(state);
 }
 
 /// The details panel reads by the session and the worktree the focused

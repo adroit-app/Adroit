@@ -146,6 +146,10 @@ pub(crate) fn ConfirmDialog() -> Element {
     };
     let (icon, title, body, act) = ask.dialog();
     let (no, yes) = hints::answers(&app.chrome.read().keymap);
+    // A name pasted that is taken is overwritten, renamed or skipped.
+    let renames = ask.renames();
+    let (rename, overwrite) = hints::pasting_answers(&app.chrome.read().keymap);
+    let yes = if renames { overwrite.or(yes) } else { yes };
     rsx! {
         Dialog { icon, title, onclose: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
             div { "{body}" }
@@ -154,7 +158,15 @@ pub(crate) fn ConfirmDialog() -> Element {
                     if let Some(keys) = no {
                         Keys { keys }
                     }
-                    "Cancel"
+                    if renames { "Skip" } else { "Cancel" }
+                }
+                if renames {
+                    Button { onclick: move |_| app.perform(adroit_core::actions::Action::PasteRename, None),
+                        if let Some(keys) = rename {
+                            Keys { keys }
+                        }
+                        "Rename"
+                    }
                 }
                 Button { kind: if ask.destroys() { "danger" } else { "primary" },
                     onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),

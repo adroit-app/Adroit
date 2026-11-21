@@ -26,6 +26,9 @@ pub struct Naming {
     pub dir: PathBuf,
     pub kind: Kind,
     pub text: String,
+    /// The paste whose target was taken, pasted by the name typed rather
+    /// than made anew; `None` for a new file or directory.
+    pub pasting: Option<crate::tree::clipboard::Clash>,
 }
 
 /// What the work host is asked to make of a name.
@@ -47,7 +50,29 @@ impl Naming {
             dir,
             kind,
             text: String::new(),
+            pasting: None,
         })
+    }
+
+    /// Start naming anew the target of `clash`, which was taken: in its
+    /// directory, its name typed already to be typed over.
+    pub fn pasting(clash: crate::tree::clipboard::Clash) -> Self {
+        let target = &clash.entry.target;
+        let dir = target
+            .parent()
+            .map_or_else(|| clash.worktree.clone(), Path::to_path_buf);
+        let text = target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Self {
+            environment: clash.environment.clone(),
+            worktree: clash.worktree.clone(),
+            dir,
+            kind: Kind::File,
+            text,
+            pasting: Some(clash),
+        }
     }
 
     /// The row the field is drawn under, first among its entries: the
@@ -121,6 +146,15 @@ pub(crate) fn end_naming(state: &mut ViewState, commit: bool) -> Vec<Effect> {
         return Vec::new();
     };
     match naming.made() {
+        Ok(Some(made)) if let Some(clash) = naming.pasting => vec![Effect::PasteEntries {
+            environment: clash.environment,
+            worktree: clash.worktree,
+            entries: vec![adroit_protocol::PasteEntry {
+                target: made.path,
+                ..clash.entry
+            }],
+            moving: clash.moving,
+        }],
         Ok(Some(made)) => vec![Effect::MakeEntry {
             environment: naming.environment,
             worktree: naming.worktree,

@@ -494,13 +494,14 @@ pub enum Msg {
         dir: PathBuf,
         paths: Vec<PathBuf>,
     },
-    /// The work host of `environment` copied `sources` into `dir` of
-    /// `worktree`, or moved them there when `moving`.
+    /// The work host of `environment` pasted into `worktree` the entries
+    /// `pasted`, moving them when `moving`, and left the entries `taken`
+    /// alone for their targets were there already.
     EntriesPasted {
         environment: EnvironmentId,
         worktree: PathBuf,
-        dir: PathBuf,
-        sources: Vec<PathBuf>,
+        pasted: Vec<adroit_protocol::PasteEntry>,
+        taken: Vec<adroit_protocol::PasteEntry>,
         moving: bool,
     },
     /// How the sessions' daemon of the environment stands, as the banner

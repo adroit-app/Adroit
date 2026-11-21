@@ -1162,7 +1162,11 @@ fn copying_or_cutting_a_file_puts_its_path_on_the_clipboard() {
             Some(Held {
                 environment: here(),
                 paths: vec!["/r/src".into()],
-                moving,
+                unmoved: if moving {
+                    vec!["/r/src".into()]
+                } else {
+                    Vec::new()
+                },
             })
         );
     }
@@ -1208,8 +1212,7 @@ fn the_paths_on_the_clipboard_are_copied_there() {
         [Effect::PasteEntries {
             environment: here(),
             worktree: "/r".into(),
-            dir: "/r/src".into(),
-            sources: vec!["/elsewhere/a.rs".into()],
+            entries: vec![paste_entry("/elsewhere/a.rs", "/r/src/a.rs")],
             moving: false,
         }]
     );
@@ -1228,8 +1231,7 @@ fn what_was_cut_is_moved_once_the_move_is_agreed_to() {
         [Effect::PasteEntries {
             environment: here(),
             worktree: "/r".into(),
-            dir: "/r".into(),
-            sources: vec!["/r/src/main.rs".into()],
+            entries: vec![paste_entry("/r/src/main.rs", "/r/main.rs")],
             moving: true,
         }]
     );
@@ -1266,17 +1268,14 @@ fn a_clipboard_holding_no_paths_pastes_nothing_and_says_so() {
 }
 
 #[test]
-fn what_was_moved_is_no_longer_held_and_what_is_pasted_is_selected_once_listed() {
-    let run = on_row(src_file("/r/src", true))
-        .send(perform(Action::FileMove))
-        .send(Msg::EntriesPasted {
-            environment: here(),
-            worktree: "/r".into(),
-            dir: "/r".into(),
-            sources: vec!["/elsewhere/lib.rs".into()],
-            moving: true,
-        });
-    assert_eq!(run.state().tree.clipboard, None);
+fn what_was_moved_is_told_and_selected_once_listed() {
+    let run = on_row(src_file("/r/src", true)).send(Msg::EntriesPasted {
+        environment: here(),
+        worktree: "/r".into(),
+        pasted: vec![paste_entry("/elsewhere/lib.rs", "/r/lib.rs")],
+        taken: Vec::new(),
+        moving: true,
+    });
     assert_eq!(
         run.state().chrome.status.line.as_deref(),
         Some("Moved lib.rs")
@@ -1393,4 +1392,210 @@ fn trashing_takes_every_file_marked_and_clears_the_marks_once_agreed_to() {
         }]
     );
     assert_eq!(yes.state().tree.marks, []);
+}
+
+fn paste_entry(source: &str, target: &str) -> adroit_protocol::PasteEntry {
+    adroit_protocol::PasteEntry {
+        source: source.into(),
+        target: target.into(),
+        replace: false,
+    }
+}
+
+/// `with_src` with the host having found both targets of a paste into
+/// `/r/src` taken.
+fn clashing() -> Scenario {
+    on_row(src_file("/r/src", true)).send(Msg::EntriesPasted {
+        environment: here(),
+        worktree: "/r".into(),
+        pasted: Vec::new(),
+        taken: vec![
+            paste_entry("/x/a.rs", "/r/src/a.rs"),
+            paste_entry("/x/b.rs", "/r/src/b.rs"),
+        ],
+        moving: false,
+    })
+}
+
+fn clash_of(run: &Scenario) -> Option<PathBuf> {
+    match &run.state().overlays.confirm {
+        Some(crate::overlay::confirm::Ask::Clash(clash)) => Some(clash.entry.target.clone()),
+        _ => None,
+    }
+}
+
+#[test]
+fn each_target_taken_is_asked_about_in_turn() {
+    let run = clashing();
+    assert_eq!(clash_of(&run), Some("/r/src/a.rs".into()));
+    let run = run.send(Msg::ConfirmAnswer(false));
+    assert_eq!(run.last_effects(), []);
+    assert_eq!(clash_of(&run), Some("/r/src/b.rs".into()));
+    let run = run.send(Msg::ConfirmAnswer(false));
+    assert_eq!(run.state().overlays.confirm, None);
+}
+
+#[test]
+fn overwriting_pastes_again_replacing_what_is_there() {
+    let run = clashing().send(perform(Action::PasteOverwrite));
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PasteEntries {
+            environment: here(),
+            worktree: "/r".into(),
+            entries: vec![adroit_protocol::PasteEntry {
+                replace: true,
+                ..paste_entry("/x/a.rs", "/r/src/a.rs")
+            }],
+            moving: false,
+        }]
+    );
+    assert_eq!(clash_of(&run), Some("/r/src/b.rs".into()));
+}
+
+#[test]
+fn renaming_names_the_target_in_place_and_pastes_by_the_name_typed() {
+    let run = clashing().send(perform(Action::PasteRename));
+    assert_eq!(run.state().overlays.confirm, None);
+    let naming = run.state().overlays.naming.clone().expect("a name asked");
+    assert_eq!(naming.dir, PathBuf::from("/r/src"));
+    assert_eq!(naming.text, "a.rs");
+    let run = run
+        .send(Msg::NamingText("a-copy.rs".into()))
+        .send(Msg::NamingEnd { commit: true });
+    assert_eq!(
+        run.last_effects(),
+        [Effect::PasteEntries {
+            environment: here(),
+            worktree: "/r".into(),
+            entries: vec![paste_entry("/x/a.rs", "/r/src/a-copy.rs")],
+            moving: false,
+        }]
+    );
+    assert_eq!(clash_of(&run), Some("/r/src/b.rs".into()));
+}
+
+#[test]
+fn a_rename_given_up_skips_that_one() {
+    let run = clashing()
+        .send(perform(Action::PasteRename))
+        .send(Msg::NamingEnd { commit: false });
+    assert!(
+        !run.last_effects()
+            .iter()
+            .any(|e| matches!(e, Effect::PasteEntries { .. }))
+    );
+    assert_eq!(clash_of(&run), Some("/r/src/b.rs".into()));
+}
+
+#[test]
+fn overwriting_and_renaming_answer_only_a_target_taken() {
+    let run = on_row(src_file("/r/src", true)).send(perform(Action::FileTrash));
+    let run = run
+        .send(perform(Action::PasteOverwrite))
+        .send(perform(Action::PasteRename));
+    assert!(matches!(
+        run.state().overlays.confirm,
+        Some(crate::overlay::confirm::Ask::TrashEntries { .. })
+    ));
+    assert_eq!(run.state().overlays.naming, None);
+}
+
+#[test]
+fn what_was_copied_in_another_environment_is_not_pasted_here() {
+    let run = on_row(src_file("/r/src", true))
+        .send(perform(Action::FileCopy))
+        .send(Msg::Clipped {
+            environment: there(),
+            worktree: "/r".into(),
+            dir: "/r".into(),
+            paths: vec!["/r/src".into()],
+        });
+    assert!(
+        !run.last_effects()
+            .iter()
+            .any(|e| matches!(e, Effect::PasteEntries { .. }))
+    );
+    assert_eq!(run.state().overlays.confirm, None);
+    assert!(
+        run.state()
+            .chrome
+            .status
+            .line
+            .as_deref()
+            .is_some_and(|t| t.contains("another environment"))
+    );
+}
+
+fn held_paths(run: &Scenario) -> Option<Vec<PathBuf>> {
+    run.state().tree.clipboard.as_ref().map(|h| h.paths.clone())
+}
+
+fn moved(source: &str, target: &str) -> Msg {
+    Msg::EntriesPasted {
+        environment: here(),
+        worktree: "/r".into(),
+        pasted: vec![paste_entry(source, target)],
+        taken: Vec::new(),
+        moving: true,
+    }
+}
+
+#[test]
+fn what_was_cut_stays_cut_until_it_is_moved() {
+    let agreed = on_row(src_file("/r/src/main.rs", false))
+        .send(perform(Action::FileMove))
+        .send(clipped("/r", &["/r/src/main.rs"]))
+        .send(Msg::ConfirmAnswer(true));
+    // A move that failed whole is pasted again as a move.
+    let again = agreed.send(clipped("/r", &["/r/src/main.rs"]));
+    assert!(matches!(
+        again.state().overlays.confirm,
+        Some(crate::overlay::confirm::Ask::MoveEntries { .. })
+    ));
+    let done = again
+        .send(Msg::ConfirmAnswer(true))
+        .send(moved("/r/src/main.rs", "/r/main.rs"));
+    assert_eq!(held_paths(&done), None);
+}
+
+#[test]
+fn finishing_a_move_keeps_what_was_cut_since() {
+    let run = on_row(src_file("/r/src", true))
+        .send(perform(Action::FileMove))
+        .send(moved("/r/other.rs", "/r/src/other.rs"));
+    assert_eq!(held_paths(&run), Some(vec![PathBuf::from("/r/src")]));
+}
+
+#[test]
+fn what_was_cut_and_not_moved_yet_is_moved_when_pasted_again() {
+    let cut = mark(mark(with_marks(), "/r/src/a.rs"), "/r/src/b.rs")
+        .send(perform(Action::FileMove))
+        .send(clipped("/r", &["/r/src/a.rs", "/r/src/b.rs"]))
+        .send(Msg::ConfirmAnswer(true))
+        .send(moved("/r/src/a.rs", "/r/a.rs"));
+    let again = cut.send(clipped("/r", &["/r/src/a.rs", "/r/src/b.rs"]));
+    assert!(
+        matches!(
+            &again.state().overlays.confirm,
+            Some(crate::overlay::confirm::Ask::MoveEntries { sources, .. })
+                if sources == &[PathBuf::from("/r/src/b.rs")]
+        ),
+        "{:?}",
+        again.state().overlays.confirm
+    );
+}
+
+#[test]
+fn finishing_a_move_keeps_what_was_copied_since() {
+    let run = on_row(src_file("/r/src", true))
+        .send(perform(Action::FileCopy))
+        .send(Msg::EntriesPasted {
+            environment: here(),
+            worktree: "/r".into(),
+            pasted: Vec::new(),
+            taken: Vec::new(),
+            moving: true,
+        });
+    assert_eq!(held_paths(&run), Some(vec![PathBuf::from("/r/src")]));
 }

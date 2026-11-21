@@ -126,8 +126,10 @@ where a new one would be made, as in fern
 computer as a file the Finder pastes too, and what the Finder copied pastes
 into the tree; on a work machine elsewhere as text alone. What was cut moves
 when it is pasted, after asking, as long as the clipboard still holds it;
-anything else on the clipboard is copied. The work machine copies and moves,
-and never overwrites a name taken already. Trashing asks first, and puts it in
+anything else on the clipboard is copied. The work machine copies and moves.
+Each name pasted that is taken already is asked about in turn, as in fern: it
+is overwritten, the one there going to the work machine's trash first, pasted
+by another name typed in place, or skipped. Trashing asks first, and puts it in
 the work machine's trash. Files and directories marked, as in fern, are copied,
 cut or trashed together in place of the one selected, and stand out until they
 are.

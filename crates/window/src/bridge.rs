@@ -879,28 +879,30 @@ impl AppCtx {
             Effect::PasteEntries {
                 environment,
                 worktree,
-                dir,
-                sources,
+                entries,
                 moving,
             } => {
                 let app = *self;
-                let pasted = app.ask_in(
-                    &environment,
-                    Ask::PasteEntries {
-                        sources: sources.clone(),
-                        dir: dir.clone(),
-                        moving,
-                    },
-                );
+                let pasted = app.ask_in(&environment, Ask::PasteEntries { entries, moving });
                 spawn(async move {
                     match pasted.await {
-                        Answer::Done => app.dispatch(Msg::EntriesPasted {
-                            environment,
-                            worktree,
-                            dir,
-                            sources,
-                            moving,
-                        }),
+                        Answer::Pasted {
+                            pasted,
+                            taken,
+                            failed,
+                        } => {
+                            app.dispatch(Msg::EntriesPasted {
+                                environment,
+                                worktree,
+                                pasted,
+                                taken,
+                                moving,
+                            });
+                            // Told after what was pasted, so it is not told over.
+                            if !failed.is_empty() {
+                                app.notice(failed.join("; "));
+                            }
+                        }
                         Answer::Failed { text } => app.notice(text),
                         answer => app.notice(format!("the work host answered {answer:?}")),
                     }
@@ -1056,7 +1058,7 @@ impl AppCtx {
 }
 
 impl AppCtx {
-    fn perform(&self, action: Action, key: Option<Key>) {
+    pub(crate) fn perform(&self, action: Action, key: Option<Key>) {
         let performer = self.performer.read().clone();
         if let Some(perform) = performer {
             perform(action, key);

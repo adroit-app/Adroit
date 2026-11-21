@@ -86,15 +86,19 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             watched.read_again();
             made.map(|()| Answer::Done)
         }
-        Ask::PasteEntries {
-            sources,
-            dir,
-            moving,
-        } => {
-            let pasted = blocking(move || crate::shifting::paste(&sources, &dir, moving)).await;
-            // What was pasted before one failed is listed all the same.
+        Ask::PasteEntries { entries, moving } => {
+            let done = blocking(move || {
+                Ok(crate::shifting::paste(entries, moving, |path| {
+                    crate::shifting::trash(&[path.to_path_buf()])
+                }))
+            })
+            .await;
             watched.read_again();
-            pasted.map(|()| Answer::Done)
+            done.map(|done| Answer::Pasted {
+                pasted: done.pasted,
+                taken: done.taken,
+                failed: done.failed,
+            })
         }
         Ask::TrashEntries { paths } => {
             let trashed = blocking(move || crate::shifting::trash(&paths)).await;

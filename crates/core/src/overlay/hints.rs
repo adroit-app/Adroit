@@ -152,5 +152,15 @@ pub fn answers(keymap: &Keymap) -> (Option<String>, Option<String>) {
     )
 }
 
+/// The keys the buttons of a question about a name pasted that is taken
+/// show besides its no: those that rename, and overwrite.
+pub fn pasting_answers(keymap: &Keymap) -> (Option<String>, Option<String>) {
+    let question = [Context::Confirm, Context::Overlay];
+    (
+        keymap.keys_in(&question, &Action::PasteRename),
+        keymap.keys_in(&question, &Action::PasteOverwrite),
+    )
+}
+
 #[cfg(test)]
 mod tests;
