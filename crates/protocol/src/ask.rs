@@ -56,6 +56,17 @@ pub enum Ask {
         path: PathBuf,
         dir: bool,
     },
+    /// Copy each of `sources` into `dir` by its own name, or move it there
+    /// when `moving`; a name taken in `dir` already is left as it is.
+    PasteEntries {
+        sources: Vec<PathBuf>,
+        dir: PathBuf,
+        moving: bool,
+    },
+    /// Put each of `paths` in the work machine's trash.
+    TrashEntries {
+        paths: Vec<PathBuf>,
+    },
     /// Make the settings those `text` writes in `settings.toml`'s format.
     SaveSettings {
         text: String,

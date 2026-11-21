@@ -1,5 +1,7 @@
 //! The system clipboard, which what the window copies goes to.
 
+use std::path::PathBuf;
+
 /// The programs that put their input on the system clipboard, the first of
 /// them installed taken.
 #[cfg(target_os = "macos")]
@@ -66,6 +68,137 @@ fn encoded(text: &str) -> Vec<u8> {
 /// Put `text` on the system clipboard.
 pub(crate) fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
     copy_with(clipboard_commands(), &encoded(text))
+}
+
+/// Put `paths` on the system clipboard: as files the Finder pastes, with
+/// their paths as text, when they are on this computer; as their paths
+/// alone, a line each, when they are on a work machine elsewhere.
+pub(crate) fn copy_paths(paths: &[PathBuf], here: bool) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if here {
+        return pasteboard::write_files(paths);
+    }
+    let _ = here;
+    let text: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    copy_to_clipboard(&text.join("\n"))
+}
+
+/// The paths on the system clipboard: the files the Finder or the tree
+/// put there when they are on this computer, or else the paths its text
+/// names. None when it holds anything else.
+pub(crate) fn read_paths(here: bool) -> std::io::Result<Vec<PathBuf>> {
+    #[cfg(target_os = "macos")]
+    if here && let Some(files) = pasteboard::read_files() {
+        return Ok(files);
+    }
+    let _ = here;
+    Ok(adroit_core::tree::clipboard::paths_in(&read_text()?))
+}
+
+/// The text on the system clipboard.
+#[cfg(target_os = "macos")]
+fn read_text() -> std::io::Result<String> {
+    Ok(pasteboard::read_text().unwrap_or_default())
+}
+
+/// The text on the system clipboard, from the first of the programs that
+/// print it that is installed and ends well.
+#[cfg(not(target_os = "macos"))]
+fn read_text() -> std::io::Result<String> {
+    let commands: Vec<(&str, &[&str])> = if cfg!(windows) {
+        vec![(
+            "powershell",
+            &["-NoProfile", "-Command", "Get-Clipboard -Raw"],
+        )]
+    } else {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty());
+        let mut programs: Vec<(&str, &[&str])> = Vec::new();
+        if wayland {
+            programs.push(("wl-paste", &["--no-newline"]));
+        }
+        programs.push(("xclip", &["-selection", "clipboard", "-o"]));
+        programs.push(("xsel", &["--clipboard", "--output"]));
+        programs
+    };
+    let mut last = None;
+    for (program, args) in commands {
+        match std::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+            }
+            Ok(out) => {
+                last = Some(std::io::Error::other(format!(
+                    "{program}: ended with {}",
+                    out.status
+                )));
+            }
+            Err(e) => last = Some(std::io::Error::new(e.kind(), format!("{program}: {e}"))),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no clipboard program to paste with")))
+}
+
+/// The general pasteboard, read and written as the Finder does for files.
+#[cfg(target_os = "macos")]
+mod pasteboard {
+    use std::path::PathBuf;
+
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{
+        NSPasteboard, NSPasteboardItem, NSPasteboardTypeFileURL, NSPasteboardTypeString,
+        NSPasteboardWriting,
+    };
+    use objc2_foundation::{NSArray, NSString, NSURL};
+
+    /// `paths` as one item each, a file URL the Finder pastes and the path
+    /// as text for anything that pastes text.
+    pub(super) fn write_files(paths: &[PathBuf]) -> std::io::Result<()> {
+        let items: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = paths
+            .iter()
+            .map(|path| {
+                let text = NSString::from_str(&path.to_string_lossy());
+                let url = NSURL::fileURLWithPath(&text);
+                let item = NSPasteboardItem::new();
+                if let Some(url) = url.absoluteString() {
+                    item.setString_forType(&url, unsafe { NSPasteboardTypeFileURL });
+                }
+                item.setString_forType(&text, unsafe { NSPasteboardTypeString });
+                ProtocolObject::from_retained(item)
+            })
+            .collect();
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        if board.writeObjects(&NSArray::from_retained_slice(&items)) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("the pasteboard took nothing"))
+        }
+    }
+
+    /// The files on the pasteboard, by their file URLs; `None` when it
+    /// holds none.
+    pub(super) fn read_files() -> Option<Vec<PathBuf>> {
+        let items = NSPasteboard::generalPasteboard().pasteboardItems()?;
+        let urls: Vec<String> = items
+            .iter()
+            .filter_map(|item| item.stringForType(unsafe { NSPasteboardTypeFileURL }))
+            .map(|url| url.to_string())
+            .collect();
+        let files = adroit_core::tree::clipboard::paths_in(&urls.join("\n"));
+        (!files.is_empty()).then_some(files)
+    }
+
+    pub(super) fn read_text() -> Option<String> {
+        NSPasteboard::generalPasteboard()
+            .stringForType(unsafe { NSPasteboardTypeString })
+            .map(|text| text.to_string())
+    }
 }
 
 /// Give `input` to the first of `commands` that takes it and ends well; why

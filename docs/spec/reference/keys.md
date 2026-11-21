@@ -67,6 +67,11 @@ changes them ([keys](../keys.md)).
 | `filer.hidden` |  | show or hide the files and directories whose names start with `.` | `filer`: `!` |
 | `file.new` |  | in the tree's files, type the name of a file to make in the directory selected, in the one the file selected is in, or at the top of the worktree from its Files heading; a name with `/` makes the directories it passes through too, one ending in `/` makes a directory, and one already there is left as it is | `tree`: `N` |
 | `directory.new` |  | type the name of a directory to make, where `file.new` makes a file | `tree`: `K` |
+| `file.copy` |  | in the tree's files, put the file or directory selected on the system clipboard, to be copied where it is pasted | `tree`: `C` |
+| `file.move` |  | put the file or directory selected on the system clipboard, to be moved where it is pasted | `tree`: `M` |
+| `file.paste` |  | copy the files and directories on the system clipboard into the directory selected, the one the file selected is in, or the top of the worktree from its Files heading, as `file.new` makes there; move them, after asking, when `file.move` put them there; a name taken there already is left as it is | `tree`: `P` |
+| `file.trash` |  | move the file or directory selected to the work machine's trash, after asking | `tree`: `D` |
+| `file.mark` |  | mark the file or directory selected, or unmark it; `file.copy`, `file.move` and `file.trash` take every one marked rather than the one selected | `tree`: `-` |
 | `waiting.next` | Next Waiting | open the next session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
 | `waiting.prev` | Previous Waiting | open the previous session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+k` |
 | `session.next` | Next Session | open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, as `cursor.go` does; the keys stay in the area they are in; repeats ([keys](../keys.md#repeating)) |  |
@@ -295,6 +300,11 @@ changes them ([keys](../keys.md)).
 "!" = "worktrees.toggle"
 "N" = "file.new"
 "K" = "directory.new"
+"C" = "file.copy"
+"M" = "file.move"
+"P" = "file.paste"
+"D" = "file.trash"
+"-" = "file.mark"
 "}" = "workspace.next"
 "{" = "workspace.prev"
 

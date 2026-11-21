@@ -120,6 +120,18 @@ with `/` makes the directories it passes through too, and cannot reach
 outside the directory it is typed in. What is there already is never
 overwritten. What is made is selected once it is listed.
 
+A file or a directory is copied or cut to the system clipboard, and pasted
+where a new one would be made, as in fern
+([keys](reference/keys.md#actions)). The clipboard carries its path: on this
+computer as a file the Finder pastes too, and what the Finder copied pastes
+into the tree; on a work machine elsewhere as text alone. What was cut moves
+when it is pasted, after asking, as long as the clipboard still holds it;
+anything else on the clipboard is copied. The work machine copies and moves,
+and never overwrites a name taken already. Trashing asks first, and puts it in
+the work machine's trash. Files and directories marked, as in fern, are copied,
+cut or trashed together in place of the one selected, and stand out until they
+are.
+
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.
 

@@ -174,6 +174,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
             shown: !*dir && shows_file(shows.as_ref(), terminals, path),
             editing: nav::edited(&it, terminals),
             elsewhere,
+            marked: view.marks.contains(&it),
         };
         let status = marks
             .and_then(|m| m.get(worktree))

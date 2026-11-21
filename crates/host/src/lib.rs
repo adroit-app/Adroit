@@ -40,6 +40,7 @@ pub mod serve;
 pub mod service;
 pub mod sessions;
 pub mod settings;
+mod shifting;
 pub mod standing;
 pub mod start;
 mod starting;

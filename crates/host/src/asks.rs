@@ -86,6 +86,21 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             watched.read_again();
             made.map(|()| Answer::Done)
         }
+        Ask::PasteEntries {
+            sources,
+            dir,
+            moving,
+        } => {
+            let pasted = blocking(move || crate::shifting::paste(&sources, &dir, moving)).await;
+            // What was pasted before one failed is listed all the same.
+            watched.read_again();
+            pasted.map(|()| Answer::Done)
+        }
+        Ask::TrashEntries { paths } => {
+            let trashed = blocking(move || crate::shifting::trash(&paths)).await;
+            watched.read_again();
+            trashed.map(|()| Answer::Done)
+        }
         Ask::PullWorktree {
             repository,
             number,

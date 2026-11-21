@@ -372,5 +372,21 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 .chain(ends)
                 .collect()
         }
+        Ask::MoveEntries {
+            environment,
+            worktree,
+            dir,
+            sources,
+        } => vec![Effect::PasteEntries {
+            environment,
+            worktree,
+            dir,
+            sources,
+            moving: true,
+        }],
+        Ask::TrashEntries { environment, paths } => {
+            state.tree.marks.clear();
+            vec![Effect::TrashEntries { environment, paths }]
+        }
     }
 }

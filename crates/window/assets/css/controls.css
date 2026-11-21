@@ -33,5 +33,7 @@
 .list-row.file.back { color: var(--text-3); }
 .list-row.file.editing { color: var(--text); }
 .list-row.file.editing .list-row-name { font-weight: 600; }
+.list-row.file.marked { color: var(--wait); }
+.list-row.file.marked:not(.selected) { background: var(--wait-tint-soft); }
 .file-status { flex: none; color: var(--wait); font-family: var(--mono); font-size: 11.5px; }
 .file-status.added { color: var(--done); }

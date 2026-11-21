@@ -3,6 +3,7 @@
 //! the filter narrowing the rows, and what of the tree each host is asked to
 //! keep read.
 
+pub mod clipboard;
 pub mod nav;
 mod place;
 
@@ -38,6 +39,10 @@ pub struct TreeView {
     pub every_worktree: bool,
     /// Whether the files whose names start with `.` are listed.
     pub show_hidden: bool,
+    /// What the tree last put on the system clipboard.
+    pub clipboard: Option<clipboard::Held>,
+    /// The files and directories marked, in the order they were marked.
+    pub marks: Vec<Item>,
     /// The sessions finished that the user has seen since.
     pub completions: Completions,
     /// When the window saw each session's state last change.
@@ -443,10 +448,61 @@ pub(crate) fn land(view: &mut TreeView) {
     if view.selected != from {
         return;
     }
-    if view.built.rows.contains(&to) {
-        view.selected = Some(to);
+    // What is pasted is landed on by its path alone: a path the clipboard
+    // named does not say whether it is a directory.
+    if let Some(row) = view.built.rows.iter().find(|row| same_entry(row, &to)) {
+        view.selected = Some(row.clone());
     } else {
         view.landing = Some((from, to));
+    }
+}
+
+/// Whether `row` is the entry `to` is, or the same path of the same
+/// worktree when both are files.
+fn same_entry(row: &Item, to: &Item) -> bool {
+    match (row, to) {
+        (
+            Item::File {
+                environment,
+                worktree,
+                path,
+                ..
+            },
+            Item::File {
+                environment: e,
+                worktree: w,
+                path: p,
+                ..
+            },
+        ) => environment == e && worktree == w && path == p,
+        _ => row == to,
+    }
+}
+
+/// The directory a new entry made from `row` goes in, with the environment
+/// and the worktree it is of: the directory selected, the one the file
+/// selected is in, or the top of the worktree from its Files heading.
+/// `None` for a row outside the files.
+pub(crate) fn entries_dir(row: &Item) -> Option<(EnvironmentId, PathBuf, PathBuf)> {
+    match row {
+        Item::Heading(environment, worktree, Heading::Files) => {
+            Some((environment.clone(), worktree.clone(), worktree.clone()))
+        }
+        Item::File {
+            environment,
+            worktree,
+            path,
+            dir,
+        } => {
+            let dir = if *dir {
+                path.clone()
+            } else {
+                path.parent()
+                    .map_or_else(|| worktree.clone(), Path::to_path_buf)
+            };
+            Some((environment.clone(), worktree.clone(), dir))
+        }
+        _ => None,
     }
 }
 

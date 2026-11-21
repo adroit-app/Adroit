@@ -501,6 +501,11 @@ fn label(request: &adroit_protocol::Request) -> String {
             Ask::KeepImage { .. } => "Upload an image".into(),
             Ask::MakeEntry { path, dir: true } => format!("Make directory: {}", path.display()),
             Ask::MakeEntry { path, .. } => format!("Make file: {}", path.display()),
+            Ask::PasteEntries {
+                dir, moving: true, ..
+            } => format!("Move files to {}", dir.display()),
+            Ask::PasteEntries { dir, .. } => format!("Copy files to {}", dir.display()),
+            Ask::TrashEntries { .. } => "Move files to the trash".into(),
             Ask::SaveSettings { .. } | Ask::SaveKeys { .. } => "Save settings".into(),
             Ask::Run { .. } => "Run a command on the work machine".into(),
             Ask::Clone { typed, .. } => format!("Clone: {typed}"),

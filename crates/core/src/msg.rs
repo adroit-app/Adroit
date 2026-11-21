@@ -486,6 +486,23 @@ pub enum Msg {
         path: PathBuf,
         dir: bool,
     },
+    /// The system clipboard read for pasting into `dir` of `worktree` of
+    /// `environment` holds `paths`, none when it holds no paths.
+    Clipped {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        dir: PathBuf,
+        paths: Vec<PathBuf>,
+    },
+    /// The work host of `environment` copied `sources` into `dir` of
+    /// `worktree`, or moved them there when `moving`.
+    EntriesPasted {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        dir: PathBuf,
+        sources: Vec<PathBuf>,
+        moving: bool,
+    },
     /// How the sessions' daemon of the environment stands, as the banner
     /// would say it.
     DaemonStanding {

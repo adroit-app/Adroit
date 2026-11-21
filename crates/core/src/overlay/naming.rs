@@ -40,32 +40,10 @@ impl Naming {
     /// selected, in the one the file selected is in, or at the top of the
     /// worktree from its Files heading. `None` for a row outside the files.
     pub fn at(row: &Item, kind: Kind) -> Option<Self> {
-        let (environment, worktree, dir) = match row {
-            Item::Heading(environment, worktree, Heading::Files) => {
-                (environment, worktree, worktree.clone())
-            }
-            Item::File {
-                environment,
-                worktree,
-                path,
-                dir: true,
-            } => (environment, worktree, path.clone()),
-            Item::File {
-                environment,
-                worktree,
-                path,
-                dir: false,
-            } => (
-                environment,
-                worktree,
-                path.parent()
-                    .map_or_else(|| worktree.clone(), Path::to_path_buf),
-            ),
-            _ => return None,
-        };
+        let (environment, worktree, dir) = crate::tree::entries_dir(row)?;
         Some(Self {
-            environment: environment.clone(),
-            worktree: worktree.clone(),
+            environment,
+            worktree,
             dir,
             kind,
             text: String::new(),

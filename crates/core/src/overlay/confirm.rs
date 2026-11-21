@@ -34,6 +34,19 @@ pub enum Ask {
         sessions: Vec<Session>,
         terminals: Vec<u128>,
     },
+    /// Move `sources` into `dir` of `worktree`, as the clipboard holds them
+    /// cut.
+    MoveEntries {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        dir: PathBuf,
+        sources: Vec<PathBuf>,
+    },
+    /// Put `paths` in the work machine's trash.
+    TrashEntries {
+        environment: EnvironmentId,
+        paths: Vec<PathBuf>,
+    },
 }
 
 impl Ask {
@@ -104,6 +117,18 @@ impl Ask {
                 format!("Ending its {} takes it out of the tree; the workspace stays listed. Conversations remain in the provider's history.", running(sessions, terminals)),
                 "End and close",
             ),
+            Self::MoveEntries { dir, sources, .. } => (
+                Icon::Scissors,
+                format!("Move {} here?", named(sources)),
+                format!("{} leaves where it is and goes to {}.", named(sources), dir.display()),
+                "Move",
+            ),
+            Self::TrashEntries { paths, .. } => (
+                Icon::Trash,
+                format!("Move {} to the trash?", named(paths)),
+                "It goes to the work machine's trash, where it can be put back from.".into(),
+                "Move to Trash",
+            ),
         }
     }
 
@@ -114,8 +139,22 @@ impl Ask {
             Self::RemoveWorkspace { terminals, .. } | Self::CloseWorktree { terminals, .. } => {
                 !terminals.is_empty()
             }
-            Self::Stop(..) | Self::RemoveEnvironment(..) => false,
+            Self::Stop(..)
+            | Self::RemoveEnvironment(..)
+            | Self::MoveEntries { .. }
+            | Self::TrashEntries { .. } => false,
         }
+    }
+}
+
+/// The entries `paths` are, said by the name of the one, or as a count.
+fn named(paths: &[PathBuf]) -> String {
+    match paths {
+        [one] => one.file_name().map_or_else(
+            || one.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        ),
+        many => format!("{} items", many.len()),
     }
 }
 

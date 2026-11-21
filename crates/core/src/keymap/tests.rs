@@ -608,6 +608,11 @@ fn the_filer_moves_as_fern_does() {
         ("!", Action::FilerHidden),
         ("N", Action::FileNew),
         ("K", Action::DirectoryNew),
+        ("C", Action::FileCopy),
+        ("M", Action::FileMove),
+        ("P", Action::FilePaste),
+        ("D", Action::FileTrash),
+        ("-", Action::FileMark),
         // What the filer leaves unbound is the tree's.
         ("s", Action::CursorSplit),
     ] {

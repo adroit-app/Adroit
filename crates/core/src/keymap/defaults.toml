@@ -139,6 +139,11 @@
 "!" = "worktrees.toggle"
 "N" = "file.new"
 "K" = "directory.new"
+"C" = "file.copy"
+"M" = "file.move"
+"P" = "file.paste"
+"D" = "file.trash"
+"-" = "file.mark"
 "}" = "workspace.next"
 "{" = "workspace.prev"
 
