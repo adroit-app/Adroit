@@ -174,30 +174,47 @@ fn a_file_opens_where_its_key_says_copies_its_path_makes_beside_it_and_closes_it
                 Action::NeovimOpen,
                 Action::FileNew,
                 Action::DirectoryNew,
+                Action::FileCopy,
+                Action::FileMove,
+                Action::FilePaste,
                 Action::CursorClose,
+                Action::FileTrash,
             ],
         ]
         .concat()
     );
 }
 
-#[test]
-fn a_directory_and_the_files_heading_make_files_and_directories_in_them() {
-    let dir = Item::File {
+fn dir_row() -> Item {
+    Item::File {
         environment: here(),
         worktree: "/api".into(),
         path: "/api/src".into(),
         dir: true,
-    };
+    }
+}
+
+#[test]
+fn a_directory_and_the_files_heading_make_and_paste_files_in_them() {
+    let dir = dir_row();
     let files = Item::Heading(here(), "/api".into(), crate::tree::nav::Heading::Files);
     let sessions = Item::Heading(here(), "/api".into(), crate::tree::nav::Heading::Sessions);
     for row in [dir, files] {
         let got = actions(Target::Row(row.clone()), None);
         assert!(
-            got.ends_with(&[Action::FileNew, Action::DirectoryNew]),
+            got.windows(2)
+                .any(|w| w == [Action::FileNew, Action::DirectoryNew]),
             "{row:?}"
         );
+        assert!(got.contains(&Action::FilePaste), "{row:?}");
     }
+    let dir_menu = actions(Target::Row(dir_row()), None);
+    assert!(dir_menu.ends_with(&[
+        Action::FileCopy,
+        Action::FileMove,
+        Action::FilePaste,
+        Action::FileTrash
+    ]));
     assert!(!actions(Target::Row(sessions), None).contains(&Action::FileNew));
 }
 

@@ -23,6 +23,7 @@ pub(crate) fn NamingField(naming: Naming, depth: usize) -> Element {
         .map(|c| format!("color:{}", c.css()))
         .unwrap_or_default();
     let label = match naming.kind {
+        _ if naming.pasting.is_some() => "Name to paste by",
         Kind::Directory => "New directory name",
         Kind::File => "New file name",
     };

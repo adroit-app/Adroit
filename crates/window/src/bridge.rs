@@ -848,6 +848,79 @@ impl AppCtx {
                     }
                 });
             }
+            Effect::Clip {
+                environment,
+                paths,
+                done,
+            } => {
+                let here = self.remote_status_of(&environment).is_none();
+                let told = match crate::clipboard::copy_paths(&paths, here) {
+                    Ok(()) => done,
+                    Err(e) => format!("cannot copy: {e}"),
+                };
+                self.notice(told);
+            }
+            Effect::ReadClip {
+                environment,
+                worktree,
+                dir,
+            } => {
+                let here = self.remote_status_of(&environment).is_none();
+                match crate::clipboard::read_paths(here) {
+                    Ok(paths) => self.dispatch(Msg::Clipped {
+                        environment,
+                        worktree,
+                        dir,
+                        paths,
+                    }),
+                    Err(e) => self.notice(format!("cannot paste: {e}")),
+                }
+            }
+            Effect::PasteEntries {
+                environment,
+                worktree,
+                entries,
+                moving,
+            } => {
+                let app = *self;
+                let pasted = app.ask_in(&environment, Ask::PasteEntries { entries, moving });
+                spawn(async move {
+                    match pasted.await {
+                        Answer::Pasted {
+                            pasted,
+                            taken,
+                            failed,
+                        } => {
+                            app.dispatch(Msg::EntriesPasted {
+                                environment,
+                                worktree,
+                                pasted,
+                                taken,
+                                moving,
+                            });
+                            // Told after what was pasted, so it is not told over.
+                            if !failed.is_empty() {
+                                app.notice(failed.join("; "));
+                            }
+                        }
+                        Answer::Failed { text } => app.notice(text),
+                        answer => app.notice(format!("the work host answered {answer:?}")),
+                    }
+                });
+            }
+            Effect::TrashEntries { environment, paths } => {
+                let app = *self;
+                let count = paths.len();
+                let trashed = app.ask_in(&environment, Ask::TrashEntries { paths });
+                spawn(async move {
+                    match trashed.await {
+                        Answer::Done if count == 1 => app.notice("Moved to the trash".into()),
+                        Answer::Done => app.notice(format!("Moved {count} items to the trash")),
+                        Answer::Failed { text } => app.notice(text),
+                        answer => app.notice(format!("the work host answered {answer:?}")),
+                    }
+                });
+            }
             Effect::ShowSession(environment, id) => {
                 self.dispatch(Msg::ShowSession(environment, id))
             }
@@ -985,7 +1058,7 @@ impl AppCtx {
 }
 
 impl AppCtx {
-    fn perform(&self, action: Action, key: Option<Key>) {
+    pub(crate) fn perform(&self, action: Action, key: Option<Key>) {
         let performer = self.performer.read().clone();
         if let Some(perform) = performer {
             perform(action, key);

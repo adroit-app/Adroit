@@ -70,6 +70,13 @@ pub enum Action {
     FilerHidden,
     FileNew,
     DirectoryNew,
+    FileCopy,
+    FileMove,
+    FilePaste,
+    FileTrash,
+    FileMark,
+    PasteOverwrite,
+    PasteRename,
     WaitingNext,
     WaitingPrev,
     SessionNext,
@@ -347,6 +354,22 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::DirectoryNew, "directory.new", "type the name of a directory to make, where `file.new` makes a file")
         .icon(Icon::FolderPlus)
         .row("New directory…", Start),
+    S::new(A::FileCopy, "file.copy", "in the tree's files, put the file or directory selected on the system clipboard, to be copied where it is pasted")
+        .icon(Icon::Copy)
+        .row("Copy", Start),
+    S::new(A::FileMove, "file.move", "put the file or directory selected on the system clipboard, to be moved where it is pasted")
+        .icon(Icon::Scissors)
+        .row("Cut", Start),
+    S::new(A::FilePaste, "file.paste", "copy the files and directories on the system clipboard into the directory selected, the one the file selected is in, or the top of the worktree from its Files heading, as `file.new` makes there; move them, after asking, when `file.move` put them there; a name taken there already is left as it is")
+        .icon(Icon::Clipboard)
+        .row("Paste", Start),
+    S::new(A::FileTrash, "file.trash", "move the file or directory selected to the work machine's trash, after asking")
+        .icon(Icon::Trash)
+        .row("Move to Trash", End),
+    S::new(A::FileMark, "file.mark", "mark the file or directory selected, or unmark it; `file.copy`, `file.move` and `file.trash` take every one marked rather than the one selected")
+        .says("Mark"),
+    S::new(A::PasteOverwrite, "paste.overwrite", "when a name pasted is taken, put the one there in the trash and paste in its place").says("Overwrite"),
+    S::new(A::PasteRename, "paste.rename", "when a name pasted is taken, type another name to paste it by").says("Rename"),
     S::new(A::WaitingNext, "waiting.next", "open the next session waiting on you as `cursor.go` does, with the keys in its console").bar("Next Waiting", Icon::BellDown).repeats(Steps::Waiting),
     S::new(A::WaitingPrev, "waiting.prev", "open the previous session waiting on you as `cursor.go` does, with the keys in its console").bar("Previous Waiting", Icon::BellUp).repeats(Steps::Waiting),
     S::new(A::SessionNext, "session.next", "open the session after the one shown, in the tree's order over every session, folded away or filtered out too, going round at the end, as `cursor.go` does; the keys stay in the area they are in").bar("Next Session", Icon::MessageDown).repeats(Steps::Sessions),
@@ -653,6 +676,13 @@ mod tests {
             FilerHidden,
             FileNew,
             DirectoryNew,
+            FileCopy,
+            FileMove,
+            FilePaste,
+            FileTrash,
+            FileMark,
+            PasteOverwrite,
+            PasteRename,
             WaitingNext,
             WaitingPrev,
             SessionNext,

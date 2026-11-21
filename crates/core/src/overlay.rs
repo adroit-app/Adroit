@@ -196,6 +196,8 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
         Holder::Confirm => match action {
             Some(Action::OverlayChoose) => answer(state, true),
             Some(Action::OverlayClose) => answer(state, false),
+            Some(Action::PasteOverwrite) => crate::tree::clipboard::overwrite(state),
+            Some(Action::PasteRename) => crate::tree::clipboard::rename(state),
             _ => Vec::new(),
         },
         Holder::KeysHelp => {
@@ -371,6 +373,25 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
                 .map(|s| stop(&environment, s))
                 .chain(ends)
                 .collect()
+        }
+        Ask::MoveEntries {
+            environment,
+            worktree,
+            dir,
+            sources,
+        } => vec![Effect::PasteEntries {
+            environment,
+            worktree,
+            entries: crate::tree::clipboard::into(&dir, &sources),
+            moving: true,
+        }],
+        Ask::TrashEntries { environment, paths } => {
+            state.tree.marks.clear();
+            vec![Effect::TrashEntries { environment, paths }]
+        }
+        Ask::Clash(clash) => {
+            state.overlays.confirm = Some(Ask::Clash(clash));
+            crate::tree::clipboard::overwrite(state)
         }
     }
 }

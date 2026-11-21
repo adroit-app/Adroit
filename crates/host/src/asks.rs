@@ -86,6 +86,25 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             watched.read_again();
             made.map(|()| Answer::Done)
         }
+        Ask::PasteEntries { entries, moving } => {
+            let done = blocking(move || {
+                Ok(crate::shifting::paste(entries, moving, |path| {
+                    crate::shifting::trash(&[path.to_path_buf()])
+                }))
+            })
+            .await;
+            watched.read_again();
+            done.map(|done| Answer::Pasted {
+                pasted: done.pasted,
+                taken: done.taken,
+                failed: done.failed,
+            })
+        }
+        Ask::TrashEntries { paths } => {
+            let trashed = blocking(move || crate::shifting::trash(&paths)).await;
+            watched.read_again();
+            trashed.map(|()| Answer::Done)
+        }
         Ask::PullWorktree {
             repository,
             number,

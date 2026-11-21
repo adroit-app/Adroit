@@ -59,6 +59,34 @@ pub enum Effect {
         path: PathBuf,
         dir: bool,
     },
+    /// Put `paths` of `environment`'s work machine on the system clipboard
+    /// and say `done`.
+    Clip {
+        environment: EnvironmentId,
+        paths: Vec<PathBuf>,
+        done: String,
+    },
+    /// Read the paths on the system clipboard, for pasting into `dir` of
+    /// `worktree`, and tell [`crate::msg::Msg::Clipped`].
+    ReadClip {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        dir: PathBuf,
+    },
+    /// Ask the work host of `environment` to paste `entries` in `worktree`,
+    /// moving them when `moving`, and tell
+    /// [`crate::msg::Msg::EntriesPasted`].
+    PasteEntries {
+        environment: EnvironmentId,
+        worktree: PathBuf,
+        entries: Vec<adroit_protocol::PasteEntry>,
+        moving: bool,
+    },
+    /// Ask the work host of `environment` to put `paths` in its trash.
+    TrashEntries {
+        environment: EnvironmentId,
+        paths: Vec<PathBuf>,
+    },
 
     /// Draw the consoles in these colours.
     Palette(adroit_protocol::Colours),

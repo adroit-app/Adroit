@@ -69,6 +69,8 @@ pub fn entries(
     let fold = (Action::CursorGo, "Fold or unfold");
     let close = offer(Action::CursorClose);
     let makes = [Action::FileNew, Action::DirectoryNew].map(offer);
+    let shifts = [Action::FileCopy, Action::FileMove, Action::FilePaste].map(offer);
+    let trash = offer(Action::FileTrash);
     let close_tab = offer(Action::TabClose);
     let stop_terminal = offer(Action::TerminalStop);
     match target {
@@ -94,7 +96,8 @@ pub fn entries(
             .chain([copy_path])
             .chain(here)
             .chain(makes)
-            .chain([close])
+            .chain(shifts)
+            .chain([close, trash])
             .collect(),
         Target::Row(Item::Worktree(_, _)) => opens
             .into_iter()
@@ -111,10 +114,15 @@ pub fn entries(
             .into_iter()
             .chain(here)
             .chain(makes)
+            .chain(shifts)
+            .chain([trash])
             .collect(),
-        Target::Row(Item::Heading(_, _, Heading::Files)) => {
-            [fold].into_iter().chain(here).chain(makes).collect()
-        }
+        Target::Row(Item::Heading(_, _, Heading::Files)) => [fold]
+            .into_iter()
+            .chain(here)
+            .chain(makes)
+            .chain([offer(Action::FilePaste)])
+            .collect(),
         Target::Row(Item::Across(..) | Item::Heading(..) | Item::GitHub(..)) => {
             [fold].into_iter().chain(here).collect()
         }

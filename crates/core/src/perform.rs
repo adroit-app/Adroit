@@ -242,6 +242,24 @@ pub(crate) fn perform(
             effects
         }
         Action::SessionStop => step(state, Msg::ConfirmStop { selection: on_list }),
+        Action::FileCopy
+        | Action::FileMove
+        | Action::FilePaste
+        | Action::FileTrash
+        | Action::FileMark => {
+            let Some(row) = cur.filter(|_| on_list) else {
+                return Vec::new();
+            };
+            match action {
+                Action::FileCopy => tree::clipboard::hold(state, &row, false),
+                Action::FileMove => tree::clipboard::hold(state, &row, true),
+                Action::FilePaste => tree::clipboard::paste(&row),
+                Action::FileMark => tree::clipboard::mark(state, &row),
+                _ => tree::clipboard::trash(state, &row),
+            }
+        }
+        Action::PasteOverwrite => tree::clipboard::overwrite(state),
+        Action::PasteRename => tree::clipboard::rename(state),
         Action::FileNew | Action::DirectoryNew => match cur.filter(|_| on_list) {
             Some(row) => {
                 let kind = if action == Action::FileNew {
