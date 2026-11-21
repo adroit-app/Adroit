@@ -66,6 +66,10 @@ login still shares that login; an agent's dedicated login remains on the work
 machine. Stale settings saves are refused so an older window cannot overwrite
 a newer configuration.
 
+Only a window creates an environment on a work machine. A command run in an
+environment that no window has opened there is refused with an error naming
+it, and nothing is kept or started for it.
+
 Fonts, zoom, prompt dimensions, notifications and local console input
 preferences are saved on this computer across environments. The embedded
 Neovim configuration also stays here. Work-machine paths and console themes

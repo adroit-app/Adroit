@@ -18,6 +18,16 @@ tokio::task_local! { static ACTIVE: RefCell<Option<Arc<Environment>>>; }
 thread_local! { static BLOCKING: RefCell<Option<Arc<Environment>>> = const { RefCell::new(None) }; }
 
 impl Environment {
+    /// The environment `id` of the host whose state is `root`, only where a
+    /// window has opened it there: a command run in one that no window shows
+    /// would start work nobody can see.
+    pub fn existing(id: &str, root: &Path) -> Result<Arc<Self>, String> {
+        if adroit_model::paths::is_instance(id) && !root.join("environments").join(id).is_dir() {
+            return Err(format!("The work host serves no environment {id}"));
+        }
+        Self::at(id, root)
+    }
+
     pub fn at(id: &str, root: &Path) -> Result<Arc<Self>, String> {
         if !adroit_model::paths::is_instance(id) {
             return Err("Invalid work environment".into());
@@ -294,6 +304,20 @@ mod tests {
         })
         .await;
         assert!(Environment::at("../escape", dir.path()).is_err());
+    }
+
+    #[test]
+    fn an_environment_no_window_opened_is_refused_by_name_and_left_unmade() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = Environment::existing("work", dir.path()).err().unwrap();
+        assert!(error.contains("work"), "{error}");
+        assert!(!dir.path().join("environments/work").exists());
+        assert!(Environment::existing("../escape", dir.path()).is_err());
+        Environment::at("work", dir.path()).unwrap();
+        assert_eq!(
+            Environment::existing("work", dir.path()).unwrap().id,
+            "work"
+        );
     }
 
     #[test]
