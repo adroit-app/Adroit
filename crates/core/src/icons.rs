@@ -112,6 +112,7 @@ icons! {
     Photo => "photo",
     PlayerStop => "player-stop",
     Plus => "plus",
+    Progress => "progress",
     Refresh => "refresh",
     Restore => "restore",
     RotateClockwise => "rotate-clockwise",

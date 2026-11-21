@@ -80,7 +80,7 @@ pub(super) fn Specimen(placed: Placed) -> Element {
                     tone: "state-glyph run",
                     badge: Some("Explore"),
                     ..Link::new(
-                        Icon::Loader,
+                        Icon::Progress,
                         "Find where the login times out",
                         "running 1m 12s",
                     )
@@ -484,7 +484,7 @@ fn running() -> Element {
         div { class: "details-block details-links",
             {heading("1 subagent · 1 process")}
             ListRow { kind: "details-link", title: "Find where the login times out",
-                span { class: "state-glyph run", IconView { icon: Icon::Loader, size: 13 } }
+                span { class: "state-glyph run", IconView { icon: Icon::Progress, size: 13 } }
                 span { class: "list-row-name", "Find where the login times out" }
                 span { class: "commit-mark details-link-badge", "Explore" }
                 span { class: "details-link-tag", "running 1m 12s" }
@@ -840,7 +840,7 @@ fn github_files() -> Element {
 fn github_checks() -> Element {
     let checks = [
         ("fail", Icon::X, "test (windows)", true),
-        ("run", Icon::Loader, "test (linux)", false),
+        ("run", Icon::Progress, "test (linux)", false),
         ("done", Icon::Check, "lint", false),
     ];
     rsx! {
@@ -885,7 +885,7 @@ fn github() -> Element {
                             "5"
                         }
                         span { class: "github-card-check state-glyph run",
-                            IconView { icon: Icon::Loader, size: 12 }
+                            IconView { icon: Icon::Progress, size: 12 }
                             "1"
                         }
                     }

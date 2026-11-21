@@ -12,8 +12,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Classes a source puts together as a prefix and a value, such as
-/// `lane-{}` for the colour of a lane of the log's graph.
-const COMPOSED: [&str; 1] = ["lane-"];
+/// `lane-{}` for the colour of a lane of the log's graph and `icon-{}` for
+/// the icon an icon draws.
+const COMPOSED: [&str; 2] = ["lane-", "icon-"];
 
 /// The directories whose sources write the classes: the window's, its page
 /// scripts, and the view state's, which hands some of them over.

@@ -15,7 +15,7 @@ use crate::icons::Icon;
 /// icon as a session's in the same standing is, and the icon.
 pub fn agent_glyph(standing: Standing) -> (&'static str, Icon) {
     match standing {
-        Standing::Running => ("state-glyph run", Icon::Loader),
+        Standing::Running => ("state-glyph run", Icon::Progress),
         Standing::Done => ("state-glyph done", Icon::Check),
         Standing::Failed => ("state-glyph fail", Icon::AlertTriangle),
         Standing::Stopped => ("state-glyph idle", Icon::PlayerStop),
@@ -450,7 +450,7 @@ mod tests {
     fn a_subagent_is_marked_in_the_colour_a_session_in_the_same_standing_is() {
         assert_eq!(
             agent_glyph(Standing::Running),
-            ("state-glyph run", Icon::Loader)
+            ("state-glyph run", Icon::Progress)
         );
         assert_eq!(
             agent_glyph(Standing::Done),

@@ -70,7 +70,7 @@ fn checks_glyph(standing: Standing) -> (&'static str, Icon, &'static str) {
     match standing {
         Standing::Passed => ("state-glyph done", Icon::Check, "Every check passed"),
         Standing::Failed => ("state-glyph fail", Icon::X, "A check failed"),
-        Standing::Pending => ("state-glyph run", Icon::Loader, "Checks are running"),
+        Standing::Pending => ("state-glyph run", Icon::Progress, "Checks are running"),
     }
 }
 
