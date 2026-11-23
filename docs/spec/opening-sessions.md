@@ -31,8 +31,10 @@ cannot act as another.
   in the background. It returns the new session's id,
   [code](sessions.md#a-sessions-code) and name. A session
   opens in a tab of each window as it appears: with the keys in a window whose
-  focused window shows the session that opened it, and otherwise behind the
-  tab shown, so what you were looking at and typing into stays. One started
+  focused window shows the session that opened it, unless you are typing
+  there — writing in the prompt, or passing every key to the console — and
+  otherwise behind the tab shown, so what you were looking at and typing into
+  stays. One started
   in the background is only listed. It starts from the profile it names, which has to
   start the agent when both are named; else from the agent's default profile,
   else from the default profile ([settings](settings.md#profiles)).

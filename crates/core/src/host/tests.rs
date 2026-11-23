@@ -242,6 +242,62 @@ mod shown {
         assert_eq!(run.state().content.focus, Area::Console);
     }
 
+    /// The window looking at the opener of delegation `id` while `typing`,
+    /// then the host listing a session it opened, asking that it be shown.
+    fn appears_while(id: SessionId, typing: Vec<Msg>) -> Scenario {
+        Scenario::new()
+            .event_from(here(), listing(vec![opener(id)]).seq(1))
+            .send(testing::show(Tab::Session(here(), "opener".into())))
+            .send_all(typing)
+            .event_from(
+                here(),
+                testing::patch(2).listed(listed_of(vec![
+                    opener(id),
+                    session("new").parent(id).show(),
+                ])),
+            )
+    }
+
+    #[test]
+    fn a_session_its_opener_opens_while_its_prompt_is_written_opens_behind_the_shown_tab() {
+        let id = SessionId::new();
+        for mode in [("insert", "INSERT"), ("cmd", "COMMAND")] {
+            let run = appears_while(
+                id,
+                vec![Msg::Focus(Area::Prompt), Msg::PromptMode(mode.0, mode.1)],
+            );
+            assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+            assert_eq!(run.state().content.focus, Area::Prompt);
+            assert!(opened(&run, &Tab::Session(here(), "new".into())));
+        }
+    }
+
+    #[test]
+    fn a_session_its_opener_opens_while_the_console_passes_every_key_opens_behind() {
+        let id = SessionId::new();
+        let run = appears_while(
+            id,
+            vec![Msg::Focus(Area::Console), Msg::ConsolePassEveryKey],
+        );
+        assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        assert!(run.state().console.direct);
+        assert!(opened(&run, &Tab::Session(here(), "new".into())));
+    }
+
+    #[test]
+    fn a_session_its_opener_opens_while_its_prompt_is_in_normal_mode_takes_the_keys() {
+        let id = SessionId::new();
+        let run = appears_while(
+            id,
+            vec![
+                Msg::Focus(Area::Prompt),
+                Msg::PromptMode("normal", "NORMAL"),
+            ],
+        );
+        assert_eq!(focused(&run), Some(Tab::Session(here(), "new".into())));
+        assert_eq!(run.state().content.focus, Area::Console);
+    }
+
     #[test]
     fn a_session_appearing_while_the_user_looks_elsewhere_opens_behind_the_shown_tab() {
         let id = SessionId::new();

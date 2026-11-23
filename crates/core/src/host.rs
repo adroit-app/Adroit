@@ -7,7 +7,7 @@ use adroit_model::{EnvironmentId, Session};
 use adroit_protocol::{Event, Request, SPOKEN, Sight, Told, Version, WorkPatch, WorkSnapshot};
 
 use crate::chrome::status_line;
-use crate::content::Tab;
+use crate::content::{Area, Tab};
 use crate::effect::Effect;
 use crate::state::ViewState;
 use crate::tree::{self, Place, nav};
@@ -297,15 +297,17 @@ fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Listed {
 
 /// Open each session or terminal of `environment` not among `before` that was
 /// not started in the background: the first one the session in the focused
-/// window opened is shown with the keys, and every other is opened behind
-/// the shown tab, so the user sees it appear without losing what they type
-/// into.
+/// window opened is shown with the keys, unless the user is typing, and
+/// every other is opened behind the shown tab, so the user sees it appear
+/// without losing what they type into.
 fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Listed) -> Vec<Effect> {
+    let typing = typing(state);
     let Some(work) = state.hosts.work(environment) else {
         return Vec::new();
     };
     let sessions = work.tree.sessions();
     let looked_at = match state.content.windows.focused() {
+        _ if typing => None,
         Some(Tab::Session(at, id)) if at == environment => sessions
             .iter()
             .find(|s| &s.id == id)
@@ -352,9 +354,19 @@ fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Liste
         }
     }
     if keys_taken {
-        state.content.focus = crate::content::Area::Console;
+        state.content.focus = Area::Console;
     }
     effects
+}
+
+/// Whether the keys are writing text: the prompt in insert or command-line
+/// mode, or the console passing every key to its program.
+fn typing(state: &ViewState) -> bool {
+    match state.content.focus {
+        Area::Prompt => matches!(state.prompt.mode.0, "insert" | "cmd"),
+        Area::Console => state.console.direct,
+        _ => false,
+    }
 }
 
 /// A patch is applied only on top of the one before it. One the window
