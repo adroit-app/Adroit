@@ -103,6 +103,14 @@ impl Link {
             Sending::Remote(sender) => Some(sender.status()),
         }
     }
+    /// The work machine the link reaches, none for a link to this computer
+    /// or one whose machine could not be made out.
+    pub(crate) fn remote(&self) -> Option<adroit_connect::Remote> {
+        match &self.requests {
+            Sending::Local(_) => None,
+            Sending::Remote(sender) => sender.remote(),
+        }
+    }
     pub(crate) fn retry_remote(&self) {
         if let Sending::Remote(sender) = &self.requests {
             sender.retry();

@@ -9,7 +9,8 @@ reused; one started while the host before it still holds that place publishes
 itself once the earlier one ends. `adroit remote info` describes the currently running pair and refuses
 stale discovery. Replacing the work host leaves the terminal host and its
 sessions running; replacing the terminal host ends its sessions, and a paired
-client never replaces either. What a paired client asks is held to the rules
+client replaces neither but for the restart of the work host its user asks
+for. What a paired client asks is held to the rules
 of remote changes below; what a window or command at the machine asks is not.
 
 `adroit remote enable` registers an instance's gateway as the user's service,
@@ -173,6 +174,11 @@ and revocation. A paired client uses the hosts with the
 authority of the user the work machine runs as; the gateway only refuses
 requests to manage the work host itself, such as stopping it, and closes the
 connection that sent one.
+
+Restart Work Host on the heading of a work machine's environment
+(`environment.restart_host`) has its gateway restart the work host, also when
+that host answers nothing or does not run. It ends no session, and the window
+connects again. The window says so when the gateway cannot or is too old to.
 
 ## Changes across a lost connection
 

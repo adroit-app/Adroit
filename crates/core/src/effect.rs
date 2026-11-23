@@ -300,6 +300,8 @@ pub enum Effect {
     },
     /// Try to reach the work machine of `environment` again now.
     RetryEnvironment(EnvironmentId),
+    /// Have the work machine of the environment restart its work host.
+    RestartWorkHost(EnvironmentId),
     /// Open the sheet adding an environment on pairing again with the work
     /// machine of `environment`.
     PairAgain(EnvironmentId),

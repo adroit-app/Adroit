@@ -473,6 +473,26 @@ impl AppCtx {
         set_changed(self.remotes, &remotes);
     }
 
+    /// Have `environment`'s work machine restart its work host, then reach
+    /// it again.
+    fn restart_work_host(&self, environment: EnvironmentId) {
+        let app = *self;
+        let Some(remote) = app.link_of(&environment).remote() else {
+            app.notice("Only a work machine's work host is restarted from here".into());
+            return;
+        };
+        spawn(async move {
+            app.notice("Restarting the work host".into());
+            match remote.restart_work().await {
+                Ok(()) => {
+                    app.notice("Restarted the work host".into());
+                    app.retry_remote(&environment);
+                }
+                Err(text) => app.status(Some(format!("cannot restart the work host: {text}"))),
+            }
+        });
+    }
+
     pub(crate) fn retry_remote(&self, environment: &EnvironmentId) {
         self.link_of(environment).retry_remote();
     }
@@ -969,6 +989,7 @@ impl AppCtx {
                 }
             }
             Effect::RetryEnvironment(environment) => self.retry_remote(&environment),
+            Effect::RestartWorkHost(environment) => self.restart_work_host(environment),
             Effect::PairAgain(environment) => match crate::connection::work_machine(&environment) {
                 Some(machine) => {
                     self.pair_again(machine.address, self.environment_name(&environment))

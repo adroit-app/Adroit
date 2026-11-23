@@ -7,6 +7,7 @@ use crate::tls::{ALPN, client_config, peer_speaking, server_config};
 use crate::{Error, Fingerprint, Identity, Peers};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -21,6 +22,9 @@ const REACH: Duration = Duration::from_secs(5);
 const MAX_CONNECTIONS: usize = 64;
 /// The longest line the work protocol sends; the work host's own limit.
 const MAX_LINE: usize = 16 * 1024 * 1024;
+/// How long a client waits for the work host to be restarted: longer than
+/// one that answers nothing takes to be stopped and another to start.
+const RESTART: Duration = Duration::from_secs(30);
 const MAX_INFO: u64 = 64 * 1024;
 
 /// What a connection asks for once its handshake is done.
@@ -31,11 +35,13 @@ pub enum Channel {
     Info = b'i',
     Work = b'w',
     Terminal = b't',
+    /// Asks that the work host be restarted; answered once it was.
+    Restart = b'r',
 }
 
 impl Channel {
     fn from_byte(byte: u8) -> Option<Self> {
-        [Self::Info, Self::Work, Self::Terminal]
+        [Self::Info, Self::Work, Self::Terminal, Self::Restart]
             .into_iter()
             .find(|channel| *channel as u8 == byte)
     }
@@ -46,6 +52,17 @@ pub trait Hosts: Send + Sync {
     /// The hosts' identities and sockets, read afresh for every connection
     /// so a replaced host is reached at its new socket.
     fn current(&self) -> Result<HostsNow, String>;
+
+    /// Restarts the work host, whether it answers, or runs, or not.
+    fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+}
+
+/// What came of a request to restart the work host.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Restarted {
+    Done,
+    Failed(String),
 }
 
 pub struct HostsNow {
@@ -163,8 +180,19 @@ impl Gateway {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        if channel == Channel::Restart {
+            let restarted = match self.hosts.restart_work().await {
+                Ok(()) => Restarted::Done,
+                Err(why) => Restarted::Failed(why),
+            };
+            let answer = serde_json::to_vec(&restarted).map_err(|_| Error::Protocol)?;
+            stream.write_all(&answer).await?;
+            stream.shutdown().await?;
+            return Ok(());
+        }
         let hosts = self.hosts.current().map_err(|_| Error::Protocol)?;
         match channel {
+            Channel::Restart => unreachable!("answered without the hosts"),
             Channel::Info => {
                 stream.write_all(&hosts.info).await?;
                 stream.shutdown().await?;
@@ -268,6 +296,32 @@ impl Remote {
         Ok(info)
     }
 
+    /// Has the gateway restart the work host; returns once it runs again.
+    pub async fn restart_work(&self) -> Result<(), Error> {
+        let stream = self.open(Channel::Restart).await?;
+        let mut answer = Vec::new();
+        let read = tokio::time::timeout(RESTART, stream.take(MAX_INFO).read_to_end(&mut answer))
+            .await
+            .map_err(|_| Error::Gateway("no word of the restart came in time".into()))?;
+        match read {
+            // One that does not know the request hangs up without a word.
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {}
+            read => {
+                read?;
+            }
+        }
+        if answer.is_empty() {
+            return Err(Error::Gateway(
+                "it did not say what came of the restart; it may be too old to restart the work host".into(),
+            ));
+        }
+        match serde_json::from_slice(&answer) {
+            Ok(Restarted::Done) => Ok(()),
+            Ok(Restarted::Failed(why)) => Err(Error::Gateway(why)),
+            Err(_) => Err(Error::Protocol),
+        }
+    }
+
     /// Listens at `work` and `terminal` and carries every connection made
     /// there to the work machine's host of the same kind.
     pub fn forward(&self, work: &Path, terminal: &Path) -> Result<Forwarding, Error> {
@@ -355,6 +409,7 @@ mod tests {
         dir: tempfile::TempDir,
         lines: Arc<Mutex<Vec<String>>>,
         accepted: Arc<std::sync::atomic::AtomicUsize>,
+        restarts: Arc<Mutex<Vec<Result<(), String>>>>,
     }
 
     impl FakeHosts {
@@ -404,6 +459,7 @@ mod tests {
                 dir,
                 lines,
                 accepted,
+                restarts: Arc::default(),
             })
         }
     }
@@ -415,6 +471,11 @@ mod tests {
                 work: self.dir.path().join("w"),
                 terminal: self.dir.path().join("t"),
             })
+        }
+
+        fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+            let next = self.restarts.lock().unwrap().pop();
+            Box::pin(async move { next.expect("a restart nobody asked for") })
         }
     }
 
@@ -536,6 +597,30 @@ mod tests {
                 "{\"ask\":1}".to_string()
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_paired_client_has_the_work_host_restarted_or_is_told_why_not() {
+        let setup = setup().await;
+        let (_, remote) = paired(&setup);
+        setup.hosts.restarts.lock().unwrap().push(Ok(()));
+        remote.restart_work().await.unwrap();
+        setup
+            .hosts
+            .restarts
+            .lock()
+            .unwrap()
+            .push(Err("did not start".into()));
+        let failed = remote.restart_work().await.unwrap_err();
+        assert!(failed.to_string().contains("did not start"), "{failed}");
+    }
+
+    #[tokio::test]
+    async fn a_client_not_paired_cannot_have_the_work_host_restarted() {
+        let setup = setup().await;
+        let stranger = Identity::generate().unwrap();
+        let remote = Remote::new(stranger, setup.server.fingerprint(), &setup.address);
+        assert!(remote.restart_work().await.is_err());
     }
 
     #[tokio::test]
