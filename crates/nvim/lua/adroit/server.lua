@@ -2,6 +2,8 @@
 -- its Neovim, so that whichever completion the configuration runs, Neovim's
 -- own or a plugin's, shows it. Every answer is incomplete: what matches is
 -- found anew as more is typed, by any part of a path rather than its start.
+local offer_rules = require("adroit.offer")
+
 local M = {}
 
 M.NAME = "adroit"
@@ -32,8 +34,8 @@ end
 
 --- A language server for `cmd`, whose completion asks `complete` with the
 --- text of the line up to the cursor and the position, and answers what it
---- gives.
-function M.serve(complete)
+--- gives unless `withheld` says otherwise by then.
+function M.serve(complete, withheld)
   return function(dispatchers)
     local closing, id = false, 0
     local answers = {
@@ -64,7 +66,9 @@ function M.serve(complete)
             return
           end
           answered = true
-          callback(nil, result)
+          if not (method == "textDocument/completion" and withheld and withheld()) then
+            callback(nil, result)
+          end
           if notify_reply then
             notify_reply(mine)
           end
@@ -101,6 +105,16 @@ function M.serve(complete)
   end
 end
 
+--- Whether the menu shows a candidate already put in the text of `buf`, where
+--- nothing is offered. Neovim shows every answer in place of the menu, so an
+--- empty one, or one to what was typed before, would close it.
+local function chosen_in_menu(buf)
+  if vim.api.nvim_get_current_buf() ~= buf or vim.fn.pumvisible() == 0 then
+    return false
+  end
+  return not offer_rules.offers(vim.api.nvim_get_current_line():sub(1, vim.fn.col(".") - 1))
+end
+
 --- Attach a language server that answers completion with what `offer`
 --- gives for the text of a line of `buf` up to the cursor, to `buf`.
 function M.start(buf, offer)
@@ -119,6 +133,8 @@ function M.start(buf, offer)
         return nil
       end
       return finish(offered)
+    end, function()
+      return chosen_in_menu(buf)
     end),
   }, { bufnr = buf })
 end

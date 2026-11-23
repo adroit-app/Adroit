@@ -467,6 +467,40 @@ async fn moving_down_the_menu_picks_the_candidate_moved_to() {
 }
 
 #[tokio::test]
+async fn an_answer_that_comes_after_moving_down_the_menu_leaves_it_open() {
+    let (e, mut rx) = start().await;
+    e.set_candidates(&[
+        Candidate::new("auth/web", "session"),
+        Candidate::new("src/auth.rs", "file"),
+    ])
+    .await
+    .unwrap();
+    e.input("@au").await.unwrap();
+    wait(&mut rx, |_| {
+        e.state().popup().is_some_and(|p| p.items.len() == 2)
+    })
+    .await;
+    // Moving down before the answer to what was asked as `u` was typed comes.
+    e.exec(
+        "vim.lsp.completion.get() vim.api.nvim_feedkeys(vim.keycode('<C-n>'), 'n', false)",
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(
+        e.settles("getline('.')", Value::from("@src/auth.rs "))
+            .await
+    );
+    // Asking once moved down.
+    e.exec("vim.lsp.completion.get()", vec![]).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(e.state().popup().and_then(|p| p.selected), Some(1));
+    e.input("<C-y>").await.unwrap();
+    wait(&mut rx, |_| e.state().popup().is_none()).await;
+    assert_eq!(e.take_text().await.unwrap(), "@src/auth.rs ");
+}
+
+#[tokio::test]
 async fn sending_while_completing_closes_the_menu_and_leaves_the_prompt_empty() {
     let (e, mut rx) = start().await;
     e.set_candidates(&[Candidate::new("auth/web", "session")])
