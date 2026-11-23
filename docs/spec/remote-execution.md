@@ -175,7 +175,7 @@ authority of the user the work machine runs as; the gateway only refuses
 requests to manage the work host itself, such as stopping it, and closes the
 connection that sent one.
 
-Restart Work Host on the heading of a work machine's environment
+Restart work host on the heading of a work machine's environment
 (`environment.restart_host`) has its gateway restart the work host, also when
 that host answers nothing or does not run. It ends no session, and the window
 connects again. The window says so when the gateway cannot or is too old to.
