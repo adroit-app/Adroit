@@ -85,6 +85,10 @@ pub struct Session {
     /// Whether the session that opened it asked that it be shown to the user.
     #[serde(default)]
     pub show: bool,
+    /// When a program outside Adroit last asked that it be opened, in
+    /// milliseconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_ms: Option<u64>,
     pub agent: Agent,
     /// The profile it started from, and the folder of that profile's own it
     /// runs in, none for its agent's own environment; the agent's own

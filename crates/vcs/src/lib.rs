@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
 
+mod changed;
 mod discover;
 pub mod ghq;
 pub mod git;
@@ -13,7 +14,9 @@ pub mod jj;
 mod view;
 pub mod worktree;
 
+pub use adroit_model::Worktree;
 pub use adroit_model::repository::*;
+pub use changed::*;
 pub use discover::*;
 pub use view::*;
 

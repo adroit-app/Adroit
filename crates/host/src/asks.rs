@@ -47,7 +47,9 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
     ) {
         let prepared = terminal_host::judged(judged.subscribe()).await;
         let starts = match &ask {
-            Ask::Run { args, .. } => args.get(1).is_some_and(|op| op == "start"),
+            Ask::Run { args, .. } => args
+                .get(1)
+                .is_some_and(|op| op == "start" || op == "resume"),
             _ => true,
         };
         // Existing terminals can be used even when preparing terminfo failed.

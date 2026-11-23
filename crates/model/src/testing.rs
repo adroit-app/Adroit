@@ -137,6 +137,12 @@ impl SessionBuilder {
         self
     }
 
+    /// Asked at `at` by a program outside Adroit to be opened.
+    pub fn opened_ms(mut self, at: u64) -> Self {
+        self.0.opened_ms = Some(at);
+        self
+    }
+
     pub fn adroit_editor(mut self, runs: bool) -> Self {
         self.0.adroit_editor = runs;
         self

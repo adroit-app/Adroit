@@ -271,6 +271,10 @@ $ adroit session watch [--since <seq>] [--once]
 $ adroit session answer <session> --question <id> (--allow | --deny [--reason <text>] | --reply <text>...) [--json] < key
 $ adroit session interrupt <session> [--json] < key
 $ adroit session end <session> [--json] < key
+$ adroit session resume <session> [--from <name> [-- <prompt>]] [--json]
+$ adroit session open <session> [--json]
+$ adroit session changes <session> [--json]
+$ adroit session profiles [--json]
 ```
 
 A session is named by its id or its [code](sessions.md#a-sessions-code), or
@@ -290,6 +294,17 @@ and exits with 1, and with 2 when it was not asked properly.
   it then stands, and exits with 3 when the time ran out.
 - **`watch`** prints each change of how a session stands as it comes, one JSON
   object on a line ([changes](#changes)), until it is stopped.
+- **`resume`** runs an ended session on in a new session that resumes its
+  conversation, as bringing it back does
+  ([sessions](sessions.md#when-the-terminal-host-goes)), with the same code,
+  and with `--from` asks it to go on. It is refused where bringing it back
+  would be, and for a session that runs. `--json` prints it as `start` does.
+- **`open`** opens a running session in a tab of each window open then, behind
+  the one shown and without the keys; a window that shows it already stays as
+  it is.
+- **`changes`** tells what the worktree a session works in changed
+  ([below](#what-changed)).
+- **`profiles`** lists the profiles sessions can start from.
 - **`answer`**, **`interrupt`** and **`end`** act in your stead, and only for
   a program with a [key](#keys).
 
@@ -348,6 +363,41 @@ what is their own beside it:
 
 The conversation is read from what the agent itself keeps, so a session whose
 agent has not told its conversation yet has no turns.
+
+### What changed
+
+`changes --json` prints what the worktree holds over the branch it goes back
+to: in a jj workspace over trunk, in a git worktree over the remote's default
+branch, else `main` or `master`, untracked files included. A worktree other
+sessions work in too tells their changes with the session's own.
+
+```json
+{"dir":"/Users/me/src/api","worktree":"/Users/me/src/api","repository":"/Users/me/src/api",
+ "branch":"fix-login","vcs":"git","base":"d1c6f3f5…",
+ "commits":[{"id":"…","subject":"fix the login","current":true,"empty":false,"bookmarks":[]}],
+ "files":[{"status":"M","path":"src/login.rs","from":null,"added":12,"removed":3}],
+ "added":12,"removed":3,"truncated":false}
+```
+
+`vcs` is `git`, `jj`, or null outside both. `added` and `removed` of a file are
+null where its lines are not counted, as of a binary one. Many files and
+commits are cut, which `truncated` tells; the sums count every file.
+
+### Profiles
+
+`profiles --json` prints each profile with the models its provider lists, null
+until it has answered, and what its account has used, null where the agent
+tells nothing. Usage is asked at most once a minute for each account.
+
+```json
+[{"profile":"claude","name":"Claude Code","agent":"claude","home":null,"default":true,
+  "models":[{"id":"opus","name":"Opus"}],
+  "usage":[{"window":"week","of":null,"used_percent":65.0,"left_percent":35.0,
+    "resets_ms":1795701600382,"severity":"normal"}]}]
+```
+
+`window` is `session`, `week` or `other`, `of` the model or limit it is for,
+and `severity` `normal`, `warning` or `critical`.
 
 ### Changes
 

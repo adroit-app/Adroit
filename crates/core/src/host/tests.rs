@@ -336,6 +336,48 @@ mod shown {
         assert!(opened(&run, &Tab::Session(here(), "new".into())));
     }
 
+    /// How many tabs show `tab`, after the host lists session `a` asked to be
+    /// opened at each of `times` in turn, while the window looks at `other`.
+    fn asked_to_open(times: &[u64]) -> Scenario {
+        let mut run = Scenario::new()
+            .event_from(here(), listing(vec![session("other"), session("a")]).seq(1))
+            .send(testing::show(Tab::Session(here(), "other".into())));
+        for (n, at) in times.iter().enumerate() {
+            run = run.event_from(
+                here(),
+                testing::patch(n as u64 + 2).listed(listed_of(vec![
+                    session("other"),
+                    session("a").opened_ms(*at),
+                ])),
+            );
+        }
+        run
+    }
+
+    #[test]
+    fn a_session_asked_from_outside_to_be_opened_opens_behind_the_shown_tab() {
+        let run = asked_to_open(&[5]);
+        assert!(opened(&run, &Tab::Session(here(), "a".into())));
+        assert_eq!(focused(&run), Some(Tab::Session(here(), "other".into())));
+    }
+
+    #[test]
+    fn a_session_is_opened_once_for_each_time_it_is_asked_to_be() {
+        let a = Tab::Session(here(), "a".into());
+        let run = asked_to_open(&[5]);
+        let tabs = run.state().content.windows.tabs().len();
+        let again = asked_to_open(&[5, 5, 6]);
+        assert_eq!(again.state().content.windows.tabs().len(), tabs);
+        assert!(opened(&again, &a));
+    }
+
+    #[test]
+    fn a_session_asked_to_be_opened_before_the_window_found_it_is_left_as_it_is() {
+        let run =
+            Scenario::new().event_from(here(), listing(vec![session("a").opened_ms(5)]).seq(1));
+        assert!(!opened(&run, &Tab::Session(here(), "a".into())));
+    }
+
     /// A terminal of id `id` the session of delegation `opener` started,
     /// asking that it be shown.
     fn shown_terminal(id: u128, opener: SessionId) -> adroit_model::TerminalSession {

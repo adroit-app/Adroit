@@ -2,9 +2,10 @@
 //! starts the sessions they ask for, hands Codex its messages and watches
 //! every session it keeps a record of.
 use std::{
+    collections::HashMap,
     fs::File,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
 
@@ -28,6 +29,20 @@ type SettingsSource = Arc<dyn Fn() -> std::result::Result<Settings, String> + Se
 /// How long a session may start without becoming ready or showing a dialog
 /// before it shows as stalled.
 pub(crate) const STALL: Duration = Duration::from_secs(60);
+
+type Catalogs = Mutex<HashMap<PathBuf, Arc<Mutex<ModelCatalog>>>>;
+
+/// The models of each root served.
+static CATALOGS: LazyLock<Catalogs> = LazyLock::new(Default::default);
+
+/// The models each profile lists, as the service of `root` knows them.
+pub(crate) fn models_of(root: &Path) -> Vec<adroit_model::ProfileModels> {
+    let catalogs = CATALOGS.lock().expect("the catalogs' lock");
+    catalogs
+        .get(root)
+        .map(|models| models.lock().expect("the models' lock").view())
+        .unwrap_or_default()
+}
 
 #[derive(Clone)]
 pub struct Context {
@@ -95,9 +110,14 @@ impl Service {
         let claim = adroit_sys::fs::lockable(root).map_err(Error::storage)?;
         claim.try_lock().map_err(Error::storage)?;
         let store = Store::open(&super::app::database(root))?;
+        let models = Arc::new(Mutex::new(ModelCatalog::default()));
+        CATALOGS
+            .lock()
+            .expect("the catalogs' lock")
+            .insert(root.to_path_buf(), models.clone());
         let context = Context {
             store: Arc::new(Mutex::new(store)),
-            models: Arc::new(Mutex::new(ModelCatalog::default())),
+            models,
             daemon,
             program,
             root: root.to_path_buf(),
