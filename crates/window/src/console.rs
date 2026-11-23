@@ -94,6 +94,9 @@ pub struct Hub {
     pub panes: Panes,
     /// The tabs whose sessions are being attached to.
     pub attaching: Rc<RefCell<std::collections::HashSet<Tab>>>,
+    /// Why each tab's session could last not be attached to, so a retry that
+    /// fails alike is not said again.
+    pub failed: Rc<RefCell<HashMap<Tab, String>>>,
     /// Told which pane has new output.
     pub wake: mpsc::UnboundedSender<Tab>,
     /// The theme's palette, which a new theme replaces.

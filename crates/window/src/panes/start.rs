@@ -40,6 +40,9 @@ async fn attach_held(
     let palette = hub.palette.peek().clone();
     let wake = hub.wake.clone();
     let woken = tab.clone();
+    // Claimed before waiting, so the console shown does not attach beside it
+    // and have one pane replaced by the other.
+    let claimed = hub.attaching.borrow_mut().insert(tab.clone());
     let pane = Pane::attach(
         &hub.daemon(tab.environment()),
         id,
@@ -57,6 +60,9 @@ async fn attach_held(
         Err(_) => Ok(()),
     };
     app.tell_host_in(tab.environment(), Request::Release { id });
+    if claimed {
+        hub.attaching.borrow_mut().remove(&tab);
+    }
     let pane = pane?;
     fenced?;
     // A theme chosen while the session was being started passed it by.

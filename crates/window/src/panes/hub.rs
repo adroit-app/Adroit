@@ -46,6 +46,7 @@ pub(crate) fn use_hub(app: AppCtx, local: Local) -> Hub {
             daemons: Rc::new(move |environment| app.daemon_of(environment)),
             panes,
             attaching: Rc::new(RefCell::new(HashSet::new())),
+            failed: Rc::default(),
             wake,
             palette,
         }
