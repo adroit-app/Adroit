@@ -386,6 +386,19 @@ mod shown {
     }
 
     #[test]
+    fn a_session_first_listed_by_a_host_that_took_over_is_not_shown_again() {
+        let id = SessionId::new();
+        let both = || vec![opener(id), session("new").parent(id).show()];
+        let run = Scenario::new()
+            .event_from(here(), listing(both()).seq(1))
+            .send(testing::show(Tab::Session(here(), "opener".into())))
+            .event_from(here(), testing::snapshot().seq(1))
+            .event_from(here(), testing::patch(2).listed(listed_of(both())));
+        assert_eq!(focused(&run), Some(Tab::Session(here(), "opener".into())));
+        assert!(!opened(&run, &Tab::Session(here(), "new".into())));
+    }
+
+    #[test]
     fn a_session_listed_again_is_not_shown_again() {
         let id = SessionId::new();
         let both = || vec![opener(id), session("new").parent(id).show()];

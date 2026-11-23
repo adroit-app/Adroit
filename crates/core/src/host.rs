@@ -268,9 +268,10 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
             // window was told it shows that environment.
             let host = state.hosts.each.entry(environment.clone()).or_default();
             let mut effects = receive(&environment, host, event);
-            // A snapshot is the work as a window first finds it, not sessions
-            // appearing while the user looks on.
-            if is_patch {
+            // A snapshot, or the first list of a host that had none yet, is
+            // the work as a window first finds it, not sessions appearing
+            // while the user looks on.
+            if is_patch && let Some(before) = before {
                 effects.extend(show_asked(state, &environment, &before));
             }
             effects
@@ -285,14 +286,14 @@ struct Listed {
     terminals: Vec<u128>,
 }
 
-fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Listed {
-    let work = hosts.work(environment);
-    Listed {
-        sessions: work
-            .map(|work| work.tree.sessions().iter().map(|s| s.id.clone()).collect())
-            .unwrap_or_default(),
-        terminals: tree::terminals(work).iter().map(|t| t.id).collect(),
-    }
+/// None before the host has listed anything.
+fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Option<Listed> {
+    let work = hosts.work(environment)?;
+    work.tree.listed.as_ref()?;
+    Some(Listed {
+        sessions: work.tree.sessions().iter().map(|s| s.id.clone()).collect(),
+        terminals: tree::terminals(Some(work)).iter().map(|t| t.id).collect(),
+    })
 }
 
 /// Open each session or terminal of `environment` not among `before` that was
