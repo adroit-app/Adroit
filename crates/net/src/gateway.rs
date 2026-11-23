@@ -25,6 +25,9 @@ const MAX_LINE: usize = 16 * 1024 * 1024;
 /// How long a client waits for the work host to be restarted: longer than
 /// one that answers nothing takes to be stopped and another to start.
 const RESTART: Duration = Duration::from_secs(30);
+/// How long a client waits for an update: longer than the gateway gives
+/// Homebrew for all it is asked.
+const UPDATE: Duration = Duration::from_secs(30 * 60);
 const MAX_INFO: u64 = 64 * 1024;
 
 /// What a connection asks for once its handshake is done.
@@ -37,13 +40,21 @@ pub enum Channel {
     Terminal = b't',
     /// Asks that the work host be restarted; answered once it was.
     Restart = b'r',
+    /// Asks that Adroit be updated on this machine; answered once it was.
+    Update = b'u',
 }
 
 impl Channel {
     fn from_byte(byte: u8) -> Option<Self> {
-        [Self::Info, Self::Work, Self::Terminal, Self::Restart]
-            .into_iter()
-            .find(|channel| *channel as u8 == byte)
+        [
+            Self::Info,
+            Self::Work,
+            Self::Terminal,
+            Self::Restart,
+            Self::Update,
+        ]
+        .into_iter()
+        .find(|channel| *channel as u8 == byte)
     }
 }
 
@@ -55,13 +66,16 @@ pub trait Hosts: Send + Sync {
 
     /// Restarts the work host, whether it answers, or runs, or not.
     fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+
+    /// Updates Adroit on this machine; what came of it, said for the user.
+    fn update(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>>;
 }
 
-/// What came of a request to restart the work host.
+/// What came of a request the gateway carries out itself.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Restarted {
-    Done,
+enum Carried {
+    Done(String),
     Failed(String),
 }
 
@@ -180,19 +194,21 @@ impl Gateway {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        if channel == Channel::Restart {
-            let restarted = match self.hosts.restart_work().await {
-                Ok(()) => Restarted::Done,
-                Err(why) => Restarted::Failed(why),
-            };
-            let answer = serde_json::to_vec(&restarted).map_err(|_| Error::Protocol)?;
+        let carried = match channel {
+            Channel::Restart => Some(self.hosts.restart_work().await.map(|()| String::new())),
+            Channel::Update => Some(self.hosts.update().await),
+            Channel::Info | Channel::Work | Channel::Terminal => None,
+        };
+        if let Some(carried) = carried {
+            let carried = carried.map_or_else(Carried::Failed, Carried::Done);
+            let answer = serde_json::to_vec(&carried).map_err(|_| Error::Protocol)?;
             stream.write_all(&answer).await?;
             stream.shutdown().await?;
             return Ok(());
         }
         let hosts = self.hosts.current().map_err(|_| Error::Protocol)?;
         match channel {
-            Channel::Restart => unreachable!("answered without the hosts"),
+            Channel::Restart | Channel::Update => unreachable!("answered without the hosts"),
             Channel::Info => {
                 stream.write_all(&hosts.info).await?;
                 stream.shutdown().await?;
@@ -298,11 +314,22 @@ impl Remote {
 
     /// Has the gateway restart the work host; returns once it runs again.
     pub async fn restart_work(&self) -> Result<(), Error> {
-        let stream = self.open(Channel::Restart).await?;
+        self.carried(Channel::Restart, RESTART).await.map(drop)
+    }
+
+    /// Has the gateway update Adroit on its machine; what came of it.
+    pub async fn update(&self) -> Result<String, Error> {
+        self.carried(Channel::Update, UPDATE).await
+    }
+
+    /// What came of what `channel` asks the gateway to carry out, which may
+    /// take as long as `limit`.
+    async fn carried(&self, channel: Channel, limit: Duration) -> Result<String, Error> {
+        let stream = self.open(channel).await?;
         let mut answer = Vec::new();
-        let read = tokio::time::timeout(RESTART, stream.take(MAX_INFO).read_to_end(&mut answer))
+        let read = tokio::time::timeout(limit, stream.take(MAX_INFO).read_to_end(&mut answer))
             .await
-            .map_err(|_| Error::Gateway("no word of the restart came in time".into()))?;
+            .map_err(|_| Error::Gateway("no word of what came of it came in time".into()))?;
         match read {
             // One that does not know the request hangs up without a word.
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {}
@@ -312,12 +339,12 @@ impl Remote {
         }
         if answer.is_empty() {
             return Err(Error::Gateway(
-                "it did not say what came of the restart; it may be too old to restart the work host".into(),
+                "it did not say what came of it; it may be too old to do that".into(),
             ));
         }
         match serde_json::from_slice(&answer) {
-            Ok(Restarted::Done) => Ok(()),
-            Ok(Restarted::Failed(why)) => Err(Error::Gateway(why)),
+            Ok(Carried::Done(said)) => Ok(said),
+            Ok(Carried::Failed(why)) => Err(Error::Gateway(why)),
             Err(_) => Err(Error::Protocol),
         }
     }
@@ -477,6 +504,10 @@ mod tests {
             let next = self.restarts.lock().unwrap().pop();
             Box::pin(async move { next.expect("a restart nobody asked for") })
         }
+
+        fn update(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+            Box::pin(async { Ok("Updated".into()) })
+        }
     }
 
     struct Setup {
@@ -613,6 +644,16 @@ mod tests {
             .push(Err("did not start".into()));
         let failed = remote.restart_work().await.unwrap_err();
         assert!(failed.to_string().contains("did not start"), "{failed}");
+    }
+
+    #[tokio::test]
+    async fn a_paired_client_has_adroit_updated_and_is_told_what_came_of_it() {
+        let setup = setup().await;
+        let (_, remote) = paired(&setup);
+        assert_eq!(remote.update().await.unwrap(), "Updated");
+        let stranger = Identity::generate().unwrap();
+        let stranger = Remote::new(stranger, setup.server.fingerprint(), &setup.address);
+        assert!(stranger.update().await.is_err());
     }
 
     #[tokio::test]

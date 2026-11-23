@@ -180,6 +180,13 @@ Restart work host on the heading of a work machine's environment
 that host answers nothing or does not run. It ends no session, and the window
 connects again. The window says so when the gateway cannot or is too old to.
 
+Update Adroit there… on the same heading (`environment.update`), after asking,
+has the gateway update Adroit on its machine through the Homebrew that
+installed it, then restart the work host and itself. It ends no session, and
+the terminal host stays the one it was. An Adroit that Homebrew did not
+install is refused. One that does not start once installed is reported, and
+the hosts already running go on; the version before it is not put back.
+
 ## Changes across a lost connection
 
 A remote work host admits changes by an ID bound to its instance and both

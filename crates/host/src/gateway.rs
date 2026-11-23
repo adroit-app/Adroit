@@ -114,6 +114,7 @@ async fn keep_hosts_up() {
 struct Discovered {
     missing: AtomicBool,
     restarting: tokio::sync::Mutex<()>,
+    updating: tokio::sync::Mutex<()>,
 }
 
 impl Hosts for Discovered {
@@ -152,6 +153,43 @@ impl Hosts for Discovered {
             Ok(())
         })
     }
+
+    fn update(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+        use crate::update::{Updated, brew, update};
+        Box::pin(async {
+            let _turn = self
+                .updating
+                .try_lock()
+                .map_err(|_| "Adroit is being updated there already")?;
+            let brew = brew().ok_or("there is no Homebrew there to update Adroit with")?;
+            tracing::info!("updating Adroit for a paired client");
+            match update(&brew, &crate::work_host::adroit_program()).await? {
+                Updated::Already(version) => Ok(format!("Adroit {version} is the newest there")),
+                Updated::To(version) => {
+                    self.restart_work().await.map_err(|why| {
+                        format!(
+                            "Adroit {version} is installed, but its work host does not start: {why}"
+                        )
+                    })?;
+                    if supervised() {
+                        // Once the client has been told what came of it.
+                        tokio::spawn(async {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            std::process::exit(0);
+                        });
+                    }
+                    Ok(format!("Updated Adroit to {version}"))
+                }
+            }
+        })
+    }
+}
+
+/// Whether the service manager runs this gateway, and starts it again when
+/// it ends.
+fn supervised() -> bool {
+    std::env::var("XPC_SERVICE_NAME")
+        .is_ok_and(|name| name.starts_with("app.adroit.") && name.ends_with(".gateway"))
 }
 
 /// Runs `adroit remote gateway`, `pair`, `devices` or `revoke`.
@@ -520,6 +558,10 @@ mod tests {
 
         fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
             Box::pin(async { Ok(()) })
+        }
+
+        fn update(&self) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+            Box::pin(async { Ok(String::new()) })
         }
     }
 

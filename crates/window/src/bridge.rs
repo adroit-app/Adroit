@@ -473,6 +473,26 @@ impl AppCtx {
         set_changed(self.remotes, &remotes);
     }
 
+    /// Have `environment`'s work machine update its Adroit, then reach it
+    /// again.
+    fn update_machine(&self, environment: EnvironmentId) {
+        let app = *self;
+        let Some(remote) = app.link_of(&environment).remote() else {
+            app.notice("Only a work machine's Adroit is updated from here".into());
+            return;
+        };
+        spawn(async move {
+            app.status(Some("Updating Adroit on the work machine".into()));
+            match remote.update().await {
+                Ok(said) => {
+                    app.status(Some(said));
+                    app.retry_remote(&environment);
+                }
+                Err(text) => app.status(Some(format!("cannot update Adroit there: {text}"))),
+            }
+        });
+    }
+
     /// Have `environment`'s work machine restart its work host, then reach
     /// it again.
     fn restart_work_host(&self, environment: EnvironmentId) {
@@ -989,6 +1009,7 @@ impl AppCtx {
                 }
             }
             Effect::RetryEnvironment(environment) => self.retry_remote(&environment),
+            Effect::UpdateMachine(environment) => self.update_machine(environment),
             Effect::RestartWorkHost(environment) => self.restart_work_host(environment),
             Effect::PairAgain(environment) => match crate::connection::work_machine(&environment) {
                 Some(machine) => {

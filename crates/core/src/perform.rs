@@ -512,6 +512,14 @@ pub(crate) fn perform(
         Action::EnvironmentRestartHost => {
             vec![Effect::RestartWorkHost(content::focused_environment(state))]
         }
+        Action::EnvironmentUpdate => {
+            let environment = content::focused_environment(state);
+            let name = state.hosts.name(&environment);
+            step(
+                state,
+                Msg::Confirm(Box::new(Ask::UpdateMachine(environment, name))),
+            )
+        }
         Action::EnvironmentPair => vec![Effect::PairAgain(content::focused_environment(state))],
         Action::WorkspaceRemove => match cur.filter(|_| on_list) {
             Some(Item::Workspace(environment, root)) => {

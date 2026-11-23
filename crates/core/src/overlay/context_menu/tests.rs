@@ -298,13 +298,18 @@ fn a_work_machine_s_heading_pairs_again_and_retries_only_while_the_window_waits_
     let reaching = |retryable| heading_groups(there(), Reach::Machine { retryable })[2].clone();
     assert_eq!(
         reaching(false),
-        [Action::EnvironmentRestartHost, Action::EnvironmentPair]
+        [
+            Action::EnvironmentRestartHost,
+            Action::EnvironmentUpdate,
+            Action::EnvironmentPair
+        ]
     );
     assert_eq!(
         reaching(true),
         [
             Action::EnvironmentRetry,
             Action::EnvironmentRestartHost,
+            Action::EnvironmentUpdate,
             Action::EnvironmentPair
         ]
     );

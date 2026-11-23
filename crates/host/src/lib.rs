@@ -50,6 +50,7 @@ pub mod terminals;
 #[cfg(test)]
 mod testing;
 pub mod themes;
+mod update;
 pub mod watch;
 pub mod work;
 pub mod work_host;

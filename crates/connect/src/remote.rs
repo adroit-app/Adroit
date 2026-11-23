@@ -405,16 +405,30 @@ impl Remote {
         Err(self.explain(failure))
     }
 
-    /// Has the work machine's gateway restart its work host. Asked of the
-    /// gateway alone: the hosts' discovery fails while the work host is the
-    /// one to be put right.
+    /// Has the work machine's gateway restart its work host.
     pub async fn restart_work(&self) -> Result<(), String> {
+        self.carried(|remote| async move { remote.restart_work().await })
+            .await
+    }
+
+    /// Has the work machine's gateway update Adroit there; what came of it.
+    pub async fn update(&self) -> Result<String, String> {
+        self.carried(|remote| async move { remote.update().await })
+            .await
+    }
+
+    /// What `ask` has the gateway carry out. Asked of the gateway alone: the
+    /// hosts' discovery fails while the work host is the one to be put right.
+    async fn carried<T, F>(&self, ask: impl Fn(adroit_net::Remote) -> F) -> Result<T, String>
+    where
+        F: Future<Output = Result<T, adroit_net::Error>>,
+    {
         let at =
             |address: String| adroit_net::Remote::new(self.identity.clone(), self.server, address);
         let mut failure = None;
         for address in self.candidates() {
-            match at(address).restart_work().await {
-                Ok(()) => return Ok(()),
+            match ask(at(address)).await {
+                Ok(done) => return Ok(done),
                 Err(error @ adroit_net::Error::Unreachable(_)) => failure = Some(error),
                 // It may have been asked already, so it is not asked again.
                 Err(adroit_net::Error::Gateway(why)) => return Err(why),
@@ -424,8 +438,8 @@ impl Remote {
         let failure = failure.expect("the saved address is always tried");
         if let Ok(Some(found)) = adroit_net::find(self.server, FIND_WAIT).await {
             for address in found.addresses {
-                match at(address.to_string()).restart_work().await {
-                    Ok(()) => return Ok(()),
+                match ask(at(address.to_string())).await {
+                    Ok(done) => return Ok(done),
                     Err(adroit_net::Error::Unreachable(_)) => continue,
                     Err(adroit_net::Error::Gateway(why)) => return Err(why),
                     Err(error) => return Err(self.explain(error)),
@@ -494,6 +508,12 @@ mod tests {
             &self,
         ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
             Box::pin(async { Ok(()) })
+        }
+
+        fn update(
+            &self,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>> {
+            Box::pin(async { Ok(String::new()) })
         }
     }
 

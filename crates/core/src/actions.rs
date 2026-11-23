@@ -101,6 +101,7 @@ pub enum Action {
     EnvironmentRename,
     EnvironmentRetry,
     EnvironmentRestartHost,
+    EnvironmentUpdate,
     EnvironmentPair,
     WorkspaceAdd,
     WorkspaceRemove,
@@ -419,6 +420,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::EnvironmentRestartHost, "environment.restart_host", "have the work machine of the environment selected in the tree, or else of the tab shown, restart its work host, which ends no session ([details](remote-execution.md#paired-work-machines))")
         .icon(Icon::ServerBolt)
         .row("Restart work host", Reach),
+    S::new(A::EnvironmentUpdate, "environment.update", "after asking, have the work machine of the environment selected in the tree, or else of the tab shown, update its Adroit, which ends no session ([details](remote-execution.md#paired-work-machines))")
+        .icon(Icon::SquareArrowUp)
+        .row("Update Adroit there…", Reach),
     S::new(A::EnvironmentPair, "environment.pair", "pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](environments.md#create-and-configure))")
         .icon(Icon::Link)
         .row("Pair again…", Reach),
@@ -711,6 +715,7 @@ mod tests {
             EnvironmentRename,
             EnvironmentRetry,
             EnvironmentRestartHost,
+            EnvironmentUpdate,
             EnvironmentPair,
             WorkspaceAdd,
             WorkspaceRemove,
