@@ -17,6 +17,7 @@ use super::ui::{Ui, use_ui};
 use crate::bridge::{AppCtx, use_app};
 use crate::bundled_font::{faces, use_bundled_font};
 use crate::components::SettingsFileError;
+use crate::content::show_active_tab;
 use crate::hosts::use_hosts;
 use crate::input::{KeysField, use_input};
 use crate::panes::{use_console_sizes, use_hub, use_redraws_told, use_shown_images};
@@ -118,9 +119,6 @@ fn use_scroll_into_view(app: AppCtx) {
     let active = use_memo(move || app.content.read().active().cloned());
     use_effect(move || {
         let _ = active();
-        document::eval(
-            "requestAnimationFrame(() => document.querySelectorAll('.tabs .tab.active')
-               .forEach((t) => t.scrollIntoView({ block: 'nearest', inline: 'nearest' })));",
-        );
+        show_active_tab();
     });
 }

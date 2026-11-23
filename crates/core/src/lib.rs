@@ -32,6 +32,7 @@ pub mod settings;
 pub mod settle;
 pub mod state;
 pub mod status;
+pub mod tab_scroll;
 #[cfg(test)]
 pub mod testing;
 pub mod tree;

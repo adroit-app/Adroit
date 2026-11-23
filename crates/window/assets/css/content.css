@@ -1,12 +1,18 @@
-/* One line however many tabs there are, so the console keeps its height; the rest scrolls sideways. */
-.tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
-.tabs::-webkit-scrollbar { display: none; }
-.tabs > * { flex: none; }
+/* One line however many tabs there are, so the console keeps its height; the rest scrolls sideways between the buttons. */
+.tabs { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); flex: none; }
+.tabs-area { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; }
+.tabs-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs-scroll::-webkit-scrollbar { display: none; }
+/* As wide as its tabs, so that a tab that comes or grows is told as a resize. The padding keeps a tab's outline from being cut off by the scroll. */
+.tabs-row { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; width: max-content; padding: 8px 1px; }
+.tabs-row > * { flex: none; }
+.icon-button.tabs-step { width: 20px; height: 24px; }
 .tab { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 7px; color: var(--text-2); cursor: default; }
 .tab.active { background: var(--select); color: var(--text); font-weight: 500; }
 .tab.active .shell-mark, .tab.active .place-mark { color: var(--text-2); }
 .tab.shell { font-family: var(--mono); font-size: 12px; }
-.tabs-where { color: var(--text-3); font-size: 11.5px; margin-right: 6px; font-family: var(--mono); }
+.tabs-where { flex: 0 1 auto; max-width: 35%; min-width: 0; display: inline-flex; align-items: center; gap: 6px; height: 18px; padding-right: 10px; border-right: 1px solid var(--line-strong); color: var(--text-3); font-size: 11.5px; font-family: var(--mono); cursor: default; }
+.tabs-where-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-number { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
 .tab-count { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
 .tab-code { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 400; }
