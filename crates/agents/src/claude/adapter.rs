@@ -142,7 +142,10 @@ impl AgentAdapter for Claude {
         Box::pin(async move {
             super::list_sessions(|args| asked(&context, args))
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| match e {
+                    super::Error::Unanswered { .. } => crate::Unlisted::Unanswered,
+                    e => crate::Unlisted::Failed(e.to_string()),
+                })
         })
     }
     fn follow(

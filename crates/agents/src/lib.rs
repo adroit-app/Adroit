@@ -248,8 +248,17 @@ pub struct Capabilities {
     pub shell_bang: bool,
 }
 
+/// Why an agent did not list its sessions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unlisted {
+    /// It did not answer in time: it may not be able to start at all.
+    Unanswered,
+    /// It said why, or could not be run.
+    Failed(String),
+}
+
 type Listing = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Vec<adroit_model::Running>, String>> + Send>,
+    Box<dyn std::future::Future<Output = Result<Vec<adroit_model::Running>, Unlisted>> + Send>,
 >;
 
 type Probe<T> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<T>>> + Send>>;
