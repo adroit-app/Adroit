@@ -242,6 +242,9 @@ $ adroit session show <session> [--turns <n>] [--json]
 $ adroit session send <session> --from <name> [--json] [-- <prompt>]
 $ adroit session wait <session> [--timeout <secs>] [--json]
 $ adroit session watch [--since <seq>] [--once]
+$ adroit session answer <session> --question <id> (--allow | --deny [--reason <text>] | --reply <text>...) [--json] < key
+$ adroit session interrupt <session> [--json] < key
+$ adroit session end <session> [--json] < key
 ```
 
 A session is named by its id or its [code](sessions.md#a-sessions-code), or
@@ -261,9 +264,8 @@ and exits with 1, and with 2 when it was not asked properly.
   it then stands, and exits with 3 when the time ran out.
 - **`watch`** prints each change of how a session stands as it comes, one JSON
   object on a line ([changes](#changes)), until it is stopped.
-
-None of them answers what a session asks you, in permission, trust or any
-other dialog: it is told of as waiting, and answered in Adroit.
+- **`answer`**, **`interrupt`** and **`end`** act in your stead, and only for
+  a program with a [key](#keys).
 
 `list --json` prints an array of sessions; `show` and `wait` print one, with
 what is their own beside it:
@@ -345,6 +347,42 @@ anew. A watch goes on when the work host is replaced.
 `--once` waits a while for a change and prints what there is as
 `{"events":[…],"next":<seq>,"missed":false}`, for a program that keeps none
 running: `next` is what it gives as `--since` the next time.
+
+### Keys
+
+A program answers, interrupts and ends sessions only while you let programs
+do so (`outside.steer` in the [settings](settings.md), off unless you turn it
+on) and only with a key you gave it. You give a key, and take it back, in the
+Settings window's General pane. It is shown once, as you give it; Adroit keeps
+only what tells it from another, with the name you gave the program and when it
+was last used. A command reads the key from standard input, never from an
+argument or a variable, and Adroit gives it to no session. Without one the
+commands exit with 5, and run in a session Adroit started they are refused.
+
+- **`answer`** answers the question named by its id, as `show` and `watch` tell
+  it, and no other: when that is not asked any more, as once you answered it in
+  Adroit or the session asks another, nothing is done and it exits with 4. A
+  permission is allowed for this once, or denied, with a reason the agent is
+  told; so is a plan, which the agent then goes on with in the mode you would
+  approve its edits in yourself. A question takes a `--reply` for each it asks
+  at once, in order, one of its choices or words of its own. The dialog stays
+  in the session's console meanwhile, and the first answer counts.
+- **`interrupt`** interrupts the turn a session runs, and is refused while the
+  session waits on you or runs none.
+- **`end`** ends a session as ending it from Adroit does.
+
+What cannot be answered so is answered in Adroit: what `question` does not tell,
+and anything that outlasts the one answer, such as allowing a tool from then on.
+What a program did is listed among the session's messages, under the name of its
+key.
+
+A key keeps an agent from answering for you by running a command. It does not
+keep out a program that runs as you, outside a sandbox, and sets out to: such a
+program can type into the terminal host, change Adroit's files, or take the key
+from the program that holds it. Nor can Adroit tell whether a program asked you
+before it answered, and what a question says is the agent's own words. Sessions
+kept to a sandbox, without Adroit's folders and sockets, are what keeps those
+apart.
 
 ### Requests
 

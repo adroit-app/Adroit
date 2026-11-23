@@ -335,8 +335,7 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
 async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
     let name = event["hook_event_name"].as_str()?;
     if name == "PermissionRequest" {
-        ask_the_user(event, daemon).await;
-        return None;
+        return ask_the_user(event, daemon).await;
     }
     let cleared = match name {
         "UserPromptSubmit" => false,
@@ -354,29 +353,42 @@ async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
 const TELL_AGAIN: Duration = Duration::from_secs(2);
 
 /// Tells the work host what the agent asks the user, for as long as the agent
-/// keeps the hook. Claude Code shows the dialog meanwhile, but that of a
+/// keeps the hook, and the agent what it was decided as from outside, if it
+/// was. Claude Code shows the dialog meanwhile, but that of a
 /// subagent's only once the hook has returned, so one is told of nothing.
-async fn ask_the_user(event: &Value, daemon: impl Daemon) {
-    let Some(tool) = event["tool_name"].as_str() else {
-        return;
-    };
+async fn ask_the_user(event: &Value, daemon: impl Daemon) -> Option<Value> {
+    use super::questions::{Asking, Decision};
+    let tool = event["tool_name"].as_str()?;
     if !event["agent_id"].is_null() {
-        return;
+        return None;
     }
-    let asking = super::questions::Asking {
+    let asking = Asking {
         id: super::MessageId::new(),
         tool: tool.to_owned(),
         input: event["tool_input"].clone(),
         dir: event["cwd"].as_str().map(String::from),
     };
-    loop {
+    let decided = loop {
         match daemon.ask(Command::Asking(asking.clone()), None).await {
             Err(error) if error.code == Code::Storage => {}
             // Answered otherwise, as by a work host that knows no questions.
-            _ => return,
+            answered => break answered.ok()?,
         }
         tokio::time::sleep(TELL_AGAIN).await;
-    }
+    };
+    let decision = match serde_json::from_value::<Decision>(decided).ok()? {
+        Decision::Allow { input: None } => json!({"behavior": "allow"}),
+        Decision::Allow { input: Some(input) } => {
+            json!({"behavior": "allow", "updatedInput": input})
+        }
+        Decision::Deny { message } => json!({
+            "behavior": "deny",
+            "message": message.unwrap_or_else(|| "The user denied this.".into()),
+        }),
+    };
+    Some(
+        json!({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}),
+    )
 }
 
 /// Ends once the process that started this one has gone, leaving no one to
@@ -493,7 +505,9 @@ mod tests {
             }
             Ok(match command {
                 Command::Context => json!({"opened_by": null}),
-                Command::Next => self.waiting.lock().unwrap().pop().unwrap_or(Value::Null),
+                Command::Next | Command::Asking(_) => {
+                    self.waiting.lock().unwrap().pop().unwrap_or(Value::Null)
+                }
                 Command::Send(send) => json!({"sent_to": send.to}),
                 Command::Prompted { cleared } => json!({"note": format!("cleared={cleared}")}),
                 Command::Timeline => json!("(no tasks)\nline two"),
@@ -547,12 +561,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn what_the_agent_asks_is_told_and_decided_by_no_hook() {
+    async fn what_the_agent_asks_is_decided_as_it_was_from_outside_and_by_no_hook() {
         let daemon = Fake::new();
         let event = json!({"hook_event_name": "PermissionRequest", "tool_name": "Bash",
             "tool_input": {"command": "ls"}, "cwd": "/repo"});
         assert_eq!(hook(&event, daemon.clone()).await, None);
         assert_eq!(*daemon.asked.lock().unwrap(), ["asking"]);
+        for (decided, behaviour) in [
+            (
+                json!({"decision": "allow", "input": null}),
+                json!({"behavior": "allow"}),
+            ),
+            (
+                json!({"decision": "allow", "input": {"answers": {"a": "b"}}}),
+                json!({"behavior": "allow", "updatedInput": {"answers": {"a": "b"}}}),
+            ),
+            (
+                json!({"decision": "deny", "message": "no"}),
+                json!({"behavior": "deny", "message": "no"}),
+            ),
+        ] {
+            let daemon = Fake::new();
+            daemon.waiting.lock().unwrap().push(decided);
+            let answer = hook(&event, daemon).await.unwrap();
+            assert_eq!(
+                answer["hookSpecificOutput"],
+                json!({"hookEventName": "PermissionRequest", "decision": behaviour})
+            );
+        }
     }
 
     #[tokio::test]

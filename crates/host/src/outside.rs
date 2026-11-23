@@ -15,6 +15,8 @@ use serde::Serialize;
 use serde_json::json;
 
 mod events;
+pub(crate) mod keys;
+mod steer;
 
 pub(crate) use events::{began, follow};
 
@@ -23,7 +25,7 @@ use crate::delegation::protocol::Opener;
 use crate::delegation::questions::{self, Question};
 use crate::delegation::{Message, Readiness, Sender, Session as Record, app};
 
-pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]\n       adroit session watch [--since <seq>] [--once]";
+pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]\n       adroit session watch [--since <seq>] [--once]\n       adroit session answer <session> --question <id> (--allow | --deny [--reason <text>] | --reply <text>...) [--json] < key\n       adroit session interrupt|end <session> [--json] < key";
 
 /// The exit status of a wait that timed out.
 const TIMED_OUT: i32 = 3;
@@ -71,6 +73,10 @@ pub(crate) enum Asked {
         since: Option<i64>,
         once: bool,
     },
+    Steer {
+        session: String,
+        act: steer::Act,
+    },
 }
 
 /// What `adroit session <args>` asks, and whether as JSON; none when `args`
@@ -80,6 +86,8 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
     let (mut session, mut dir, mut turns, mut from) = (None, None, None, None);
     let (mut timeout, mut prompt) = (None, None);
     let (mut since, mut once) = (None, false);
+    let (mut question, mut given, mut reason) = (None, None, None);
+    let mut replies = Vec::new();
     let (mut ended, mut json) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -103,7 +111,18 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
                 since = Some(rest.next()?.parse().ok().filter(|n| *n >= 0)?);
             }
             ("watch", "--once") => once = true,
-            ("show" | "send" | "wait", word) if !word.starts_with('-') && session.is_none() => {
+            ("answer", "--question") if question.is_none() => {
+                question = Some(rest.next()?.parse().ok()?);
+            }
+            ("answer", "--allow") if given.is_none() => given = Some(steer::Given::Allow),
+            ("answer", "--deny") if given.is_none() => {
+                given = Some(steer::Given::Deny { reason: None });
+            }
+            ("answer", "--reason") if reason.is_none() => reason = Some(rest.next()?.clone()),
+            ("answer", "--reply") => replies.push(rest.next()?.clone()),
+            ("show" | "send" | "wait" | "answer" | "interrupt" | "end", word)
+                if !word.starts_with('-') && session.is_none() =>
+            {
                 session = Some(word.to_string());
             }
             _ => return None,
@@ -125,15 +144,48 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
             timeout: timeout.map_or(WAIT, Duration::from_secs),
         },
         "watch" => Asked::Watch { since, once },
+        "answer" => Asked::Steer {
+            session: session?,
+            act: steer::Act::Answer {
+                question: question?,
+                given: answered(given, reason, replies)?,
+            },
+        },
+        "interrupt" => Asked::Steer {
+            session: session?,
+            act: steer::Act::Interrupt,
+        },
+        "end" => Asked::Steer {
+            session: session?,
+            act: steer::Act::End,
+        },
         _ => return None,
     };
     Some((asked, json))
 }
 
+/// The one answer the options give; none when they give none or several.
+fn answered(
+    given: Option<steer::Given>,
+    reason: Option<String>,
+    replies: Vec<String>,
+) -> Option<steer::Given> {
+    use steer::Given;
+    match (given, reason, replies.is_empty()) {
+        (Some(Given::Deny { .. }), reason, true) => Some(Given::Deny { reason }),
+        (Some(given), None, true) => Some(given),
+        (None, None, false) => Some(Given::Replies(replies)),
+        _ => None,
+    }
+}
+
 /// Whether `args` ask for one of the operations here.
 pub(crate) fn takes(args: &[String]) -> bool {
     let operation = args.first().map(String::as_str);
-    matches!(operation, Some("list" | "show" | "send" | "wait" | "watch"))
+    matches!(
+        operation,
+        Some("list" | "show" | "send" | "wait" | "watch" | "answer" | "interrupt" | "end")
+    )
 }
 
 /// How long `adroit <args>` may wait for a session, when it is a wait.
@@ -846,6 +898,7 @@ async fn execute(
             };
             (text, if timed_out { TIMED_OUT } else { 0 })
         }
+        Asked::Steer { .. } => return Err("run apart".into()),
         Asked::Watch { since, .. } => {
             let told = events::changes(since, events::PATIENCE).await?;
             (written(json!(told)), 0)
@@ -863,6 +916,21 @@ pub(crate) async fn run(args: &[String], cwd: &Path, input: Option<String>) -> O
             effects_possible: false,
         };
     };
+    if let Asked::Steer { session, act } = asked {
+        let key = input.unwrap_or_default();
+        let done = steer::run(&session, act, &key).await;
+        let code = done.as_ref().err().map_or(0, |refused| refused.code);
+        return Output {
+            wrote: done
+                .map(|done| match json {
+                    true => json!({ "done": done }).to_string(),
+                    false => done,
+                })
+                .map_err(|refused| refused.text),
+            code,
+            effects_possible: true,
+        };
+    }
     let effects_possible = matches!(asked, Asked::Send { .. });
     match execute(asked, json, cwd, input).await {
         Ok((text, code)) => Output {
@@ -878,6 +946,26 @@ pub(crate) async fn run(args: &[String], cwd: &Path, input: Option<String>) -> O
     }
 }
 
+/// `adroit session <args>` that acts on a session, its key read from standard
+/// input: an argument or a variable of a process is read by others.
+fn steer_cli(args: &[String], acting: bool) -> i32 {
+    if acting {
+        eprintln!("adroit: a session cannot answer or stop another");
+        return 1;
+    }
+    match std::io::read_to_string(std::io::stdin()) {
+        Ok(key) => {
+            let mut ask = vec!["session".to_string()];
+            ask.extend(args.iter().cloned());
+            crate::work_host::run_command(ask, Some(key))
+        }
+        Err(e) => {
+            eprintln!("adroit: cannot read the key: {e}");
+            1
+        }
+    }
+}
+
 /// `adroit session <args>`, run in a session of Adroit's when `acting` is
 /// set. Returns the process exit code.
 pub(crate) fn cli(args: &[String], acting: bool) -> i32 {
@@ -885,6 +973,9 @@ pub(crate) fn cli(args: &[String], acting: bool) -> i32 {
         eprintln!("{USAGE}");
         return 2;
     };
+    if let Asked::Steer { .. } = asked {
+        return steer_cli(args, acting);
+    }
     if let Asked::Watch { since, once: false } = asked {
         return events::watch(since);
     }
@@ -972,6 +1063,8 @@ mod tests {
             &["watch", "wwdc"],
             &["watch", "--since", "-1"],
             &["answer", "wwdc"],
+            &["interrupt"],
+            &["end", "wwdc", "--allow"],
         ] {
             assert_eq!(asked(wrong), None, "{wrong:?}");
         }
@@ -992,6 +1085,49 @@ mod tests {
                 since: None,
                 once: true
             })
+        );
+    }
+
+    #[test]
+    fn an_answer_names_its_question_and_gives_one_answer() {
+        let id = adroit_model::MessageId::new();
+        let text = id.to_string();
+        let given = |rest: &[&str]| {
+            let words = [&["answer", "wwdc", "--question", &text][..], rest].concat();
+            match asked(&words) {
+                Some(Asked::Steer {
+                    act: steer::Act::Answer { question, given },
+                    ..
+                }) if question == id => Some(given),
+                _ => None,
+            }
+        };
+        use steer::Given;
+        assert_eq!(given(&["--allow"]), Some(Given::Allow));
+        assert_eq!(
+            given(&["--deny", "--reason", "not now"]),
+            Some(Given::Deny {
+                reason: Some("not now".into())
+            })
+        );
+        assert_eq!(
+            given(&["--reply", "Red", "--reply", "--big"]),
+            Some(Given::Replies(vec!["Red".into(), "--big".into()]))
+        );
+        for wrong in [
+            &[][..],
+            &["--allow", "--deny"],
+            &["--allow", "--reason", "x"],
+            &["--allow", "--reply", "x"],
+            &["--deny", "--reply", "x"],
+            &["--reason", "x"],
+        ] {
+            assert_eq!(given(wrong), None, "{wrong:?}");
+        }
+        assert_eq!(asked(&["answer", "wwdc", "--allow"]), None);
+        assert_eq!(
+            asked(&["answer", "wwdc", "--question", "x", "--allow"]),
+            None
         );
     }
 

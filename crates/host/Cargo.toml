@@ -23,6 +23,7 @@ image.workspace = true
 libc.workspace = true
 regex.workspace = true
 resvg.workspace = true
+ring.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 serde.workspace = true

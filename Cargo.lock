@@ -102,6 +102,7 @@ dependencies = [
  "libc",
  "regex",
  "resvg",
+ "ring",
  "rusqlite",
  "schemars",
  "serde",

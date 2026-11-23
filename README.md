@@ -194,7 +194,7 @@ adroit session show <session> --json
 adroit session send <session> --from my-assistant -- "Now add a test"
 ```
 
-It cannot answer what a session asks you. See
+It can answer, interrupt and end sessions only with a key you give it. See
 [from a program outside Adroit](docs/spec/opening-sessions.md#from-a-program-outside-adroit).
 
 To return to a conversation an agent kept, press `Mod+o` (`O` in the tree).

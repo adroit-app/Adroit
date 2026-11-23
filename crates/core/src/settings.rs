@@ -169,6 +169,8 @@ pub struct Settings {
     pub unshared: Vec<ProfileId>,
     /// How sessions opened by sessions run.
     pub delegation: DelegationSettings,
+    /// What programs outside Adroit may do to sessions.
+    pub outside: OutsideSettings,
     /// How large the window draws everything when it opens, from 0.67 to 1.75.
     /// Command 0 comes back to it.
     pub zoom: f64,
@@ -267,6 +269,15 @@ impl Default for DelegationSettings {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct OutsideSettings {
+    /// Whether a program that holds a key you gave it in the Settings window
+    /// may answer, interrupt and end sessions
+    /// ([keys](../opening-sessions.md#keys)).
+    pub steer: bool,
+}
+
 /// The fonts the console falls back to: adroit's own first, for the Nerd Font
 /// glyphs a chosen font may lack, and a Japanese one for what a monospace
 /// font leaves out.
@@ -279,6 +290,7 @@ impl Default for Settings {
             profiles: Agent::ALL.map(AgentProfile::builtin).to_vec(),
             unshared: Vec::new(),
             delegation: DelegationSettings::default(),
+            outside: OutsideSettings::default(),
             zoom: 1.0,
             prompt_min_rows: 3,
             prompt_max_rows: 12,

@@ -345,6 +345,10 @@ pub trait AgentAdapter: Sync {
         Box::pin(async { Err(DeliveryFailure::Unsupported) })
     }
 
+    /// The keys that interrupt the turn the agent runs.
+    fn interrupt_keys(&self) -> &'static [&'static str] {
+        &["Escape"]
+    }
     /// The prompt `text` with `images` named in it as the agent reads them:
     /// the first prompt it is started with, and a prompt typed into it when
     /// it takes no [`AgentAdapter::image_pastes`].

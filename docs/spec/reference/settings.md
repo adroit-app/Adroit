@@ -64,6 +64,14 @@ How a Neovim tab's Neovim starts, as an agent does; an empty command runs `nvim`
 | `neovim.env` | table of strings | `{}` | Variables set for it. |
 | `neovim.via_shell` | boolean | `false` | Whether your shell starts it, as an interactive login shell, so that what its startup files set reaches it. |
 
+## `[outside]`
+
+What programs outside Adroit may do to sessions.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `outside.steer` | boolean | `false` | Whether a program that holds a key you gave it in the Settings window may answer, interrupt and end sessions ([keys](../opening-sessions.md#keys)). |
+
 ## `[panel]`
 
 What the details panel is made of, chosen once for every environment; see [details](../details.md#components).

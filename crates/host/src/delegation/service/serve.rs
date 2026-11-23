@@ -52,7 +52,9 @@ async fn reply(
             let caller = context
                 .call(move |store| store.authenticate(&credential))
                 .await?;
-            let Some(_waits) = questions::hold(caller, asking, crate::delegation::now_ms()) else {
+            let Some((_waits, mut decided)) =
+                questions::hold(caller, asking, crate::delegation::now_ms())
+            else {
                 let refused = Response {
                     version: VERSION,
                     result: Err(Error::new(
@@ -62,10 +64,30 @@ async fn reply(
                 };
                 return protocol::write_frame(&mut write, &refused).await;
             };
-            while matches!(read.fill_buf().await, Ok(more) if !more.is_empty()) {
-                let more = read.buffer().len();
-                read.consume(more);
-            }
+            let gone = async {
+                while matches!(read.fill_buf().await, Ok(more) if !more.is_empty()) {
+                    let more = read.buffer().len();
+                    read.consume(more);
+                }
+            };
+            let decided = tokio::select! {
+                () = gone => return Ok(()),
+                decided = &mut decided => decided,
+            };
+            let Ok((decision, taken)) = decided else {
+                return Ok(());
+            };
+            protocol::write_frame(
+                &mut write,
+                &Response {
+                    version: VERSION,
+                    result: answer(decision),
+                },
+            )
+            .await?;
+            // The hook hangs up once it has read the decision.
+            let _ = read.fill_buf().await;
+            let _ = taken.send(());
             return Ok(());
         }
         Ok(request) if request.version == VERSION => dispatch(&context, request).await,
