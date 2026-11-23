@@ -100,7 +100,26 @@
                   rm -f "$out/bin/adroitw"
                   install -Dm644 LICENSE "$licenses/LICENSE"
                   install -Dm644 THIRD-PARTY-LICENSES.txt "$licenses/THIRD-PARTY-LICENSES.txt"
+                ''
+                + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                  install -Dm644 assets/logo/adroit-icon.svg "$out/share/icons/hicolor/scalable/apps/adroit.svg"
                 '';
+                nativeBuildInputs =
+                  build.nativeBuildInputs ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.copyDesktopItems ];
+                desktopItems = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+                  (pkgs.makeDesktopItem {
+                    name = "adroit";
+                    desktopName = "Adroit";
+                    comment = "An Agent Workspace for people who live in Vim";
+                    exec = "adroit";
+                    icon = "adroit";
+                    categories = [ "Development" ];
+                    # The window sets no application id, so GTK names it
+                    # after the program: WM_CLASS adroit and Wayland app_id
+                    # adroit.
+                    startupWMClass = "adroit";
+                  })
+                ];
                 meta.mainProgram = "adroit";
               }
             )
