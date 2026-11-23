@@ -201,6 +201,12 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
             false,
         ),
         (
+            Ask::UpdateMachine(here(), "Here".into()),
+            "y",
+            Some(Effect::UpdateMachine(here())),
+            false,
+        ),
+        (
             Ask::RestartDaemon(here()),
             "y",
             Some(Effect::RestartDaemon(here())),

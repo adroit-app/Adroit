@@ -145,6 +145,7 @@ pub fn entries(
                 ])
                 .chain(retry.then(|| offer(Action::EnvironmentRetry)))
                 .chain(machine.then(|| offer(Action::EnvironmentRestartHost)))
+                .chain(machine.then(|| offer(Action::EnvironmentUpdate)))
                 .chain(machine.then(|| offer(Action::EnvironmentPair)))
                 .chain((environment != own).then(|| offer(Action::EnvironmentRemove)))
                 .collect()

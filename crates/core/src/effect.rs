@@ -302,6 +302,8 @@ pub enum Effect {
     RetryEnvironment(EnvironmentId),
     /// Have the work machine of the environment restart its work host.
     RestartWorkHost(EnvironmentId),
+    /// Have the work machine of the environment update its Adroit.
+    UpdateMachine(EnvironmentId),
     /// Open the sheet adding an environment on pairing again with the work
     /// machine of `environment`.
     PairAgain(EnvironmentId),

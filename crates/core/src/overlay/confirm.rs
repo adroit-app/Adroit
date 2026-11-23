@@ -17,6 +17,8 @@ pub enum Ask {
     RestartDaemon(EnvironmentId),
     /// Remove the environment, by this name, from the environments kept.
     RemoveEnvironment(EnvironmentId, String),
+    /// Update the Adroit of the environment's work machine, by its name.
+    UpdateMachine(EnvironmentId, String),
     /// Take the workspace at `root`, by this name, out of the tree, ending
     /// what runs there: these sessions and the terminals by these ids.
     RemoveWorkspace {
@@ -92,6 +94,12 @@ impl Ask {
                 "Every session it holds ends: agents and shells, with what they scrolled back. Afterwards you can bring them back: agents resume their conversations, and shells open again where they ran.".into(),
                 "Restart daemon",
             ),
+            Self::UpdateMachine(_, name) => (
+                Icon::SquareArrowUp,
+                format!("Update Adroit on {name}?"),
+                "Its Homebrew installs the newest release, then its work host starts again. Its sessions keep running. The version it has now is not put back if the new one fails.".into(),
+                "Update",
+            ),
             Self::RemoveEnvironment(_, name) => (
                 Icon::SquareMinus,
                 format!("Remove {name}?"),
@@ -158,6 +166,7 @@ impl Ask {
             }
             Self::Stop(..)
             | Self::RemoveEnvironment(..)
+            | Self::UpdateMachine(..)
             | Self::MoveEntries { .. }
             | Self::TrashEntries { .. }
             | Self::Clash(_) => false,
