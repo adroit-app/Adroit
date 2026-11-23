@@ -1,6 +1,7 @@
 //! The agents adroit runs in its consoles, each behind one adapter: how it is
 //! started, asked things outside a console, and read back.
 
+pub mod answers;
 mod child;
 pub mod claude;
 mod codex;

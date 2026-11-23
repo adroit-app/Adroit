@@ -39,6 +39,14 @@ pub enum Ask {
         text: String,
         images: Vec<PathBuf>,
     },
+    /// Give `reply` to what the session `session` asks, as `asking` told the
+    /// one answering: typed into its terminal only while it still asks
+    /// exactly that and its screen shows that very dialog.
+    AnswerAsking {
+        session: String,
+        asking: adroit_model::asking::Asking,
+        reply: adroit_model::asking::Reply,
+    },
     /// Start a session with its program held back until the session is
     /// released.
     StartSession(Box<SessionStart>),
@@ -351,6 +359,21 @@ mod tests {
             }
             .waits()
         );
+    }
+
+    #[test]
+    fn answering_what_a_session_asks_changes_the_work_and_is_answered_waited_for_or_not() {
+        use adroit_model::asking::{Asked, Asking, Reply};
+        let answer = Ask::AnswerAsking {
+            session: "1".into(),
+            asking: Asking {
+                since_ms: 7,
+                asked: Asked::Plan { plan: "Go".into() },
+            },
+            reply: Reply::Allow,
+        };
+        assert!(answer.mutates());
+        assert!(!answer.waits());
     }
 
     #[test]

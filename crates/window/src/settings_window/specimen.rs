@@ -45,6 +45,26 @@ pub(super) fn Specimen(placed: Placed) -> Element {
         Component::Timeline => timeline(),
         Component::Timelines => timelines(),
         Component::Running => running(),
+        Component::Activity => links(
+            "3 steps",
+            &[
+                Link {
+                    tone: "state-glyph run",
+                    badge: Some("Bash"),
+                    ..Link::new(Icon::Loader, "cargo test", "running")
+                },
+                Link {
+                    tone: "state-glyph done",
+                    badge: Some("Read"),
+                    ..Link::new(Icon::Check, "src/auth/login.rs", "done")
+                },
+                Link::new(
+                    Icon::Message,
+                    "Retry the login once when it times out",
+                    "prompt",
+                ),
+            ],
+        ),
         Component::Processes => processes(),
         Component::About => about(),
         Component::Sessions => links(
@@ -304,6 +324,7 @@ fn folded_said(c: Component) -> String {
         Component::Issues => "2 issues · acme/app#40, acme/app#12".into(),
         Component::Files => "3 files · login.rs, retry.rs, README.md".into(),
         Component::Prompts => "2 prompts · latest: Add a test for the second timeout".into(),
+        Component::Activity => "3 steps".into(),
         Component::Processes => "2 processes · cargo, node".into(),
         Component::Timelines => "2 sessions · fix-login-timeout, review-login-retry".into(),
         Component::Changes => "3 files changed".into(),

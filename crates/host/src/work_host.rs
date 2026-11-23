@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use adroit_protocol::client::{Connection, ask_stop, hello};
-use adroit_protocol::{Answer, Ask, Event, Hello, Request, SPOKEN, WorkHost, agree, judge};
+use adroit_protocol::{
+    Answer, Ask, Event, Hello, OFFERED, Request, SPOKEN, WorkHost, agree, judge,
+};
 
 use crate::cli::HostCommand;
 use crate::serve::Served;
@@ -33,6 +35,7 @@ pub fn hello_of_ours() -> Hello {
         endpoint: remote.then(crate::remote::ours).flatten().cloned(),
         terminal: remote.then(crate::remote::terminal).flatten(),
         mutation_epoch: None,
+        offers: OFFERED.iter().map(|&offer| offer.into()).collect(),
     }
 }
 
@@ -569,7 +572,18 @@ mod tests {
             endpoint: None,
             terminal: None,
             mutation_epoch: None,
+            offers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn this_build_s_work_host_offers_answering_what_a_session_asks() {
+        assert!(
+            hello_of_ours()
+                .offers
+                .iter()
+                .any(|offer| offer == adroit_protocol::ANSWER_ASKING)
+        );
     }
 
     /// A host holding no work, answering every ask as done.

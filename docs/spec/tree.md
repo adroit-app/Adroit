@@ -173,7 +173,9 @@ The filter at the top of the tree narrows it as it is typed into, by the
 fuzzy match the pickers use, fzf's syntax included, on the names of
 sessions, terminals, worktrees and workspaces; a worktree or a workspace that
 matches keeps all it holds, and the rows keep the tree's order. The sessions
-waiting on you are listed again at the bottom of the tree, apart from it.
+waiting on you are listed again at the bottom of the tree, apart from it, each
+under its workspace with what it asks of you, as its agent's hooks told, or
+else what it waits for.
 
 The tree heads each [environment](environments.md)'s work with a row named
 after it, which folds like a heading, one for every environment the window

@@ -612,6 +612,7 @@ mod tests {
                     endpoint: None,
                     terminal: None,
                     mutation_epoch: None,
+                    offers: Vec::new(),
                 };
                 if write.write_all(encode(&hello).as_bytes()).await.is_err() {
                     continue;

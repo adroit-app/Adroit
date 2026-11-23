@@ -85,6 +85,10 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         Command::Rename(asked) => rename(context, &caller, asked).await,
         Command::Close => close(context, &caller).await,
         Command::Prompted { cleared } => prompted(context, &caller, cleared).await,
+        Command::Hooked { event } => {
+            crate::hooked::hear(caller.id, caller.agent, &event, crate::delegation::now_ms());
+            Ok(Value::Null)
+        }
         Command::TimelineTasks(asked) => record_timeline(context, &caller, asked).await,
         Command::Timeline => {
             let code = caller.code.clone();

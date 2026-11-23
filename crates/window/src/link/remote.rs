@@ -66,6 +66,9 @@ struct Shared {
     work: std::sync::Mutex<Option<Arc<Work>>>,
     busy: AtomicBool,
     storage_failed: AtomicBool,
+    /// What the host said in its last hello that it offers, none before it
+    /// has said hello.
+    offers: std::sync::Mutex<Option<Vec<String>>>,
 }
 
 impl Shared {
@@ -89,6 +92,7 @@ impl Shared {
             work: std::sync::Mutex::new(None),
             busy: AtomicBool::new(false),
             storage_failed: AtomicBool::new(false),
+            offers: std::sync::Mutex::new(None),
         })
     }
 }
@@ -145,8 +149,18 @@ impl Sender {
                 | Request::Call { .. }
         );
         let unsupported = matches!(&request, Request::Ask { ask, .. } if matches!(ask.as_ref(), Ask::Apply { .. } | Ask::RestartTerminalHost | Ask::OpenLogin { .. } | Ask::KeepImageFile { .. }));
+        let unoffered = match &request {
+            Request::Ask { ask, .. } => ask.offer().is_some_and(|offer| {
+                lock(&self.shared.offers)
+                    .as_ref()
+                    .is_some_and(|offers| !offers.iter().any(|o| o == offer))
+            }),
+            _ => false,
+        };
         let reason = if unsupported {
             Some("This operation is unavailable from a remote window")
+        } else if unoffered {
+            Some("This work machine's Adroit cannot answer from here; update it")
         } else if changes::needs_prompt(&request) && prompt.is_none() {
             Some("Remote prompt sends require retained draft context; the request was not sent")
         } else if mutation
@@ -373,6 +387,7 @@ impl Keep {
             return Err("remote host identity changed before opening the window".into());
         }
         self.expected = Some(tunnel.info().clone());
+        *lock(&self.shared.offers) = Some(connection.hello.offers.clone());
         let journal = lock(&self.shared.journal).clone();
         let journal = match journal {
             Some(journal) => Ok(journal),
@@ -610,6 +625,7 @@ mod tests {
                         endpoint: None,
                         terminal: None,
                         mutation_epoch: None,
+                        offers: Vec::new(),
                     })
                     .as_bytes(),
                 )
@@ -717,6 +733,87 @@ mod tests {
         );
         assert!(matches!(answered.await.unwrap(), Answer::Failed { .. }));
         assert!(lock(&waiting).is_empty());
+    }
+
+    fn answer_asking() -> Ask {
+        use adroit_model::asking::{Asked, Asking, Reply};
+        Ask::AnswerAsking {
+            session: "1".into(),
+            asking: Asking {
+                since_ms: 7,
+                asked: Asked::Plan { plan: "Go".into() },
+            },
+            reply: Reply::Allow,
+        }
+    }
+
+    #[tokio::test]
+    async fn answering_a_session_on_a_host_that_does_not_offer_it_is_refused_unsent() {
+        let (queue, mut requests) = mpsc::channel(8);
+        let (told, mut events) = mpsc::channel(8);
+        let shared = Shared::new("work".into(), told, true);
+        shared.ready.store(true, Ordering::Release);
+        *lock(&shared.offers) = Some(Vec::new());
+        let sender = Sender {
+            queue,
+            shared: shared.clone(),
+            remote: None,
+        };
+        let waiting = Waiting::default();
+        let (reply, answered) = tokio::sync::oneshot::channel();
+        lock(&waiting).insert(1, reply);
+
+        sender.send(
+            Request::Ask {
+                asked: 1,
+                ask: Box::new(answer_asking()),
+            },
+            &waiting,
+        );
+
+        let Answer::Failed { text } = answered.await.unwrap() else {
+            panic!("expected a refusal");
+        };
+        assert!(text.contains("update it"), "{text}");
+        assert!(
+            requests.try_recv().is_err(),
+            "nothing is sent or journalled"
+        );
+        assert!(sender.status().pending.is_empty());
+        assert!(matches!(
+            events.try_recv(),
+            Ok(Event::Told(Told::Failure { .. }))
+        ));
+    }
+
+    #[tokio::test]
+    async fn answering_a_session_on_a_host_that_offers_it_goes_on_as_a_change() {
+        let (queue, mut requests) = mpsc::channel(8);
+        let (told, _events) = mpsc::channel(8);
+        let shared = Shared::new("work".into(), told, true);
+        *lock(&shared.offers) = Some(vec![adroit_protocol::ANSWER_ASKING.into()]);
+        let sender = Sender {
+            queue,
+            shared: shared.clone(),
+            remote: None,
+        };
+        let waiting = Waiting::default();
+        let (reply, answered) = tokio::sync::oneshot::channel();
+        lock(&waiting).insert(1, reply);
+
+        sender.send(
+            Request::Ask {
+                asked: 1,
+                ask: Box::new(answer_asking()),
+            },
+            &waiting,
+        );
+
+        let Answer::Failed { text } = answered.await.unwrap() else {
+            panic!("an offline link sends no change");
+        };
+        assert!(!text.contains("update it"), "{text}");
+        assert!(requests.try_recv().is_err());
     }
 
     #[test]

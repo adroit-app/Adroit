@@ -96,11 +96,21 @@ mod tests {
     // `dev-channels-confirmed` right after confirming it, with the lines only
     // that recording's environment showed taken out. `background-work` is the
     // last rows of a session on 2.1.323 whose turn ended with two shells
-    // still running, its commands written shorter.
+    // still running, its commands written shorter. `permission`, `question` and
+    // `plan` are the last rows of a session on 2.1.325 at 120 columns asking
+    // to run a Bash call, an AskUserQuestion and an ExitPlanMode, the path
+    // `permission` offers to always allow written shorter.
 
     #[test]
     fn the_pickers_and_settings_slash_commands_open_are_dialogs() {
         for name in ["model", "config", "permissions", "mcp", "theme"] {
+            assert!(dialog_open(&recorded(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_dialogs_asking_to_run_a_tool_answer_a_question_or_approve_a_plan_are_dialogs() {
+        for name in ["permission", "question", "plan"] {
             assert!(dialog_open(&recorded(name)), "{name}");
         }
     }

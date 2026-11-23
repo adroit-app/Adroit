@@ -531,7 +531,7 @@ pub(crate) fn WaitingRow(environment: EnvironmentId, waiting: InboxItem, on: Row
             &item,
         )
     };
-    let sub = format!("{} · {}", waiting.workspace, waiting.wait);
+    let sub = adroit_core::asking::waiting_sub(&waiting);
     let target = Target::Row(item.clone());
     rsx! {
         ListRow {

@@ -69,6 +69,11 @@ pub enum Command {
     Prompted {
         cleared: bool,
     },
+    /// What a hook the caller's agent ran was handed, for the work host to
+    /// learn what the session asks and does.
+    Hooked {
+        event: Value,
+    },
     /// Record changes to the caller's timeline.
     TimelineTasks(TimelineTasks),
     /// The caller's timeline as it stands.

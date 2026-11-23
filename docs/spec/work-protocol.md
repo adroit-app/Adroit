@@ -18,6 +18,12 @@ work host by it. A version is a whole number, raised only when what the
 protocol sends changes shape; the two sides work in the newest version both
 speak.
 
+The line may also say what the host offers beyond its versions, such as
+answering a session (`"offers":["answer_asking"]`); a line that names nothing
+offers nothing, and a reader skips names it does not know. A client asks for
+an offered thing only of a host that offers it, and refuses it at once,
+unsent, to any other, so an older host never leaves it waiting.
+
 A window keeps a work host of its own build that shares a version with it, and
 replaces any other, which ends no session; where none answers, it starts one.
 A command asks the work host it finds, of another build too, while they share
@@ -58,6 +64,20 @@ a command, is an ask: the asker numbers it, and the host answers it once, by
 that number, to the asker alone, with what came of it or why it failed. A
 notice or a failure the host has for the user goes to the window whose request
 it concerns.
+
+## Answering a session
+
+What a session asks the user comes with it in the work, with when it began
+to ask. A client answers it with an ask that names the session, repeats
+what it was told the session asks, that time included, and gives the
+answer. The work host refuses it, typing nothing, unless the session still
+asks exactly that and its screen shows the dialog that asks it
+([how a session stands](sessions.md#how-a-session-stands)); a question asked
+again since is another question. Answered, the work host types the keys
+and the session is no longer told to ask it. A remote client sends the
+answer as it sends every change ([changes across a lost
+connection](remote-execution.md#changes-across-a-lost-connection)), so the
+same answer sent again is not typed again.
 
 ## When the work host goes
 

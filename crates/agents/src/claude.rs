@@ -15,6 +15,7 @@ pub mod context;
 mod control;
 pub mod dialog;
 pub mod history;
+pub mod hooks;
 pub mod links;
 pub mod metrics;
 pub mod models;

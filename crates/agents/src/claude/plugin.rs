@@ -21,17 +21,26 @@ pub fn install(program: &Path, dir: &Path) -> std::io::Result<()> {
     std::fs::write(hooks.join("hooks.json"), self::hooks(program))
 }
 
-/// The hooks that ask `program` what to tell Claude: once a conversation is
-/// cleared and as each prompt arrives.
+/// The hooks that run `program` to hand each step of a turn to the work
+/// host, and to ask it what to tell Claude: once a conversation is cleared
+/// and as each prompt arrives.
 fn hooks(program: &Path) -> String {
-    let asked = serde_json::json!([{
-        "type": "command",
-        "command": format!("{} mcp hook", crate::shell_word(program)),
-        "timeout": 5,
-    }]);
+    let command = format!("{} mcp hook", crate::shell_word(program));
+    let asked = serde_json::json!([{"type": "command", "command": command, "timeout": 5}]);
+    // Message display is left out: it runs for every piece of a reply, a
+    // process each, for nothing the work host keeps.
+    let told =
+        serde_json::json!([{"hooks": [{"type": "command", "command": command, "timeout": 2}]}]);
     let hooks = serde_json::json!({"hooks": {
         "SessionStart": [{"matcher": "clear", "hooks": asked}],
         "UserPromptSubmit": [{"hooks": asked}],
+        "PreToolUse": told,
+        "PermissionRequest": told,
+        "PostToolUse": told,
+        "PostToolUseFailure": told,
+        "PermissionDenied": told,
+        "Notification": told,
+        "Stop": told,
     }});
     serde_json::to_string_pretty(&hooks).expect("the hooks are JSON")
 }
@@ -79,6 +88,48 @@ mod tests {
         assert_eq!(start["hooks"][0]["command"], asked);
         let prompt = &hooks["hooks"]["UserPromptSubmit"][0];
         assert_eq!(prompt["hooks"][0]["command"], asked);
+    }
+
+    #[test]
+    fn the_plugin_hands_each_step_of_a_turn_to_adroit_for_every_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        install(Path::new("/bin/adroit"), dir.path()).unwrap();
+        let hooks: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("hooks/hooks.json")).unwrap(),
+        )
+        .unwrap();
+        let mut told: Vec<&str> = hooks["hooks"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .filter(|event| !["SessionStart", "UserPromptSubmit"].contains(event))
+            .collect();
+        told.sort();
+        assert_eq!(
+            told,
+            [
+                "Notification",
+                "PermissionDenied",
+                "PermissionRequest",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PreToolUse",
+                "Stop"
+            ]
+        );
+        for event in told {
+            let entry = &hooks["hooks"][event][0];
+            assert!(entry.get("matcher").is_none(), "{event}");
+            assert_eq!(
+                entry["hooks"][0]["command"], "/bin/adroit mcp hook",
+                "{event}"
+            );
+            assert!(
+                entry["hooks"][0]["timeout"].as_u64().unwrap() <= 2,
+                "{event}"
+            );
+        }
     }
 
     #[test]

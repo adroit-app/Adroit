@@ -68,6 +68,11 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             text,
             images,
         } => submit_prompt(&session, agent, &text, &images).await,
+        Ask::AnswerAsking {
+            session,
+            asking,
+            reply,
+        } => crate::answering::answer(&session, &asking, &reply).await,
         Ask::StartSession(start) => start_session(watched, *start).await,
         Ask::StartTerminal(start) => start_terminal(watched, *start).await,
         Ask::TerminalHost => terminal_host::judged(judged.subscribe())

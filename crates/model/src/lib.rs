@@ -2,6 +2,7 @@
 //! what adroit's daemon reports of the shells it runs, and what git says
 //! about the directories they run in.
 
+pub mod asking;
 mod clone;
 mod code;
 mod command;
@@ -24,6 +25,7 @@ mod process;
 pub mod profile;
 pub mod repository;
 mod session;
+pub mod steps;
 pub mod subagents;
 mod terminal;
 #[cfg(any(test, feature = "testing"))]
