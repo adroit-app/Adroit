@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use super::Context;
 use super::commands::{close, listed, prompted, record_timeline, rename, start};
 use crate::delegation::{
-    Code, Error, Kind, Message, Result, Sender, Session,
+    Code, Error, Kind, Message, Readiness, Result, Sender, Session,
     protocol::{self, Command, Request, Response, VERSION},
     questions,
     store::Store,
@@ -175,6 +175,10 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
         }
         Command::Models => answer(context.models.lock().expect("the models' lock").view()),
         Command::Next => {
+            // An agent still starting takes a message in and loses it.
+            if !takes_messages(&caller) {
+                return Ok(Value::Null);
+            }
             let id = caller.id;
             let on = context.takes_requests();
             let next = context
@@ -291,6 +295,11 @@ pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
         ),
         None => format!("[{heading}] from {id}:\n{said}{}", message.body),
     }
+}
+
+/// Whether `session`'s agent has started far enough to be handed a message.
+fn takes_messages(session: &Session) -> bool {
+    session.readiness == Readiness::Ready
 }
 
 /// `value` as the socket answers it.
