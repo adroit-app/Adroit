@@ -56,6 +56,13 @@ pub enum Request {
     /// Let the agent of the session `id` name it again, keeping the name it
     /// has until then.
     HandBackName { id: String },
+    /// Let the session `id` take up, or no longer, the work the session with
+    /// the code `from` asks of it.
+    TakeRequests {
+        id: String,
+        from: adroit_model::SessionCode,
+        taken_up: bool,
+    },
     /// The screen of the session `session`, whose prompt goes to `agent`,
     /// was drawn anew in the window's console.
     Redrawn { session: String, agent: Agent },

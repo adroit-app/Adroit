@@ -9,7 +9,7 @@ use std::sync::Arc;
 use adroit_model::links::Links;
 use adroit_model::repository::{Listing, Revision, Spot};
 use adroit_model::usage::Limit;
-use adroit_model::{Agent, ConversationStats, Note, Process};
+use adroit_model::{Agent, ConversationStats, Note, Process, Requester};
 use serde::{Deserialize, Serialize};
 
 use crate::work::set;
@@ -115,6 +115,9 @@ pub struct SessionRead {
     pub thumbs: BTreeMap<String, Option<Arc<str>>>,
     /// What it sent and received through Adroit.
     pub notes: Option<Vec<Note>>,
+    /// The sessions that may ask it for work or have asked it.
+    #[serde(default)]
+    pub requesters: Vec<Requester>,
     pub processes: Option<Vec<Process>>,
     /// The journal of what its agent recorded of its work, oldest first.
     pub timeline: Option<Vec<adroit_model::timeline::Entry>>,
@@ -183,6 +186,8 @@ pub enum DetailsChange {
     Notes {
         session: String,
         notes: Vec<Note>,
+        #[serde(default)]
+        requesters: Vec<Requester>,
     },
     Processes {
         session: String,
@@ -231,8 +236,13 @@ impl DetailsWork {
             DetailsChange::Thumbs { session, thumbs } => {
                 set(&mut self.session(session).thumbs, thumbs)
             }
-            DetailsChange::Notes { session, notes } => {
-                set(&mut self.session(session).notes, Some(notes))
+            DetailsChange::Notes {
+                session,
+                notes,
+                requesters,
+            } => {
+                let read = self.session(session);
+                set(&mut read.requesters, requesters) | set(&mut read.notes, Some(notes))
             }
             DetailsChange::Processes { session, processes } => {
                 set(&mut self.session(session).processes, Some(processes))
@@ -309,6 +319,7 @@ mod tests {
         work.apply(DetailsChange::Notes {
             session: "a".into(),
             notes: Vec::new(),
+            requesters: Vec::new(),
         });
         work.apply(DetailsChange::Conversation {
             session: "a".into(),

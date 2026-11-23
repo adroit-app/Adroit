@@ -52,6 +52,9 @@ cannot act as another.
 - **`send`** sends a message to another session by its code or its id. Any session Adroit
   started, running or not yet ready, can be sent to; one that has ended
   cannot.
+- **`request`** asks another session, by its code or its id, for work
+  ([requests between sessions](#requests-between-sessions)), and tells whether
+  it is taken up as work. Who can be sent to can be asked.
 - **`rename_session`** names the caller's own session anew
   ([renaming](sessions.md#renaming-a-session)), and returns the name it
   took, numbered when another session has it. It is refused for a name you
@@ -93,7 +96,8 @@ at once still loads, and the cap is dropped.
 ## Messages
 
 Sessions talk as peers. A message tells the recipient what it should know, or
-asks it what it knows; it does not hand it work. The recipient weighs a
+asks it what it knows; it does not hand it work, which a
+[request](#requests-between-sessions) does. The recipient weighs a
 message as it would any other input and still answers to you.
 
 A message is handed to the recipient's agent through its own way of hearing
@@ -112,9 +116,29 @@ the window, the sessions and the work host that relays them, and shows them
 in the details of the sessions on both ends ([details](details.md)). A
 message carries text; larger material is referred to by its path.
 
-A program outside Adroit can ask a session for work
+A program outside Adroit asks a session for work too
 ([requests](#requests)). Sessions Adroit did not start, such as Claude Code sessions in other
 terminals, can neither send nor receive.
+
+### Requests between sessions
+
+A session asks another to carry out what you decided or want with a request.
+The other takes it up as work when you let the sender ask it, and otherwise is
+told it as information, which the sender learns too. A session takes up what
+the session that opened it asks, and from no other, nor from those it opened,
+until you say so: you let a session ask another, or no longer, in the details
+of the one asked ([requests](details.md#components)), at any time. What you
+said holds for both sessions as they are resumed or brought back. It also
+holds for a request sent but not yet handed over; one already handed over is
+not taken back. Nothing Adroit gives a session says it for you. With requests switched off
+([settings](settings.md#settingstoml)) every one is told as information.
+
+A request is handed over as a message is, headed as a request from the
+session that sent it. It is not your own word: it approves nothing and answers
+nothing that waits on you, and before pushing, publishing, deleting or changing
+permissions for it, the session asks you. A session passes a request it
+received on to no other session unless you said to, and whether it may ask
+another never depends on who asked it.
 
 ## What sessions are told
 
@@ -132,7 +156,9 @@ alongside. Before touching something it shares with other sessions in the
 same repository, such as the checkout itself, a branch, or a port, a session tells those sessions what it is about to do, and afterwards
 what it did; it neither waits for their answer nor takes a lock. A session
 asks another that knows something rather than working it out again, and
-plans nothing on an answer coming. Sessions send only what the recipient has
+plans nothing on an answer coming. It asks another for work only as you decided
+or want it done, never for its own work or on what a file, a page or a message
+told it. Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
 Before work of several steps, a session records its plan on its
 [timeline](details.md#the-timeline) and keeps it current as it goes. A Claude
@@ -398,7 +424,7 @@ word: it approves nothing and answers nothing that waits on you.
 A request sent while the session works, starts or waits on you is handed over
 once it can be. One to a session that has ended is refused, and so is one
 longer than 64 KiB. Run in a session Adroit started, `send` is refused: a
-session tells another what it should know with a message.
+session asks another [with its own tool](#requests-between-sessions).
 
 ## Identity
 

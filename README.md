@@ -197,6 +197,11 @@ adroit session send <session> --from my-assistant -- "Now add a test"
 It can answer, interrupt and end sessions only with a key you give it. See
 [from a program outside Adroit](docs/spec/opening-sessions.md#from-a-program-outside-adroit).
 
+Sessions ask each other for work too. A session takes up what the one that
+opened it asks; whether it takes up what another asks is yours to say, under
+Requests in its details. See
+[requests between sessions](docs/spec/opening-sessions.md#requests-between-sessions).
+
 To return to a conversation an agent kept, press `Mod+o` (`O` in the tree).
 The list includes conversations from the logins your profiles use; choosing one
 resumes it in that same login. See [sessions](docs/spec/sessions.md) and

@@ -8,7 +8,7 @@ use adroit_model::links::{Kind as LinkKind, Link, Peer, Touch};
 use adroit_model::subagents::{Agent, Standing};
 use adroit_model::time::ago;
 use adroit_model::usage::{Limit, Severity, Window};
-use adroit_model::{Session, State};
+use adroit_model::{Requester, Session, State};
 
 use adroit_model::repository::{Change, Commit, DiffLine, Rev, Spot};
 use adroit_protocol::RepositoryRead;
@@ -517,6 +517,8 @@ impl Listing {
 pub enum Group {
     Sessions,
     Messages,
+    /// The sessions that may ask the session for work.
+    Requests,
     Agents,
     Running,
     About,
@@ -551,6 +553,7 @@ impl Group {
         match self {
             Group::Sessions => "Sessions",
             Group::Messages => "Messages",
+            Group::Requests => "Requests",
             Group::Agents => "Subagents",
             Group::Running => "Running",
             Group::About => "About",
@@ -580,6 +583,9 @@ pub enum Entry {
     },
     Session(Related),
     Message(Note),
+    /// A session that may ask the one shown for work, which lets it or no
+    /// longer lets it.
+    Requester(Requester),
     Agent(Agent),
     Process(adroit_model::Process),
     Fact(Fact),
@@ -614,6 +620,7 @@ impl Entry {
             Entry::Heading { group, .. } => match group {
                 Group::Sessions => "\0sessions",
                 Group::Messages => "\0messages",
+                Group::Requests => "\0requests",
                 Group::Agents => "\0agents",
                 Group::Running => "\0running",
                 Group::About => "\0about",
@@ -632,6 +639,7 @@ impl Entry {
             },
             Entry::Session(r) => r.name.as_str(),
             Entry::Message(n) => n.id.as_str(),
+            Entry::Requester(r) => r.code.as_str(),
             Entry::Agent(a) => a.call.as_str(),
             Entry::Process(p) => &p.key,
             Entry::Fact(f) => f.label,
@@ -647,6 +655,7 @@ impl Entry {
             Entry::More { group, .. } => match group {
                 Group::Sessions => "\0more sessions",
                 Group::Messages => "\0more messages",
+                Group::Requests => "\0more requests",
                 Group::Agents => "\0more agents",
                 Group::Running => "\0more running",
                 Group::About => "\0more about",
@@ -672,6 +681,7 @@ impl Entry {
             Entry::Heading { group, .. } => *group,
             Entry::Session(_) => Group::Sessions,
             Entry::Message(_) => Group::Messages,
+            Entry::Requester(_) => Group::Requests,
             Entry::Agent(_) => Group::Agents,
             Entry::Process(_) => Group::Running,
             Entry::Fact(_) => Group::About,
@@ -1041,6 +1051,13 @@ pub fn said(group: Group, rows: &[Entry]) -> String {
                 _ => None,
             }),
         ),
+        Group::Requests => {
+            let taken = rows
+                .iter()
+                .filter(|e| matches!(e, Entry::Requester(r) if r.taken_up))
+                .count();
+            format!("Requests · {taken} of {n} as work")
+        }
         Group::Processes => line(
             plural(n as u64, "process", "processes"),
             names(&|e| match e {
@@ -2448,6 +2465,7 @@ mod tests {
             outgoing: false,
             other: "tests".into(),
             body: "Done.".into(),
+            asked: None,
             sent_ms: 0,
         }];
         let a = [

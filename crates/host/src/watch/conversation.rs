@@ -95,6 +95,7 @@ async fn overview_changes(
         changes.push(DetailsChange::Notes {
             session: session.id.clone(),
             notes: crate::delegation::app::notes_at(&root, record).await,
+            requesters: crate::delegation::app::requesters_at(&root, record).await,
         });
     }
     let shown: BTreeMap<_, _> = links

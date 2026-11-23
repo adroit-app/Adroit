@@ -42,6 +42,7 @@ How sessions opened by sessions run.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `delegation.enabled` | boolean | `true` | Whether sessions may open sessions beside them. Off, a start is refused without ending those already running; it is off while the file cannot be read. |
+| `delegation.requests` | boolean | `true` | Whether sessions take up work that sessions the user lets ask them ask for. Off, it reaches them as information; it is off while the file cannot be read. |
 
 ## `[details]`
 

@@ -172,6 +172,22 @@ pub fn link_sections(
                 n.tag(now_ms),
                 n.body.clone(),
             )),
+            Entry::Requester(r) => Some(LinkRow::plain(
+                at,
+                if r.taken_up {
+                    Icon::Check
+                } else {
+                    Icon::Message
+                },
+                format!("{} ({})", r.name, r.code),
+                if r.taken_up { "work" } else { "information" }.into(),
+                if r.taken_up {
+                    "Its requests are taken up as work; open to tell them as information"
+                } else {
+                    "Its requests are told as information; open to take them up as work"
+                }
+                .into(),
+            )),
             Entry::Prompt(p) => Some(LinkRow::plain(
                 at,
                 Icon::Message,

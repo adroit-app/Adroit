@@ -63,6 +63,14 @@ fn sessions_open_sessions_unless_the_file_switches_it_off() {
 }
 
 #[test]
+fn sessions_take_up_requests_unless_the_file_switches_it_off() {
+    assert!(Settings::default().delegation.requests);
+    let off = Settings::parse("[delegation]\nrequests = false\n").unwrap();
+    assert!(!off.delegation.requests);
+    assert!(off.delegation.enabled);
+}
+
+#[test]
 fn a_file_that_capped_sessions_opened_by_sessions_still_loads_and_loses_the_cap() {
     for cap in [0, 20] {
         let settings = Settings::parse(&format!("[delegation]\nmax_started = {cap}\n")).unwrap();
@@ -318,7 +326,10 @@ fn settings_written_read_back_the_same() {
             },
         ],
         unshared: Vec::new(),
-        delegation: DelegationSettings { enabled: false },
+        delegation: DelegationSettings {
+            enabled: false,
+            requests: false,
+        },
         outside: OutsideSettings { steer: true },
         zoom: 1.1,
         prompt_min_rows: 2,
@@ -968,7 +979,7 @@ fn a_setting_the_file_should_not_hold_is_named_with_those_it_may() {
     );
     assert_eq!(
         error("[delegation]\nnonsense = 1\n"),
-        "unknown field `nonsense`, expected `enabled`\nin `delegation`\n"
+        "unknown field `nonsense`, expected `enabled` or `requests`\nin `delegation`\n"
     );
 }
 

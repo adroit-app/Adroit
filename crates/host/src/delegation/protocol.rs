@@ -56,6 +56,8 @@ pub enum Command {
     Context,
     StartSession(Start),
     Send(Send),
+    /// Ask another session for work.
+    Ask(Send),
     Sessions(Sessions),
     Models,
     /// Name the caller's own session anew.
@@ -88,7 +90,7 @@ impl Command {
     pub fn acts(&self) -> bool {
         matches!(
             self,
-            Self::StartSession(_) | Self::Send(_) | Self::Rename(_) | Self::Close
+            Self::StartSession(_) | Self::Send(_) | Self::Ask(_) | Self::Rename(_) | Self::Close
         )
     }
 }
@@ -228,6 +230,16 @@ pub struct Listed {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sent {
     pub sent: MessageId,
+}
+
+/// The answer to [`Command::Ask`]: the request sent, and whether its
+/// recipient takes it up as work as things stand.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Asked {
+    pub sent: MessageId,
+    pub taken_up: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// The answer to [`Command::Next`]: a message to hand the caller's agent.

@@ -304,7 +304,10 @@ impl Watcher {
             return Ok(());
         }
         let id = record.id;
-        let next = context.call(move |store| next_delivery(store, id)).await?;
+        let on = context.takes_requests();
+        let next = context
+            .call(move |store| next_delivery(store, id, on))
+            .await?;
         let Some((message, sender, started)) = next else {
             return Ok(());
         };
@@ -331,8 +334,9 @@ impl Watcher {
 fn next_delivery(
     store: &mut Store,
     id: SessionId,
+    requests: bool,
 ) -> Result<Option<(Message, Option<Session>, adroit_agents::AgentContext)>> {
-    let Some((message, sender)) = next_message(store, id)? else {
+    let Some((message, sender)) = next_message(store, id, requests)? else {
         return Ok(None);
     };
     let (Some(launch), Some(recipient)) = (store.launch(id)?, store.session(id)?) else {

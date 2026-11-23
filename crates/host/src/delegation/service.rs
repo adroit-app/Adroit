@@ -54,6 +54,13 @@ impl Context {
         .map_err(Error::storage)?
     }
 
+    /// Whether sessions take up work other sessions ask of them at all; not
+    /// while the settings cannot be read.
+    fn takes_requests(&self) -> bool {
+        self.settings()
+            .is_ok_and(|settings| settings.delegation.requests)
+    }
+
     fn settings(&self) -> Result<Settings> {
         (self.settings)()
             .map(Settings::sane)

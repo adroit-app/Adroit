@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use adroit_model::config::UsageSettings;
 use adroit_model::links::{Kind as LinkKind, Link, Links, Peer};
 use adroit_model::repository::{Rev, Spot};
-use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Session, Tree};
+use adroit_model::{ConversationStats, EnvironmentId, Note, Process, Requester, Session, Tree};
 use adroit_protocol::{
-    Account, AgentFacts, DetailsWork, RepositorySight, Seq, SessionRead, Sight, WorkSnapshot,
+    Account, AgentFacts, DetailsWork, RepositorySight, Request, Seq, SessionRead, Sight,
+    WorkSnapshot,
 };
 
 use super::{
@@ -181,6 +182,7 @@ fn group_of(component: Component) -> Option<Group> {
         Component::About => Group::About,
         Component::Sessions => Group::Sessions,
         Component::Messages => Group::Messages,
+        Component::Requests => Group::Requests,
         Component::Subagents => Group::Agents,
         Component::Artifacts => Group::Artifacts,
         Component::Images => Group::Images,
@@ -677,6 +679,7 @@ fn used(details: &Details, entry: &Entry, how: Use) -> Vec<Effect> {
             details.shown.session.as_deref(),
         ),
         Entry::Session(r) => use_related(r, how, &details.shown.environment),
+        Entry::Requester(r) => use_requester(r, how, details),
         Entry::Process(p) => copied(how, &p.command, "Copied the process command".into()),
         Entry::Message(n) => copied(how, &n.body, "Copied the message".into()),
         Entry::Fact(f) => copied(how, &f.value, format!("Copied {}", f.value)),
@@ -756,6 +759,23 @@ fn use_item(pull: &ItemRow, how: Use, environment: &EnvironmentId) -> Vec<Effect
             done: format!("Copied {}", pull.url),
         }],
         (Use::Reveal, _) => Vec::new(),
+    }
+}
+
+/// Let `requester` ask the session shown for work, or no longer, or copy its
+/// name.
+fn use_requester(requester: &Requester, how: Use, details: &Details) -> Vec<Effect> {
+    match (how, details.shown.session.clone()) {
+        (Use::Open(_), Some(id)) => vec![Effect::Host {
+            environment: details.shown.environment.clone(),
+            request: Request::TakeRequests {
+                id,
+                from: requester.code.clone(),
+                taken_up: !requester.taken_up,
+            },
+        }],
+        (Use::Copy, _) => copied(how, &requester.name, format!("Copied {}", requester.name)),
+        _ => Vec::new(),
     }
 }
 
@@ -988,6 +1008,16 @@ fn rows_of(
             let notes = read.and_then(|r| r.notes.as_deref()).unwrap_or_default();
             let rows = notes.iter().cloned().map(Entry::Message).collect();
             grouped(Group::Messages, rows, &folded, opened, first(d.links_shown))
+        }
+        Component::Requests => {
+            let rows = read
+                .map(|r| r.requesters.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .cloned()
+                .map(Entry::Requester)
+                .collect();
+            grouped(Group::Requests, rows, &folded, opened, first(d.links_shown))
         }
         Component::Subagents => {
             let rows = links.agents.iter().cloned().map(Entry::Agent).collect();
@@ -1422,6 +1452,7 @@ pub(crate) fn sight(details: &Details) -> Sight {
         Component::Processes,
         Component::Sessions,
         Component::Messages,
+        Component::Requests,
         Component::Subagents,
         Component::Artifacts,
         Component::Images,
@@ -1531,7 +1562,7 @@ pub(crate) mod tests {
         components = [\"session\", \"change\", { component = \"timeline\", shown = 3 }, \"running\", { component = \"about\", folded = true }]\n\
         [[panel.session.tabs]]\ntitle = \"Changes\"\ncomponents = [\"changes\"]\n\
         [[panel.session.tabs]]\ntitle = \"Log\"\ncomponents = [\"log\"]\n\
-        [[panel.session.tabs]]\ntitle = \"Agents\"\ncomponents = [\"sessions\", \"messages\", \"subagents\"]\n\
+        [[panel.session.tabs]]\ntitle = \"Agents\"\ncomponents = [\"sessions\", \"messages\", \"requests\", \"subagents\"]\n\
         [[panel.session.tabs]]\ntitle = \"Resources\"\ncomponents = [\"artifacts\", \"images\", \"links\", \"files\"]\n\
         [[panel.session.tabs]]\ntitle = \"Timeline\"\ncomponents = [\"timeline\"]\n";
 
@@ -2136,6 +2167,7 @@ pub(crate) mod tests {
             outgoing: false,
             other: "leader".into(),
             body: "Look around".into(),
+            asked: None,
             sent_ms: 0,
         };
         let opened = scenario()
@@ -2159,6 +2191,46 @@ pub(crate) mod tests {
         };
         let at = back.state().details.drill.selected(l).unwrap();
         assert!(matches!(&entries[at], Entry::Message(n) if n.id == "n1"));
+    }
+
+    #[test]
+    fn opening_a_session_among_the_requests_lets_it_ask_or_no_longer_and_names_it_by_its_code() {
+        for taken_up in [false, true] {
+            let run = scenario()
+                .event(work(read(
+                    "a",
+                    SessionRead {
+                        links: Some(Links::default()),
+                        requesters: vec![Requester {
+                            code: "k7f3".parse().unwrap(),
+                            name: "lead".into(),
+                            taken_up,
+                        }],
+                        ..Default::default()
+                    },
+                )))
+                .send_all([shown(Some("a"), None), Msg::DetailsTab(AGENTS)])
+                .send_all([Msg::DetailsKey(Key::Down), Msg::DetailsKey(Key::Open)]);
+            let asked: Vec<_> = run
+                .last_effects()
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::Host {
+                        request: request @ Request::TakeRequests { .. },
+                        ..
+                    } => Some(request.clone()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                asked,
+                [Request::TakeRequests {
+                    id: "a".into(),
+                    from: "k7f3".parse().unwrap(),
+                    taken_up: !taken_up,
+                }]
+            );
+        }
     }
 
     fn journal(ops: serde_json::Value) -> Vec<adroit_model::timeline::Entry> {

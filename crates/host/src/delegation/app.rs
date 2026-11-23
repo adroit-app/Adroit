@@ -2,10 +2,10 @@
 //! sessions the user starts, which the work host then serves like any other.
 use std::path::{Path, PathBuf};
 
-use adroit_model::{Agent, SessionId};
+use adroit_model::{Agent, RequestOutcome, Requester, SessionId};
 
 use super::{
-    Message, Result, Sender,
+    Kind, Message, Result, Sender,
     launch::Delegation,
     store::{NewSession, Store},
 };
@@ -266,10 +266,23 @@ pub fn notes(
                     }
                 },
                 body: message.body.clone(),
+                asked: match (message.kind, message.delivered) {
+                    (Kind::Message, _) => None,
+                    (_, false) => Some(RequestOutcome::Waiting),
+                    (Kind::Request, true) => Some(RequestOutcome::TakenUp),
+                    (Kind::Declined, true) => Some(RequestOutcome::Told),
+                },
                 sent_ms: message.sent_ms,
             }
         })
         .collect()
+}
+
+/// The sessions that may ask `record` for work or have asked it.
+pub async fn requesters_at(root: &Path, record: SessionId) -> Vec<Requester> {
+    with_store(root, move |store| store.requesters(record))
+        .await
+        .unwrap_or_default()
 }
 
 /// [`notes`] read from the record at `root`.
@@ -339,6 +352,33 @@ mod tests {
             .map(|n| (n.outgoing, n.other.as_str()))
             .collect();
         assert_eq!(listed, [(true, "api"), (false, "api")]);
+    }
+
+    #[test]
+    fn a_request_is_listed_with_what_became_of_it() {
+        let (shown, api) = (session("fix"), session("api"));
+        let all = [shown.clone(), api.clone()];
+        let from_api = || crate::testing::message(api.id, shown.id);
+        let listed = notes(
+            shown.id,
+            &all,
+            &[
+                from_api().delivered().build(),
+                from_api().kind(Kind::Request).build(),
+                from_api().kind(Kind::Request).delivered().build(),
+                from_api().kind(Kind::Declined).delivered().build(),
+            ],
+        );
+        let asked: Vec<_> = listed.iter().map(|n| n.asked).collect();
+        assert_eq!(
+            asked,
+            [
+                None,
+                Some(RequestOutcome::Waiting),
+                Some(RequestOutcome::TakenUp),
+                Some(RequestOutcome::Told)
+            ]
+        );
     }
 
     #[test]

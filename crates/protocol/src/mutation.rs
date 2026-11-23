@@ -55,6 +55,7 @@ impl Request {
             | Self::Kill { .. }
             | Self::Rename { .. }
             | Self::HandBackName { .. }
+            | Self::TakeRequests { .. }
             | Self::Release { .. }
             | Self::EndTerminal { .. }
             | Self::KeepWorkspace { .. }

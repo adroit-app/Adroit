@@ -261,11 +261,18 @@ pub struct DelegationSettings {
     /// without ending those already running; it is off while the file cannot be
     /// read.
     pub enabled: bool,
+    /// Whether sessions take up work that sessions the user lets ask them ask
+    /// for. Off, it reaches them as information; it is off while the file
+    /// cannot be read.
+    pub requests: bool,
 }
 
 impl Default for DelegationSettings {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            requests: true,
+        }
     }
 }
 

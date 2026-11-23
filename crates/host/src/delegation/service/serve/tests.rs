@@ -33,24 +33,83 @@ fn a_request_from_outside_names_its_program_and_says_it_is_not_the_user_s_own_wo
 }
 
 #[test]
+fn a_request_from_a_session_taken_up_is_headed_as_one_and_says_it_is_not_the_user_s_own_word() {
+    let sender = record("lead").build();
+    let asked = message(sender.id, SessionId::new())
+        .body("do it")
+        .kind(Kind::Request)
+        .build();
+    let read = envelope(&asked, Some(&sender));
+    assert!(
+        read.starts_with(&format!("[request] from lead ({})", sender.code)),
+        "{read}"
+    );
+    assert!(read.contains("approves nothing"), "{read}");
+    assert!(read.contains("push, publish, delete"), "{read}");
+    assert!(read.ends_with("\n\ndo it"), "{read}");
+}
+
+#[test]
+fn a_request_not_taken_up_reads_as_a_message_that_is_not_a_task() {
+    let sender = record("lead").build();
+    let asked = message(sender.id, SessionId::new())
+        .body("do it")
+        .kind(Kind::Declined)
+        .build();
+    let read = envelope(&asked, Some(&sender));
+    assert!(read.starts_with("[message] from lead"), "{read}");
+    assert!(read.contains("has not let it"), "{read}");
+    assert!(!read.contains("[request]"), "{read}");
+    assert!(read.ends_with("\n\ndo it"), "{read}");
+}
+
+#[test]
+fn a_request_is_work_only_while_the_sender_may_ask_and_requests_are_on_as_it_is_handed_over() {
+    use crate::delegation::store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
+    let lead = store.register(new(None, "lead")).unwrap().0;
+    let to = store.register(new(Some(lead), "worker")).unwrap().0;
+    let code = store.known(lead).unwrap().code;
+    let id = store.ask(lead, to, "do it").unwrap();
+    let kind = |store: &mut Store, on| next_message(store, to, on).unwrap().unwrap().0.kind;
+
+    assert_eq!(kind(&mut store, true), Kind::Request);
+    assert_eq!(kind(&mut store, false), Kind::Declined);
+    assert_eq!(kind(&mut store, true), Kind::Request);
+    store.let_ask(&code, to, false).unwrap();
+    assert_eq!(kind(&mut store, true), Kind::Declined);
+
+    store.delivered(id).unwrap();
+    assert_eq!(store.messages_of(to).unwrap()[0].kind, Kind::Declined);
+}
+
+fn new(parent: Option<SessionId>, name: &str) -> crate::delegation::store::NewSession {
+    crate::delegation::store::NewSession {
+        parent,
+        agent: Agent::Claude,
+        profile: adroit_model::profile::ProfileId::builtin(Agent::Claude),
+        home: None,
+        name: name.into(),
+        cwd: "/repo".into(),
+        launch: Settings::default(),
+        model: None,
+        permissions: Default::default(),
+        started_ms: 1,
+        name_given: false,
+        code: None,
+    }
+}
+
+#[test]
 fn a_recipient_is_found_by_its_code_or_its_id_and_nothing_else() {
     use crate::delegation::store::{NewSession, Store};
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
     let (id, _) = store
         .register(NewSession {
-            parent: None,
-            agent: Agent::Claude,
-            profile: adroit_model::profile::ProfileId::builtin(Agent::Claude),
-            home: None,
-            name: "review".into(),
-            cwd: "/repo".into(),
-            launch: Settings::default(),
-            model: None,
-            permissions: Default::default(),
-            started_ms: 1,
-            name_given: false,
             code: Some("k7f3".parse().unwrap()),
+            ..new(None, "review")
         })
         .unwrap();
 

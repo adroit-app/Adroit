@@ -73,6 +73,13 @@ pub(super) fn Specimen(placed: Placed) -> Element {
                 ),
             ],
         ),
+        Component::Requests => links(
+            "Requests · 1 of 2 as work",
+            &[
+                Link::new(Icon::Check, "lead (k7f3)", "work"),
+                Link::new(Icon::Message, "reviewer (r4pj)", "information"),
+            ],
+        ),
         Component::Subagents => links(
             "1 running · 1 done",
             &[
@@ -296,6 +303,7 @@ fn folded_said(c: Component) -> String {
         Component::About => "work · Claude Code".into(),
         Component::Sessions => "2 sessions · review-login-retry, docs-timeout".into(),
         Component::Messages => "2 messages · reviewer".into(),
+        Component::Requests => "Requests · 1 of 2 as work".into(),
         Component::Subagents => "1 running · 1 done".into(),
         Component::Artifacts => "1 artifact · Login retry plan".into(),
         Component::Images => "2 images".into(),

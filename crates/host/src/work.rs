@@ -313,6 +313,7 @@ impl Host {
             | Request::Kill { .. }
             | Request::Rename { .. }
             | Request::HandBackName { .. }
+            | Request::TakeRequests { .. }
             | Request::Release { .. }
             | Request::EndTerminal { .. }
             | Request::KeepWorkspace { .. }
