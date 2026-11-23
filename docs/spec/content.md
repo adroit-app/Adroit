@@ -14,6 +14,10 @@ it, from any worktree. Closing a tab closes every window in it. The tab shown
 is moved a place to either side by keys ([keys](reference/keys.md#actions)),
 and any tab is dragged to another place among the tabs.
 
+The worktree of what is shown stands by name left of the tabs and stays there
+as they scroll. Tabs that do not fit scroll sideways, and buttons at both ends
+of them, shown only then, scroll them by clicks alone.
+
 ## Windows
 
 A window is split side by side or one above the other; the new window lies

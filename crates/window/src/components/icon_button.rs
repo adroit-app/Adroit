@@ -19,6 +19,7 @@ pub fn IconButton(
     #[props(default = ICON_BUTTON_SIZE)] size: u32,
     #[props(default)] aria_label: Option<String>,
     #[props(default)] onmousedown: Option<EventHandler<MouseEvent>>,
+    #[props(default)] disabled: bool,
     onclick: EventHandler<MouseEvent>,
 ) -> Element {
     rsx! {
@@ -27,6 +28,7 @@ pub fn IconButton(
             class: classes("icon-button", &place),
             title,
             aria_label,
+            disabled,
             onmousedown: move |e: MouseEvent| {
                 e.prevent_default();
                 if let Some(onmousedown) = onmousedown {

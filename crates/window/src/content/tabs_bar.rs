@@ -1,10 +1,12 @@
 //! The tabs bar: the worktree in the middle by name, and a tab for each tab
-//! of the content, named after what its focused window shows.
+//! of the content, named after what its focused window shows. The tabs scroll
+//! beside the name, by buttons too where they do not fit.
 
 use std::collections::HashSet;
 
 use adroit_core::completion::Completions;
 use adroit_core::msg::Msg;
+use adroit_core::tab_scroll::TabScroll;
 use adroit_core::tree as tree_view;
 use adroit_model::AgentPermissions;
 use dioxus::html::input_data::MouseButton;
@@ -17,7 +19,7 @@ use crate::components::{
     session_mark,
 };
 use crate::content::{DropAt, Tab, WindowId, thing_code, thing_name};
-use crate::icons::Icon;
+use crate::icons::{Icon, IconView};
 use crate::nav;
 use crate::rename::{Place as RenamePlace, SessionName};
 use crate::shell::overlays::menu_opener;
@@ -177,20 +179,99 @@ pub(super) fn TabsBar(
             }
         })
         .collect();
+    let mut scroll = use_signal(TabScroll::default);
+    let overflows = use_memo(move || scroll.read().overflows());
+    // The buttons narrow the view as they come, which may leave the tab
+    // shown partly outside it.
+    use_effect(move || {
+        if overflows() {
+            show_active_tab();
+        }
+    });
     rsx! {
         div { class: "tabs",
             // The worktree by name only: the header above holds its whole
             // path, and here it would crowd the tabs out.
             if let Some(p) = &current {
                 span { class: "tabs-where", title: "{short(&p.worktree)}",
-                    "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
+                    IconView { icon: Icon::Folder, size: 13 }
+                    span { class: "tabs-where-name",
+                        "{p.worktree.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| short(&p.worktree))}"
+                    }
                 }
             }
-            for tab in tabs {
-                {tab}
+            div {
+                class: "tabs-area",
+                onresize: move |e: Event<ResizeData>| {
+                    if let Some(width) = resized(&e) {
+                        scroll.write().room = width;
+                    }
+                },
+                if overflows() {
+                    IconButton {
+                        icon: Icon::ChevronLeft,
+                        place: "tabs-step",
+                        size: 14,
+                        title: "Scroll the tabs left",
+                        disabled: !scroll.read().more_left(),
+                        onclick: move |_| scroll_tabs(-scroll.peek().press()),
+                    }
+                }
+                div {
+                    class: "tabs-scroll",
+                    onresize: move |e: Event<ResizeData>| {
+                        if let Some(width) = resized(&e) {
+                            scroll.write().view = width;
+                        }
+                    },
+                    onscroll: move |e: Event<ScrollData>| scroll.write().left = e.scroll_left(),
+                    div {
+                        class: "tabs-row",
+                        onresize: move |e: Event<ResizeData>| {
+                            if let Some(width) = resized(&e) {
+                                scroll.write().length = width;
+                            }
+                        },
+                        for tab in tabs {
+                            {tab}
+                        }
+                    }
+                }
+                if overflows() {
+                    IconButton {
+                        icon: Icon::ChevronRight,
+                        place: "tabs-step",
+                        size: 14,
+                        title: "Scroll the tabs right",
+                        disabled: !scroll.read().more_right(),
+                        onclick: move |_| scroll_tabs(scroll.peek().press()),
+                    }
+                }
             }
         }
     }
+}
+
+/// How wide the element resized is. The event is kept from the elements
+/// around it, which are told of their own.
+fn resized(e: &Event<ResizeData>) -> Option<f64> {
+    e.stop_propagation();
+    Some(e.data().get_border_box_size().ok()?.width)
+}
+
+/// Scroll the tabs sideways by `by` pixels.
+fn scroll_tabs(by: f64) {
+    document::eval(&format!(
+        "document.querySelector('.tabs-scroll')?.scrollBy({{ left: {by}, behavior: 'smooth' }});"
+    ));
+}
+
+/// Bring the tab shown into view along the line of tabs, after it is drawn.
+pub(crate) fn show_active_tab() {
+    document::eval(
+        "requestAnimationFrame(() => document.querySelectorAll('.tabs .tab.active')
+           .forEach((t) => t.scrollIntoView({ block: 'nearest', inline: 'nearest' })));",
+    );
 }
 
 /// The pointer pressed the tab at `tab`, to drag it, or its focused window
