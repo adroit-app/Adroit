@@ -112,7 +112,8 @@ the window, the sessions and the work host that relays them, and shows them
 in the details of the sessions on both ends ([details](details.md)). A
 message carries text; larger material is referred to by its path.
 
-Sessions Adroit did not start, such as Claude Code sessions in other
+A program outside Adroit can ask a session for work
+([requests](#requests)). Sessions Adroit did not start, such as Claude Code sessions in other
 terminals, can neither send nor receive.
 
 ## What sessions are told
@@ -175,7 +176,14 @@ $ adroit session start --dir ~/src/api --worktree -- "Find why the login test is
 find-login-test
 ```
 
-It prints the new session's name. The prompt is read from standard input when
+It prints the new session's name, or with `--json` its id, code, name and
+directory:
+
+```json
+{"id":"4118b562-…","code":"r4pj","name":"find-login-test","dir":"/Users/me/src/api"}
+```
+
+The prompt is read from standard input when
 none follows `--`.
 
 - `--dir <path>` is where it works, the current directory when not given.
@@ -222,6 +230,102 @@ Run from a shell inside a session Adroit started, the command acts as that
 session: the new session is opened by it. When the work host cannot be
 reached, the command fails with a message on standard error and exit status 1.
 
-The identity a session acts as comes from its environment. It keeps sessions
+## From a program outside Adroit
+
+A program that runs as the user on the same machine, such as an assistant,
+reads the sessions and asks them to go on with commands. Like a start, they
+are run by the instance's work host.
+
+```console
+$ adroit session list [--dir <path>] [--ended] [--json]
+$ adroit session show <session> [--turns <n>] [--json]
+$ adroit session send <session> --from <name> [--json] [-- <prompt>]
+$ adroit session wait <session> [--timeout <secs>] [--json]
+```
+
+A session is named by its id or its [code](sessions.md#a-sessions-code), or
+while it runs by its name. A command that fails says why on standard error
+and exits with 1, and with 2 when it was not asked properly.
+
+- **`list`** lists the sessions that run, with `--dir` those that work in that
+  directory or below it, and with `--ended` those that have ended too.
+- **`show`** shows one session, running or ended, with its last turn, or its
+  last `--turns`, and the tasks on its [timeline](details.md#the-timeline).
+- **`send`** asks a running session to go on ([requests](#requests)), and
+  returns before it has. The prompt is read from standard input when none
+  follows `--`.
+- **`wait`** waits until the session's turn ends, it waits on you or it ends,
+  60 seconds unless `--timeout` says otherwise. A session just started or
+  asked is waited for through the turn that follows. It prints the session as
+  it then stands, and exits with 3 when the time ran out.
+
+None of them answers what a session asks you, in permission, trust or any
+other dialog: it is told of as waiting, and answered in Adroit.
+
+`list --json` prints an array of sessions; `show` and `wait` print one, with
+what is their own beside it:
+
+```json
+{"id":"4118b562-…","code":"r4pj","name":"fix-login","agent":"claude",
+ "dir":"/Users/me/src/api","state":"waiting","waiting_for":"permission",
+ "message":"Bash(cargo test)","opened_by":{"id":"2ba8…","code":"ma3t","name":"lead"},
+ "started_ms":1795443225548,"last_active_ms":1795443262988,
+
+ "turns":[{"turn":2,"prompt":"Add a test","reply":"Added it.",
+   "began_ms":1795443262356,"last_ms":1795443262988,"truncated":false}],
+ "timeline":[{"id":"t1","parent":null,"title":"Fix the login","status":"in_progress",
+   "weight":1.0,"description":null,"note":null}],
+ "truncated":false,"undelivered":0,
+
+ "timed_out":false}
+```
+
+- `state` is `starting`, `working`, `background`, `waiting`, `idle`, `done`,
+  `failed` ([how a session stands](sessions.md#how-a-session-stands)) or
+  `ended`. A session held at a dialog as it starts, or whose start stalled, is
+  `waiting`. `done` and `idle` both tell that the turn has ended.
+- `waiting_for` is `permission`, `input` or other words for what is waited
+  for, and null while nothing is. `message` is what the agent's program says
+  with its state, if anything.
+- `opened_by` is the session that opened it, and null for one that you or a
+  program started.
+- `last_active_ms` is when something was last said in its conversation or
+  typed into it, in milliseconds since the Unix epoch, as every time here is.
+- `show` adds `turns`, oldest first, the last of which may have a null `reply`
+  while it runs; `timeline`; and `undelivered`, how many requests it has not
+  been handed yet. A turn begins with a prompt, a message or a request, or with
+  what the agent itself hears of work it left running. Only the latest turns
+  can be shown. What is shown is kept to 60 KiB as JSON: `truncated` on a turn
+  tells that its text was cut, and on the session that turns or tasks were
+  left out or a task's text cut.
+- `wait` adds `timed_out`.
+- `send --json` prints the request and the session it went to:
+
+  ```json
+  {"sent":"ac4cf55b-…","session":{"id":"4118b562-…","code":"r4pj","name":"fix-login"}}
+  ```
+
+The conversation is read from what the agent itself keeps, so a session whose
+agent has not told its conversation yet has no turns.
+
+### Requests
+
+A request is work that a program of yours asks a session for on your behalf.
+It reaches the agent as a [message](#messages) does, apart from its terminal,
+so it never mixes with what you are writing or answers a dialog. It is headed
+by the name the program gave itself with `--from`, says that it comes from
+outside Adroit, and is listed among the session's messages
+([details](details.md#components)) under that name. The session is told to take
+it up as work, within what it may already do, and that it is not your own
+word: it approves nothing and answers nothing that waits on you.
+
+A request sent while the session works, starts or waits on you is handed over
+once it can be. One to a session that has ended is refused, and so is one
+longer than 64 KiB. Run in a session Adroit started, `send` is refused: a
+session tells another what it should know with a message.
+
+## Identity
+
+The name a program gives is its own word. The identity a session acts as comes from its environment. It keeps sessions
 from being mistaken for one another; it does not protect against programs that
 run as the same user and set out to impersonate a session.

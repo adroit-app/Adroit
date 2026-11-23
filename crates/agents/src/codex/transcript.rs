@@ -147,88 +147,101 @@ impl Follow for Transcript {
         let timestamp = &record["timestamp"];
         let payload = &record["payload"];
         match record["type"].as_str() {
-            Some("response_item") => match payload["type"].as_str() {
-                Some("message") => {
-                    let Some(role @ ("assistant" | "user")) = payload["role"].as_str() else {
-                        return;
-                    };
-                    if let Some(parts) = payload["content"].as_array() {
-                        let parts: Vec<_> = parts
-                            .iter()
-                            .filter_map(|p| match p["type"].as_str() {
-                                Some("input_text" | "output_text") => p["text"]
-                                    .as_str()
-                                    .map(|text| json!({"type":"text", "text":text})),
-                                _ => None,
-                            })
-                            .collect();
-                        self.feed(timestamp, role, json!(parts));
-                    }
+            Some("response_item") => {
+                if matches!(
+                    payload["type"].as_str(),
+                    Some(
+                        "function_call"
+                            | "custom_tool_call"
+                            | "web_search_call"
+                            | "local_shell_call"
+                    )
+                ) {
+                    self.found.ran();
                 }
-                Some("function_call")
-                    if payload["name"]
-                        .as_str()
-                        .is_some_and(|n| n == "view_image" || n == "functions.view_image") =>
-                {
-                    if let Some(args) = payload["arguments"]
-                        .as_str()
-                        .and_then(|s| serde_json::from_str::<Value>(s).ok())
-                        && let Some(path) = args["path"].as_str()
-                    {
-                        self.file(timestamp, path, false, &self.cwd.clone());
-                    }
-                }
-                Some("function_call") => {
-                    let name = payload["name"].as_str().unwrap_or_default();
-                    // Shell and filesystem results contain file contents, whose
-                    // addresses are not part of the conversation's links.
-                    if matches!(
-                        name.rsplit('.').next().unwrap_or(name),
-                        "exec"
-                            | "exec_command"
-                            | "shell"
-                            | "shell_command"
-                            | "write_stdin"
-                            | "apply_patch"
-                            | "read_file"
-                            | "write_file"
-                            | "edit_file"
-                            | "grep"
-                            | "list_directory"
-                            | "search_files"
-                    ) {
-                        return;
-                    }
-                    if let Some(input) = payload["arguments"]
-                        .as_str()
-                        .and_then(|s| serde_json::from_str::<Value>(s).ok())
-                    {
-                        let id = &payload["call_id"];
-                        self.feed(
-                            timestamp,
-                            "assistant",
-                            json!([{"type":"tool_use", "id":id,
-                            "name":name, "input":input}]),
-                        );
-                        if let Some(id) = id.as_str() {
-                            self.results.insert(id.into());
+                match payload["type"].as_str() {
+                    Some("message") => {
+                        let Some(role @ ("assistant" | "user")) = payload["role"].as_str() else {
+                            return;
+                        };
+                        if let Some(parts) = payload["content"].as_array() {
+                            let parts: Vec<_> = parts
+                                .iter()
+                                .filter_map(|p| match p["type"].as_str() {
+                                    Some("input_text" | "output_text") => p["text"]
+                                        .as_str()
+                                        .map(|text| json!({"type":"text", "text":text})),
+                                    _ => None,
+                                })
+                                .collect();
+                            self.feed(timestamp, role, json!(parts));
                         }
                     }
-                }
-                Some("function_call_output") => {
-                    if let Some(id) = payload["call_id"].as_str()
-                        && self.results.remove(id)
+                    Some("function_call")
+                        if payload["name"]
+                            .as_str()
+                            .is_some_and(|n| n == "view_image" || n == "functions.view_image") =>
                     {
-                        self.feed(
-                            timestamp,
-                            "user",
-                            json!([{"type":"tool_result", "tool_use_id":id,
-                            "content":payload["output"]}]),
-                        );
+                        if let Some(args) = payload["arguments"]
+                            .as_str()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                            && let Some(path) = args["path"].as_str()
+                        {
+                            self.file(timestamp, path, false, &self.cwd.clone());
+                        }
                     }
+                    Some("function_call") => {
+                        let name = payload["name"].as_str().unwrap_or_default();
+                        // Shell and filesystem results contain file contents, whose
+                        // addresses are not part of the conversation's links.
+                        if matches!(
+                            name.rsplit('.').next().unwrap_or(name),
+                            "exec"
+                                | "exec_command"
+                                | "shell"
+                                | "shell_command"
+                                | "write_stdin"
+                                | "apply_patch"
+                                | "read_file"
+                                | "write_file"
+                                | "edit_file"
+                                | "grep"
+                                | "list_directory"
+                                | "search_files"
+                        ) {
+                            return;
+                        }
+                        if let Some(input) = payload["arguments"]
+                            .as_str()
+                            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                        {
+                            let id = &payload["call_id"];
+                            self.feed(
+                                timestamp,
+                                "assistant",
+                                json!([{"type":"tool_use", "id":id,
+                            "name":name, "input":input}]),
+                            );
+                            if let Some(id) = id.as_str() {
+                                self.results.insert(id.into());
+                            }
+                        }
+                    }
+                    Some("function_call_output") => {
+                        if let Some(id) = payload["call_id"].as_str()
+                            && self.results.remove(id)
+                        {
+                            self.feed(
+                                timestamp,
+                                "user",
+                                json!([{"type":"tool_result", "tool_use_id":id,
+                            "content":payload["output"]}]),
+                            );
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             Some("event_msg") => {
                 let event = if payload["type"] == "item_completed" {
                     &payload["item"]
@@ -294,6 +307,10 @@ impl ConversationReader for Transcript {
     fn stats(&self) -> adroit_model::ConversationStats {
         self.metrics.stats()
     }
+    fn turns(&self) -> Vec<crate::links::Turn> {
+        self.found.turns()
+    }
+
     fn read(&mut self) -> Links {
         self.refresh();
         self.found.links()
@@ -361,6 +378,34 @@ mod tests {
         assert_eq!(links.files.len(), 1);
         assert_eq!(links.files[0].line, Some(3));
         assert_eq!(links.files[0].kind, Kind::File(Touch::Mentioned));
+    }
+
+    #[test]
+    fn a_reply_is_what_was_said_after_the_commands_run_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut reader = rollout(
+            dir.path(),
+            &[
+                message("user", "fix it"),
+                message("assistant", "I look around."),
+                record(
+                    "response_item",
+                    json!({"type":"function_call", "name":"exec_command", "call_id":"a",
+                        "arguments":"{}"}),
+                ),
+                message("assistant", "I change it."),
+                record(
+                    "response_item",
+                    json!({"type":"custom_tool_call", "name":"apply_patch", "call_id":"b",
+                        "input":""}),
+                ),
+                message("assistant", "Fixed."),
+            ],
+        );
+        reader.read();
+        let turns = reader.turns();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].reply.as_deref(), Some("Fixed."));
     }
 
     #[test]

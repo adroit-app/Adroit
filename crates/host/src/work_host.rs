@@ -273,7 +273,9 @@ pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
 async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
     if crate::remote::active() {
         let waits = match &ask {
-            Ask::Run { args, .. } => crate::terminals::waits_for(args),
+            Ask::Run { args, .. } => {
+                crate::terminals::waits_for(args).or_else(|| crate::outside::waits_for(args))
+            }
             _ => None,
         };
         let limit = Duration::from_secs(30) + waits.unwrap_or_default();

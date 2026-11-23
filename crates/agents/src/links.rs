@@ -2,7 +2,7 @@
 //! from its transcript in the shape Claude Code writes one: every agent's
 //! reader puts its own records to the collector in that shape.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
@@ -43,6 +43,12 @@ pub struct Collector {
     peers: HashMap<String, (u64, Peer)>,
     /// What was said to the session, oldest first.
     prompts: Vec<Prompt>,
+    /// The latest turns, oldest first, and how many there were in all.
+    turns: VecDeque<Turn>,
+    turned: u64,
+    /// Whether what is said next goes on with the reply said so far, as
+    /// nothing was run since.
+    replying: bool,
 }
 
 impl Collector {
@@ -60,6 +66,9 @@ impl Collector {
             reading: HashSet::new(),
             peers: HashMap::new(),
             prompts: Vec::new(),
+            turns: VecDeque::new(),
+            turned: 0,
+            replying: false,
         }
     }
 
@@ -99,6 +108,7 @@ impl Collector {
         {
             self.peer(name, false);
         }
+        self.turn(assistant, v);
         // Text Claude Code put in the user's turn, as a skill's or a
         // command's, is not what was said.
         if v["isMeta"].as_bool() == Some(true) {
@@ -170,28 +180,82 @@ impl Collector {
         out
     }
 
-    /// What the user said in a turn of `content`, kept as a prompt; a turn
-    /// of tool results alone, or of what a command printed, says nothing.
-    fn prompted(&mut self, content: &Value) {
-        let said: Vec<&str> = match content {
-            Value::String(s) => vec![s.as_str()],
-            Value::Array(items) => items
-                .iter()
-                .filter(|i| i["type"].as_str() == Some("text"))
-                .filter_map(|i| i["text"].as_str())
-                .collect(),
-            _ => Vec::new(),
-        };
-        let text = without_reminders(&said.join("\n"));
-        let text = text.trim();
-        // Claude Code writes the commands typed, and what they printed, in
-        // the user's turn, wrapped in tags of its own.
-        if text.is_empty() || text.starts_with("<command-") || text.starts_with("<local-command") {
+    /// Take in that a tool was run, where nothing else of it is brought up.
+    pub(crate) fn ran(&mut self) {
+        self.replying = false;
+    }
+
+    /// The latest turns, oldest first.
+    pub fn turns(&self) -> Vec<Turn> {
+        self.turns.iter().cloned().collect()
+    }
+
+    /// Take in what the line `v` adds to the turns. A subagent's line is no
+    /// part of them.
+    fn turn(&mut self, assistant: bool, v: &Value) {
+        if v["isSidechain"].as_bool() == Some(true) {
             return;
         }
+        let content = &v["message"]["content"];
+        if !assistant {
+            let channel = v["origin"]["kind"].as_str() == Some("channel");
+            let began = match channel || v["isMeta"].as_bool() != Some(true) {
+                true => prompt_of(content).filter(|said| !put_there_by_codex(said)),
+                false => None,
+            };
+            if let Some(prompt) = began {
+                let prompt = match channel {
+                    true => without_channel(&prompt).to_string(),
+                    false => prompt,
+                };
+                self.turned += 1;
+                self.turns.push_back(Turn {
+                    turn: self.turned,
+                    prompt,
+                    reply: None,
+                    began_ms: self.now_ms,
+                    last_ms: self.now_ms,
+                });
+                if self.turns.len() > TURNS {
+                    self.turns.pop_front();
+                }
+            }
+            self.replying = false;
+        }
+        let Some(turn) = self.turns.back_mut() else {
+            return;
+        };
+        turn.last_ms = self.now_ms.or(turn.last_ms);
+        if !assistant {
+            return;
+        }
+        for item in content.as_array().into_iter().flatten() {
+            match item["type"].as_str() {
+                Some("text") => {
+                    let said = item["text"].as_str().unwrap_or_default().trim();
+                    if said.is_empty() {
+                        continue;
+                    }
+                    turn.reply = Some(match turn.reply.take().filter(|_| self.replying) {
+                        Some(before) => format!("{before}\n\n{said}"),
+                        None => said.to_string(),
+                    });
+                    self.replying = true;
+                }
+                Some("tool_use") => self.replying = false,
+                _ => {}
+            }
+        }
+    }
+
+    /// What the user said in a turn of `content`, kept as a prompt.
+    fn prompted(&mut self, content: &Value) {
+        let Some(text) = prompt_of(content) else {
+            return;
+        };
         self.prompts.push(Prompt {
             turn: self.prompts.len() as u64 + 1,
-            text: text.to_string(),
+            text,
             at_ms: self.now_ms,
         });
     }

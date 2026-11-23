@@ -27,6 +27,7 @@ pub mod kept;
 mod making;
 mod mutation;
 mod neovim;
+mod outside;
 pub mod pasted;
 pub mod paths;
 pub mod pictures;

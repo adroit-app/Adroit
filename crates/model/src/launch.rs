@@ -17,6 +17,11 @@ macro_rules! ids {
             pub fn new() -> Self {
                 Self(Uuid::new_v4())
             }
+
+            /// The id nothing is given.
+            pub fn nobody() -> Self {
+                Self(Uuid::nil())
+            }
         }
 
         impl Default for $name {

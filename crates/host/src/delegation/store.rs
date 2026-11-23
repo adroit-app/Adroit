@@ -10,10 +10,10 @@ use adroit_model::timeline::Entry;
 use adroit_model::{Agent, AgentPermissions, SessionCode, TerminalSession};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{Code, Error, Message, MessageId, Readiness, Result, Session, SessionId};
+use super::{Code, Error, Message, MessageId, Readiness, Result, Sender, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -107,7 +107,16 @@ const MIGRATIONS: &[&str] = &[
          ops TEXT NOT NULL
      );
      CREATE INDEX timeline_by_code ON timeline(code);",
+    // A program outside Adroit that asks a session for work is kept by the
+    // name it gave itself; every message from before is a session's.
+    "ALTER TABLE messages ADD COLUMN outside TEXT;",
 ];
+
+/// The longest name a program outside Adroit goes by, in characters.
+const OUTSIDE_NAME: usize = 64;
+/// The longest request a program outside Adroit makes, in bytes: escaped and
+/// enveloped, it still fits the frame it is handed over in.
+const OUTSIDE_BODY: usize = 64 * 1024;
 
 /// What the window or the work host knows of a session before its program starts.
 #[derive(Debug, Clone)]
@@ -519,6 +528,34 @@ impl Store {
         if from == to {
             return Err(Error::new(Code::Invalid, "a session cannot message itself"));
         }
+        self.sent(&Sender::Session(from), to, body)
+    }
+
+    /// Keeps `body` for `to` as asked by the program outside Adroit that
+    /// calls itself `from`.
+    pub fn ask_from_outside(&mut self, from: &str, to: SessionId, body: &str) -> Result<MessageId> {
+        let from = from.trim();
+        if from.is_empty()
+            || from.chars().count() > OUTSIDE_NAME
+            || from.chars().any(char::is_control)
+        {
+            return Err(Error::new(
+                Code::Invalid,
+                format!("the sender's name is one line of 1 to {OUTSIDE_NAME} characters"),
+            ));
+        }
+        if body.len() > OUTSIDE_BODY {
+            return Err(Error::new(
+                Code::Invalid,
+                format!(
+                    "a request holds at most {OUTSIDE_BODY} bytes; refer to larger material by its path"
+                ),
+            ));
+        }
+        self.sent(&Sender::Outside(from.to_owned()), to, body)
+    }
+
+    fn sent(&mut self, from: &Sender, to: SessionId, body: &str) -> Result<MessageId> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -720,11 +757,12 @@ fn known(connection: &Connection, id: SessionId) -> Result<Session> {
     session(connection, id)?.ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))
 }
 
-const MESSAGE_COLUMNS: &str = "id, sender, recipient, body, sent_ms, delivered";
+const MESSAGE_COLUMNS: &str = "id, sender, outside, recipient, body, sent_ms, delivered";
 
 fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     let id: String = row.get("id")?;
-    let sender: String = row.get("sender")?;
+    let sender: Option<String> = row.get("sender")?;
+    let outside: Option<String> = row.get("outside")?;
     let recipient: String = row.get("recipient")?;
     let sent_ms: i64 = row.get("sent_ms")?;
     let body = row.get("body")?;
@@ -732,7 +770,11 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     Ok((|| {
         Ok(Message {
             id: id.parse().map_err(Error::storage)?,
-            sender: sender.parse().map_err(Error::storage)?,
+            sender: match (outside, sender) {
+                (Some(name), _) => Sender::Outside(name),
+                (None, Some(id)) => Sender::Session(id.parse().map_err(Error::storage)?),
+                (None, None) => return Err(Error::storage("a message names no sender")),
+            },
             recipient: recipient.parse().map_err(Error::storage)?,
             body,
             sent_ms: sent_ms as u64,
@@ -743,7 +785,7 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
 
 fn insert(
     connection: &Connection,
-    sender: SessionId,
+    sender: &Sender,
     recipient: SessionId,
     body: &str,
 ) -> Result<MessageId> {
@@ -751,11 +793,16 @@ fn insert(
         return Err(Error::new(Code::Invalid, "a message needs a body"));
     }
     let id = MessageId::new();
+    let (session, outside) = match sender {
+        Sender::Session(id) => (Some(id), None),
+        Sender::Outside(name) => (None, Some(name)),
+    };
     connection.execute(
-        "INSERT INTO messages (id, sender, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, 'message', ?4, ?5)",
+        "INSERT INTO messages (id, sender, outside, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, 'message', ?5, ?6)",
         params![
             id.to_string(),
-            sender.to_string(),
+            session.map(|id| id.to_string()),
+            outside,
             recipient.to_string(),
             body,
             super::now_ms() as i64,
@@ -1021,6 +1068,37 @@ mod tests {
         store.end(b).unwrap();
 
         assert_eq!(store.send(a, b, "hello").unwrap_err().code, Code::Refused);
+    }
+
+    #[test]
+    fn a_request_from_outside_waits_for_its_recipient_under_the_name_it_gave_itself() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "worker");
+
+        store.ask_from_outside(" Famulen ", id, "go on").unwrap();
+
+        let waiting = store.next_undelivered(id).unwrap().unwrap();
+        assert_eq!(waiting.sender, Sender::Outside("Famulen".into()));
+        assert_eq!(waiting.body, "go on");
+    }
+
+    #[test]
+    fn a_request_from_outside_is_refused_without_a_one_line_name_a_body_or_a_running_recipient() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "worker");
+        let long = "n".repeat(OUTSIDE_NAME + 1);
+        for name in ["", "  ", "a\nb", "a\u{1b}[0m", &long] {
+            let refused = store.ask_from_outside(name, id, "go on").unwrap_err();
+            assert_eq!(refused.code, Code::Invalid, "{name:?}");
+        }
+        for body in [" ".to_string(), "x".repeat(OUTSIDE_BODY + 1)] {
+            let refused = store.ask_from_outside("Famulen", id, &body).unwrap_err();
+            assert_eq!(refused.code, Code::Invalid);
+        }
+        store.end(id).unwrap();
+        let refused = store.ask_from_outside("Famulen", id, "go on").unwrap_err();
+        assert_eq!(refused.code, Code::Refused);
+        assert!(store.messages_of(id).unwrap().is_empty());
     }
 
     #[test]
@@ -1317,7 +1395,10 @@ PRAGMA user_version = 1;
         store.ensure_current_schema().unwrap();
         let kept = store.messages_of(opener).unwrap();
         assert_eq!(kept.len(), 1);
-        assert_eq!((kept[0].sender, kept[0].body.as_str()), (opened, "done"));
+        assert_eq!(
+            (&kept[0].sender, kept[0].body.as_str()),
+            (&Sender::Session(opened), "done")
+        );
         assert_eq!(store.session(opened).unwrap().unwrap().parent, Some(opener));
     }
     #[test]
@@ -1395,7 +1476,7 @@ PRAGMA user_version = 1;
                 .connection
                 .execute_batch(
                     "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
-                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; PRAGMA user_version = 5;",
+                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -1652,7 +1733,7 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "DROP TABLE timeline; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                    "DROP TABLE timeline; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
                 )
                 .unwrap();
             (old, by, other)

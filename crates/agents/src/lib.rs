@@ -271,6 +271,15 @@ pub trait ConversationReader: Send {
     fn stats(&self) -> adroit_model::ConversationStats {
         adroit_model::ConversationStats::default()
     }
+    /// The latest turns as of the last read, oldest first.
+    fn turns(&self) -> Vec<crate::links::Turn> {
+        Vec::new()
+    }
+    /// Whether what was asked of the agent's program is still on its way, so
+    /// a later read tells more.
+    fn reading(&self) -> bool {
+        false
+    }
 }
 
 /// Whether work a session started still runs behind it, read anew on each

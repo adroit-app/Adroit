@@ -241,7 +241,7 @@ impl Ask {
             Self::LoginStanding { after, .. } => after.is_some(),
             Self::Cloned { .. } => true,
             Self::Run { args, .. } => {
-                matches!(args.as_slice(), [terminal, wait, ..] if terminal == "terminal" && wait == "wait")
+                matches!(args.as_slice(), [on, wait, ..] if matches!(on.as_str(), "terminal" | "session") && wait == "wait")
             }
             _ => false,
         }
@@ -351,6 +351,12 @@ mod tests {
             }
             .waits()
         );
+    }
+
+    #[test]
+    fn waiting_for_a_session_ends_with_the_one_who_asked() {
+        assert!(run(&["session", "wait", "wwdc"]).waits());
+        assert!(!run(&["session", "show", "wwdc"]).waits());
     }
 
     #[test]

@@ -49,6 +49,7 @@ pub(super) struct Transcript {
     exported: Option<Asked>,
     running: Option<Running>,
     links: Links,
+    turns: Vec<crate::links::Turn>,
     stats: ConversationStats,
 }
 
@@ -69,6 +70,7 @@ impl Transcript {
             exported: None,
             running: None,
             links: Links::default(),
+            turns: Vec::new(),
             stats: ConversationStats::default(),
         }
     }
@@ -170,6 +172,7 @@ impl Transcript {
             }
         }
         self.links = found.links();
+        self.turns = found.turns();
         self.stats = stats;
     }
 
@@ -256,6 +259,14 @@ fn iso(ms: u64) -> String {
 impl ConversationReader for Transcript {
     fn stats(&self) -> ConversationStats {
         self.stats.clone()
+    }
+
+    fn turns(&self) -> Vec<crate::links::Turn> {
+        self.turns.clone()
+    }
+
+    fn reading(&self) -> bool {
+        self.running.is_some()
     }
 
     fn read(&mut self) -> Links {

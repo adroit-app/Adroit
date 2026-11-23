@@ -76,10 +76,28 @@ pub struct Session {
     pub code: adroit_model::SessionCode,
 }
 
+/// Who sent a message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Sender {
+    Session(SessionId),
+    /// A program outside Adroit, by the name it gave itself, which asks the
+    /// session for work on the user's behalf.
+    Outside(String),
+}
+
+impl Sender {
+    pub fn session(&self) -> Option<SessionId> {
+        match self {
+            Self::Session(id) => Some(*id),
+            Self::Outside(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub id: MessageId,
-    pub sender: SessionId,
+    pub sender: Sender,
     pub recipient: SessionId,
     pub body: String,
     pub sent_ms: u64,

@@ -47,6 +47,50 @@ pub(super) fn head(text: &str) -> &str {
     &text[..end]
 }
 
+/// What was said in a user's turn of `content`; none for a turn of tool
+/// results alone, or of what a command printed.
+pub(super) fn prompt_of(content: &Value) -> Option<String> {
+    let said: Vec<&str> = match content {
+        Value::String(s) => vec![s.as_str()],
+        Value::Array(items) => items
+            .iter()
+            .filter(|i| i["type"].as_str() == Some("text"))
+            .filter_map(|i| i["text"].as_str())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let text = without_reminders(&said.join("\n"));
+    let text = text.trim();
+    // Claude Code writes the commands typed, and what they printed, in
+    // the user's turn, wrapped in tags of its own.
+    let said =
+        !text.is_empty() && !text.starts_with("<command-") && !text.starts_with("<local-command");
+    said.then(|| text.to_string())
+}
+
+/// Whether `said` is what Codex puts in the user's turn of its own accord,
+/// before the first prompt.
+pub(super) fn put_there_by_codex(said: &str) -> bool {
+    [
+        "# AGENTS.md instructions",
+        "<environment_context>",
+        "<user_instructions>",
+    ]
+    .iter()
+    .any(|start| said.starts_with(start))
+}
+
+/// What a message Claude Code took in from a channel says, without the tag
+/// it wraps it in.
+pub(super) fn without_channel(text: &str) -> &str {
+    text.strip_prefix("<channel ")
+        .and_then(|rest| rest.split_once(">\n"))
+        .map_or(text, |(_, said)| said)
+        .trim_end()
+        .trim_end_matches("</channel>")
+        .trim_end()
+}
+
 pub(super) fn without_reminders(text: &str) -> String {
     const OPEN: &str = "<system-reminder>";
     const CLOSE: &str = "</system-reminder>";

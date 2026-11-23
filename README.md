@@ -185,6 +185,18 @@ To start a Codex session from a terminal:
 adroit session start --agent codex --dir ~/src/api -- "Review the API"
 ```
 
+A program of yours can follow what it started and ask for more:
+
+```sh
+adroit session list --json
+adroit session wait <session> --timeout 60
+adroit session show <session> --json
+adroit session send <session> --from my-assistant -- "Now add a test"
+```
+
+It cannot answer what a session asks you. See
+[from a program outside Adroit](docs/spec/opening-sessions.md#from-a-program-outside-adroit).
+
 To return to a conversation an agent kept, press `Mod+o` (`O` in the tree).
 The list includes conversations from the logins your profiles use; choosing one
 resumes it in that same login. See [sessions](docs/spec/sessions.md) and

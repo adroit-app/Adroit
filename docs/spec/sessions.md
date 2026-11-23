@@ -323,8 +323,9 @@ interface, are not listed.
 ## Opened by a session
 
 A session can open sessions beside it and talk with other sessions, and
-`adroit session start` starts one from a terminal
-([sessions that open sessions](opening-sessions.md)).
+`adroit session start` starts one from a terminal; a program outside Adroit
+can read sessions and ask them to go on with the other `adroit session`
+commands ([sessions that open sessions](opening-sessions.md)).
 
 ## Keeping the machine awake
 
