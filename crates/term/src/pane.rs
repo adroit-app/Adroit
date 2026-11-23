@@ -178,6 +178,10 @@ pub(crate) fn dark(palette: &Palette) -> bool {
     lum(palette.background) < lum(palette.foreground)
 }
 
+/// How long an attach waits for the daemon: longer than a forward takes to
+/// give up reaching a work machine, so that is what is reported when it does.
+const ATTACH: std::time::Duration = std::time::Duration::from_secs(20);
+
 impl Pane {
     /// Attach to session `id` at `size`, drawn in `palette`. `waker` runs
     /// on another task whenever the screen changes or the session ends.
@@ -188,8 +192,13 @@ impl Pane {
         palette: &Palette,
         waker: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self> {
-        let mut conn = daemon.window().await?;
-        let info = conn.attach(id, AttachIntent::Deliberate).await?;
+        let (conn, info) = tokio::time::timeout(ATTACH, async {
+            let mut conn = daemon.window().await?;
+            let info = conn.attach(id, AttachIntent::Deliberate).await?;
+            Ok::<_, Error>((conn, info))
+        })
+        .await
+        .map_err(|_| Error::Unanswered)??;
         Ok(Self::over(
             conn,
             &info,

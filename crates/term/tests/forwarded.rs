@@ -142,6 +142,28 @@ async fn forwarded_endpoints_refuse_local_lifecycle_before_connecting_or_startin
 }
 
 #[tokio::test]
+async fn an_attach_the_far_side_never_answers_is_given_up_so_it_can_be_tried_again() {
+    let dir = socket_dir();
+    let socket = dir.path().join("silent.sock");
+    let listener = adroit_sys::local::Listener::bind(&socket).unwrap();
+    let accepting = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok(stream) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    let silent = Daemon::forwarded(&socket);
+    let attached = tokio::time::timeout(
+        Duration::from_secs(40),
+        Pane::attach(&silent, 1, Size::new(40, 6), &Palette::default(), || {}),
+    )
+    .await
+    .expect("given up");
+    assert!(attached.is_err());
+    accepting.abort();
+}
+
+#[tokio::test]
 async fn the_local_process_serving_a_forward_is_never_reported_as_the_daemon() {
     let dir = socket_dir();
     let socket = dir.path().join("forward.sock");

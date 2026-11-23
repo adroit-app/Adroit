@@ -27,6 +27,8 @@ enum Sending {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("the terminal host did not answer in time")]
+    Unanswered,
     #[error("terminal input is disabled for this connection")]
     InputDisabled,
     #[error("{0}")]
