@@ -304,6 +304,22 @@ pub(super) fn open(
     (link, events, first)
 }
 
+/// How many failures in a row show an environment as offline.
+const OFFLINE_AFTER: u32 = 5;
+
+/// How long after `failures` in a row the connection is tried again by
+/// itself; never after a `fatal` one, which only the user can settle.
+fn retry_after(failures: u32, fatal: bool) -> Option<Duration> {
+    if fatal {
+        return None;
+    }
+    Some(if failures < OFFLINE_AFTER {
+        Duration::from_millis(500 * (1u64 << failures.min(4)))
+    } else {
+        Duration::from_secs(30)
+    })
+}
+
 struct Keep {
     remote: Remote,
     scope: Option<String>,
@@ -393,14 +409,17 @@ impl Keep {
             self.shared.ready.store(false, Ordering::Release);
             *lock(&self.shared.work) = None;
             self.shared.refresh_changes();
-            self.phase(
-                if self.expected.is_some() {
-                    Phase::Reconnecting
-                } else {
-                    Phase::Connecting
-                },
-                None,
-            );
+            // One that keeps failing stays shown offline while it is tried.
+            if failures < OFFLINE_AFTER {
+                self.phase(
+                    if self.expected.is_some() {
+                        Phase::Reconnecting
+                    } else {
+                        Phase::Connecting
+                    },
+                    None,
+                );
+            }
             let result = self.connect().await;
             match result {
                 Ok(connection) => {
@@ -427,25 +446,23 @@ impl Keep {
                     || p.contains("refused this client's key")
                     || p.contains("is not the paired work machine")
             });
-            if fatal || failures >= 5 {
+            if fatal || failures >= OFFLINE_AFTER {
                 let problem = lock(&self.shared.status).problem.clone();
                 self.phase(Phase::Error, problem);
-                loop {
-                    tokio::select! {
-                        _ = self.shared.retry.notified() => { failures = 0; break; },
-                        request = self.requests.recv() => match request { Some(request) => self.offline(request, &mut shown), None => return },
-                    }
+            }
+            let wait = retry_after(failures, fatal);
+            let delay = async {
+                match wait {
+                    Some(wait) => tokio::time::sleep(wait).await,
+                    None => std::future::pending().await,
                 }
-            } else {
-                let delay =
-                    tokio::time::sleep(Duration::from_millis(500 * (1u64 << failures.min(4))));
-                tokio::pin!(delay);
-                loop {
-                    tokio::select! {
-                        _ = &mut delay => break,
-                        _ = self.shared.retry.notified() => break,
-                        request = self.requests.recv() => match request { Some(request) => self.offline(request, &mut shown), None => return },
-                    }
+            };
+            tokio::pin!(delay);
+            loop {
+                tokio::select! {
+                    _ = &mut delay => break,
+                    _ = self.shared.retry.notified() => { failures = 0; break; },
+                    request = self.requests.recv() => match request { Some(request) => self.offline(request, &mut shown), None => return },
                 }
             }
         }
@@ -697,6 +714,16 @@ mod tests {
         );
         assert!(matches!(answered.await.unwrap(), Answer::Failed { .. }));
         assert!(lock(&waiting).is_empty());
+    }
+
+    #[test]
+    fn a_connection_that_keeps_failing_is_tried_again_unless_trying_cannot_help() {
+        let waits: Vec<_> = (1..=OFFLINE_AFTER + 100)
+            .map(|failures| retry_after(failures, false).expect("tried again"))
+            .collect();
+        assert!(waits.is_sorted());
+        assert_eq!(*waits.last().unwrap(), Duration::from_secs(30));
+        assert_eq!(retry_after(1, true), None);
     }
 
     #[test]
