@@ -87,7 +87,7 @@ impl Gateway {
             let Ok(slot) = slots.clone().try_acquire_owned() else {
                 continue;
             };
-            let _ = stream.set_nodelay(true);
+            let _ = tuned(&stream);
             let gateway = self.clone();
             tokio::spawn(async move {
                 let _ = gateway.serve(stream).await;
@@ -188,6 +188,22 @@ impl Gateway {
         }
         Ok(())
     }
+}
+
+/// How long a connection stays quiet before the machine at its other end is
+/// asked whether it is still there, and how long between asking again.
+const QUIET: Duration = Duration::from_secs(15);
+const ASK_AGAIN: Duration = Duration::from_secs(5);
+
+/// Sends what is written at once, and ends a connection whose other machine
+/// went without closing it, as when it slept or changed networks: kept, it
+/// would look connected forever and hold its slot at the gateway.
+fn tuned(stream: &TcpStream) -> std::io::Result<()> {
+    stream.set_nodelay(true)?;
+    let asked = socket2::TcpKeepalive::new()
+        .with_time(QUIET)
+        .with_interval(ASK_AGAIN);
+    socket2::SockRef::from(stream).set_tcp_keepalive(&asked)
 }
 
 /// Copies the work protocol's lines from a client to the work host until the
@@ -300,7 +316,7 @@ impl Remote {
                 | std::io::ErrorKind::TimedOut => unreachable(),
                 _ => Error::Io(error),
             })?;
-        let _ = tcp.set_nodelay(true);
+        let _ = tuned(&tcp);
         tokio::time::timeout(HANDSHAKE, async {
             let mut stream = crate::connect(config, tcp).await?;
             stream.write_all(&[channel as u8]).await?;
@@ -459,6 +475,24 @@ mod tests {
             Ok(Ok(_)) => Some(line),
             Err(_) => panic!("no answer"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_connection_to_a_machine_that_went_without_closing_it_is_found_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (stream, _) = tokio::join!(TcpStream::connect(address), listener.accept());
+        let stream = stream.unwrap();
+        tuned(&stream).unwrap();
+        assert!(stream.nodelay().unwrap());
+        assert!(socket2::SockRef::from(&stream).keepalive().unwrap());
+        #[cfg(unix)]
+        assert_eq!(
+            socket2::SockRef::from(&stream)
+                .tcp_keepalive_time()
+                .unwrap(),
+            QUIET
+        );
     }
 
     #[tokio::test]
