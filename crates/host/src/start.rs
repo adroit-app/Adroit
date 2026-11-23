@@ -8,10 +8,11 @@ use adroit_model::time::now_ms;
 use adroit_model::{AgentPermissions, CustomPermissions};
 use adroit_term::Daemon;
 
+use crate::delegation::protocol::Started;
 use crate::scratch;
 use crate::starting;
 
-const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--background] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [-- <prompt>]";
+const USAGE: &str = "usage: adroit session start [--dir <path>] [--worktree [--base <rev>]] [--name <name>] [--background] [--permissions <default|read_only> | --permissions-file <path>] [--agent <claude|codex|pi|opencode>] [--profile <id>] [--model <model>] [--json] [-- <prompt>]";
 
 /// What `adroit session start` was asked for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -27,6 +28,8 @@ struct Asked {
     model: Option<String>,
     /// Only listed, never opened in a window.
     background: bool,
+    /// What was started is printed as JSON rather than its name alone.
+    json: bool,
     /// `None` when the prompt is to be read from standard input.
     prompt: Option<String>,
 }
@@ -42,6 +45,7 @@ fn parse(args: &[String]) -> Option<Asked> {
             "--base" => asked.base = Some(rest.next()?.clone()),
             "--name" => asked.name = Some(rest.next()?.clone()),
             "--background" => asked.background = true,
+            "--json" => asked.json = true,
             "--permissions" if !permissions_given => {
                 asked.permissions = match rest.next()?.as_str() {
                     "default" => AgentPermissions::Default,
@@ -73,6 +77,14 @@ fn parse(args: &[String]) -> Option<Asked> {
     (asked.worktree || asked.base.is_none()).then_some(asked)
 }
 
+/// What a start that gave `started` prints, as `json` asks.
+fn printed(started: &Started, json: bool) -> String {
+    match json {
+        true => serde_json::to_string(started).expect("a started session is serializable"),
+        false => started.name.clone(),
+    }
+}
+
 /// Starts the session `asked` for as the user's own, beside the sessions
 /// `listed`.
 async fn start(
@@ -82,7 +94,7 @@ async fn start(
     dir: PathBuf,
     prompt: &str,
     listed: &[adroit_term::Session],
-) -> Result<String, String> {
+) -> Result<Started, String> {
     // Refused before a worktree is made for it.
     let chosen = crate::programs::starting(settings, asked.agent, asked.profile.as_ref())?;
     let request = crate::execution::StartRequest {
@@ -110,7 +122,12 @@ async fn start(
     };
     starting::start(host, settings, None, place, request)
         .await
-        .map(|started| started.name)
+        .map(|started| Started {
+            id: started.recorded.id,
+            code: started.recorded.code,
+            name: started.name,
+            dir: started.dir,
+        })
         .map_err(|failure| failure.message)
 }
 
@@ -122,7 +139,7 @@ async fn start_as(
     asked: &Asked,
     dir: PathBuf,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<Started, String> {
     let command =
         crate::delegation::protocol::Command::StartSession(crate::delegation::protocol::Start {
             prompt: prompt.into(),
@@ -136,11 +153,9 @@ async fn start_as(
             name: asked.name.clone(),
             background: asked.background,
         });
-    let started: crate::delegation::protocol::Started =
-        crate::delegation::protocol::ask_for(root, credential, command, None)
-            .await
-            .map_err(|error| error.to_string())?;
-    Ok(started.name)
+    crate::delegation::protocol::ask_for(root, credential, command, None)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// `adroit session explain <rest>`: a screen kept in a file read here, since
@@ -178,8 +193,15 @@ pub fn cli(args: &[String]) -> i32 {
     {
         return explain_cli(args, rest);
     }
+    if crate::outside::takes(args) {
+        return crate::outside::cli(args, acting_as.is_some());
+    }
     let Some(asked) = asked(args) else {
-        eprintln!("{USAGE}\n{}", crate::explain::USAGE);
+        eprintln!(
+            "{USAGE}\n{}\n{}",
+            crate::explain::USAGE,
+            crate::outside::USAGE
+        );
         return 2;
     };
     let input = match &asked.prompt {
@@ -198,6 +220,7 @@ pub fn cli(args: &[String]) -> i32 {
         ask.extend(args.iter().cloned());
         return crate::work_host::run_command(ask, input);
     };
+    let json = asked.json;
     let started = (|| {
         let asked = prepared(asked, input, &std::env::current_dir()?)?;
         crate::cli::block_on(start_as(
@@ -210,8 +233,8 @@ pub fn cli(args: &[String]) -> i32 {
         .map_err(Failure::Run)
     })();
     match started {
-        Ok(name) => {
-            println!("{name}");
+        Ok(started) => {
+            println!("{}", printed(&started, json));
             0
         }
         Err(failure) => failure.told(),
@@ -327,6 +350,9 @@ pub(crate) async fn run(
     {
         return crate::explain::run(rest).await;
     }
+    if crate::outside::takes(args) {
+        return crate::outside::run(args, cwd, input).await;
+    }
     let Some(asked) = asked(args) else {
         return Output {
             wrote: Err(USAGE.into()),
@@ -363,8 +389,8 @@ pub(crate) async fn run(
     .await
     .map_err(Failure::Run);
     match started {
-        Ok(name) => Output {
-            wrote: Ok(name),
+        Ok(started) => Output {
+            wrote: Ok(printed(&started, prepared.asked.json)),
             code: 0,
             effects_possible: true,
         },
@@ -409,6 +435,7 @@ mod tests {
                 profile: None,
                 model: None,
                 background: false,
+                json: false,
                 prompt: Some("find why --it fails".into()),
             })
         );
@@ -449,6 +476,23 @@ mod tests {
         );
         assert_eq!(parse(&args(&["--profile", "Claude Work"])), None);
         assert_eq!(parse(&args(&["--profile"])), None);
+    }
+
+    #[test]
+    fn a_session_started_is_printed_by_its_name_or_whole_as_json() {
+        let started = Started {
+            id: adroit_model::SessionId::new(),
+            code: "k7f3".parse().unwrap(),
+            name: "fix".into(),
+            dir: "/repo".into(),
+        };
+        assert_eq!(printed(&started, false), "fix");
+        let told: serde_json::Value = serde_json::from_str(&printed(&started, true)).unwrap();
+        assert_eq!(
+            told,
+            serde_json::json!({"id": started.id, "code": "k7f3", "name": "fix", "dir": "/repo"})
+        );
+        assert!(parse(&args(&["--json", "--", "go"])).unwrap().json);
     }
 
     #[test]

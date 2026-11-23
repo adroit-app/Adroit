@@ -107,6 +107,24 @@ pub struct Prompt {
     pub at_ms: Option<u64>,
 }
 
+/// The most turns of a conversation kept: the latest.
+pub const TURNS: usize = 20;
+
+/// One turn of a conversation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Turn {
+    /// Which turn it was, counted from the conversation's first.
+    pub turn: u64,
+    /// What began it.
+    pub prompt: String,
+    /// What was said last in it, if anything yet.
+    pub reply: Option<String>,
+    /// When it began and when it was last written to, in milliseconds since
+    /// the Unix epoch, as the transcript tells.
+    pub began_ms: Option<u64>,
+    pub last_ms: Option<u64>,
+}
+
 impl Links {
     pub fn is_empty(&self) -> bool {
         self.artifacts.is_empty()

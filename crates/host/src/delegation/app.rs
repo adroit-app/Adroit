@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use adroit_model::{Agent, SessionId};
 
 use super::{
-    Message, Result,
+    Message, Result, Sender,
     launch::Delegation,
     store::{NewSession, Store},
 };
@@ -193,10 +193,10 @@ pub fn peers(
 ) -> Vec<adroit_agents::claude::links::Peer> {
     let mut out: Vec<adroit_agents::claude::links::Peer> = Vec::new();
     for message in messages {
-        let (other, sent) = if message.sender == record {
-            (message.recipient, true)
-        } else {
-            (message.sender, false)
+        let (other, sent) = match message.sender.session() {
+            Some(sender) if sender == record => (message.recipient, true),
+            Some(sender) => (sender, false),
+            None => continue,
         };
         let Some(name) = sessions
             .iter()
@@ -253,14 +253,17 @@ pub fn notes(
     messages
         .iter()
         .map(|message| {
-            let outgoing = message.sender == record;
+            let outgoing = message.sender.session() == Some(record);
             crate::details::Note {
                 id: message.id.to_string(),
                 outgoing,
                 other: if outgoing {
                     name(message.recipient)
                 } else {
-                    name(message.sender)
+                    match &message.sender {
+                        Sender::Session(id) => name(*id),
+                        Sender::Outside(name) => format!("{name} (outside Adroit)"),
+                    }
                 },
                 body: message.body.clone(),
                 sent_ms: message.sent_ms,
@@ -336,6 +339,20 @@ mod tests {
             .map(|n| (n.outgoing, n.other.as_str()))
             .collect();
         assert_eq!(listed, [(true, "api"), (false, "api")]);
+    }
+
+    #[test]
+    fn a_request_from_outside_is_listed_by_the_program_s_name_and_names_no_session_as_a_peer() {
+        let shown = session("fix");
+        let mut request = message(shown.id, shown.id);
+        request.sender = Sender::Outside("Famulen".into());
+        let all = [shown.clone()];
+        let listed = notes(shown.id, &all, std::slice::from_ref(&request));
+        assert_eq!(
+            (listed[0].outgoing, listed[0].other.as_str()),
+            (false, "Famulen (outside Adroit)")
+        );
+        assert!(peers(shown.id, &all, &[request]).is_empty());
     }
 
     #[tokio::test]

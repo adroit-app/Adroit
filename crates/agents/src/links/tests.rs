@@ -562,3 +562,83 @@ fn a_tool_that_is_not_a_file_tool_or_names_no_path_is_no_file_call() {
     assert_eq!(file_call("t1", "bash", Some("/w/a")), None);
     assert_eq!(file_call("t1", "read", None), None);
 }
+
+fn turns(lines: &[String]) -> Vec<Turn> {
+    let mut c = Collector::new("/w", "/home/me");
+    for line in lines {
+        c.feed(line, &|_| false);
+    }
+    c.turns()
+}
+
+/// What each of `turns` was asked and answered, oldest first.
+fn exchanged(turns: &[Turn]) -> Vec<(u64, &str, Option<&str>)> {
+    turns
+        .iter()
+        .map(|t| (t.turn, t.prompt.as_str(), t.reply.as_deref()))
+        .collect()
+}
+
+#[test]
+fn a_turn_s_reply_is_what_was_said_last_in_it_after_the_tools_it_ran() {
+    let got = turns(&[
+        user(json!("fix the login")),
+        said("I will look."),
+        tool("t1", "Bash", json!({"command": "ls"})),
+        result("t1", json!("a.rs")),
+        said("Fixed."),
+        said("It was a race."),
+        user(json!("now add a test")),
+        tool("t2", "Bash", json!({"command": "ls"})),
+    ]);
+    assert_eq!(
+        exchanged(&got),
+        [
+            (1, "fix the login", Some("Fixed.\n\nIt was a race.")),
+            (2, "now add a test", None),
+        ]
+    );
+}
+
+#[test]
+fn what_reaches_a_session_through_adroit_s_channel_begins_a_turn_and_is_no_prompt_of_the_user() {
+    let lines = [
+        user(json!("fix the login")),
+        said("Fixed."),
+        json!({"type": "user", "isMeta": true, "origin": {"kind": "channel", "server": "adroit"},
+            "message": {"content": "<channel source=\"adroit\" message_id=\"m\">\n[request] from Famulen\n\ngo on\n</channel>"}})
+        .to_string(),
+        said("Went on."),
+    ];
+    assert_eq!(
+        exchanged(&turns(&lines)),
+        [
+            (1, "fix the login", Some("Fixed.")),
+            (2, "[request] from Famulen\n\ngo on", Some("Went on.")),
+        ]
+    );
+    assert_eq!(read(&lines, &[]).prompts.len(), 1);
+}
+
+#[test]
+fn only_the_latest_turns_are_kept_each_by_its_place_in_the_conversation() {
+    let lines: Vec<String> = (0..TURNS + 2)
+        .map(|n| user(json!(format!("p{n}"))))
+        .collect();
+    let got = turns(&lines);
+    assert_eq!(got.len(), TURNS);
+    assert_eq!((got[0].turn, got[0].prompt.as_str()), (3, "p2"));
+}
+
+#[test]
+fn what_codex_puts_before_the_first_prompt_begins_no_turn() {
+    let got = turns(&[
+        user(
+            json!([{"type": "text", "text": "# AGENTS.md instructions for /w\n\n<INSTRUCTIONS>\n"}]),
+        ),
+        user(json!([{"type": "text", "text": "<environment_context>\n  <cwd>/w</cwd>"}])),
+        user(json!("fix the login")),
+        said("Fixed."),
+    ]);
+    assert_eq!(exchanged(&got), [(1, "fix the login", Some("Fixed."))]);
+}

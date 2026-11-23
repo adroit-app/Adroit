@@ -371,12 +371,28 @@ pub(crate) fn stalls_in(
 
 /// The session `asked` names as the work host sees it now.
 async fn of_session(asked: &str) -> Result<Explained, String> {
-    let daemon = crate::daemon::daemon();
-    let sessions = daemon.sessions().await.map_err(|e| e.to_string())?;
+    let sessions = crate::daemon::daemon()
+        .sessions()
+        .await
+        .map_err(|e| e.to_string())?;
     let native = named(&sessions, asked)?;
     let Some(crate::sessions::Kept::Agent(c)) = crate::sessions::read(native) else {
         return Err(format!("{asked} is no agent's session"));
     };
+    let records = crate::delegation::app::sessions(&crate::delegation::app::root())
+        .await
+        .map_err(|e| e.to_string())?;
+    of_native(native, &c, &records).await
+}
+
+/// The session `native`, read as `c`, as the work host sees it now, beside
+/// its `records`.
+pub(crate) async fn of_native(
+    native: &adroit_term::Session,
+    c: &adroit_model::Session,
+    records: &[crate::delegation::Session],
+) -> Result<Explained, String> {
+    let daemon = crate::daemon::daemon();
     let adapter = adroit_agents::adapter(c.agent);
     let screen = daemon.visible(native.id).await.map_err(|e| e.to_string())?;
     let reported = native
@@ -385,26 +401,21 @@ async fn of_session(asked: &str) -> Result<Explained, String> {
         .map(|s| State::reported(&s.state, s.kind.as_deref()));
     let read = reported.as_ref().is_none_or(sessions::reads_past);
     let subagent_running = match reported.as_ref().is_some_and(sessions::ended) {
-        true => crate::watch::behind::running(native.id, &c).await,
+        true => crate::watch::behind::running(native.id, c).await,
         false => false,
     };
-    let start = match c.delegation {
-        Some(id) => crate::delegation::app::sessions(&crate::delegation::app::root())
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|record| record.id == id)
-            .map(|record| Start {
-                recorded: record.readiness,
-                stalls_in: stalls_in(
-                    record.readiness,
-                    Duration::from_millis(
-                        adroit_model::time::now_ms().saturating_sub(record.started_ms),
-                    ),
+    let start = records
+        .iter()
+        .find(|record| Some(record.id) == c.delegation)
+        .map(|record| Start {
+            recorded: record.readiness,
+            stalls_in: stalls_in(
+                record.readiness,
+                Duration::from_millis(
+                    adroit_model::time::now_ms().saturating_sub(record.started_ms),
                 ),
-            }),
-        None => None,
-    };
+            ),
+        });
     Ok(Explained {
         session: Some(Named {
             name: c.name.clone(),

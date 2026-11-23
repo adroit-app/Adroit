@@ -232,6 +232,10 @@ pub struct Sent {
 pub struct Delivery {
     pub id: MessageId,
     pub from: SessionId,
+    /// The program outside Adroit that sent it, by the name it gave itself,
+    /// `from` then being no session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outside: Option<String>,
     /// The message as its recipient's agent reads it.
     pub content: String,
 }
@@ -416,6 +420,7 @@ mod tests {
             wire(Delivery {
                 id: message,
                 from: id,
+                outside: None,
                 content: "hi".into()
             }),
             json!({"id": message, "from": id, "content": "hi"})

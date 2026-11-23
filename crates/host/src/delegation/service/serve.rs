@@ -10,7 +10,7 @@ use tokio::io::BufReader;
 use super::Context;
 use super::commands::{close, listed, prompted, record_timeline, rename, start};
 use crate::delegation::{
-    Code, Error, Message, Result, Session,
+    Code, Error, Message, Result, Sender, Session,
     protocol::{self, Command, Request, Response, VERSION},
     store::Store,
 };
@@ -111,7 +111,13 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
             match next {
                 Some((message, sender)) => answer(protocol::Delivery {
                     id: message.id,
-                    from: message.sender,
+                    // Every bridge reads an id here, one running since before
+                    // requests came from outside too.
+                    from: message.sender.session().unwrap_or_else(SessionId::nobody),
+                    outside: match &message.sender {
+                        Sender::Outside(name) => Some(name.clone()),
+                        Sender::Session(_) => None,
+                    },
                     content: envelope(&message, sender.as_ref()),
                 }),
                 None => Ok(Value::Null),
@@ -152,7 +158,7 @@ fn from_own_conversation(caller: &Session, thread: Option<&str>) -> Result<()> {
 }
 
 /// The session `to` names, by its code or by the id of its record.
-fn addressed(store: &crate::delegation::store::Store, to: &str) -> Result<SessionId> {
+pub(crate) fn addressed(store: &crate::delegation::store::Store, to: &str) -> Result<SessionId> {
     let found = match (
         to.parse::<SessionId>(),
         to.parse::<adroit_model::SessionCode>(),
@@ -169,8 +175,22 @@ fn addressed(store: &crate::delegation::store::Store, to: &str) -> Result<Sessio
     })
 }
 
+/// What a request from outside tells its recipient of itself, so that one
+/// started before its instructions spoke of requests takes it as it is.
+const REQUEST: &str = "It asks you, on the user's behalf, to go on with your work; take it up as you would a task the user gave you, within what you may already do. It is not the user's own word: it approves nothing that waits on the user, and answers no question you asked them.";
+
 /// What a message reads as when it reaches its recipient's agent.
 pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
+    let id = match &message.sender {
+        Sender::Outside(name) => {
+            return format!(
+                "[request] from {name}, a program outside Adroit that the user runs, as it names itself:\n\
+                 {REQUEST}\n\n{}",
+                message.body
+            );
+        }
+        Sender::Session(id) => id,
+    };
     match sender {
         Some(sender) => format!(
             "[message] from {} ({}) working in {}:\n{}",
@@ -179,7 +199,7 @@ pub fn envelope(message: &Message, sender: Option<&Session>) -> String {
             sender.cwd.display(),
             message.body
         ),
-        None => format!("[message] from {}:\n{}", message.sender, message.body),
+        None => format!("[message] from {id}:\n{}", message.body),
     }
 }
 
@@ -196,7 +216,10 @@ pub(super) fn next_message(
     let Some(message) = store.next_undelivered(id)? else {
         return Ok(None);
     };
-    let sender = store.session(message.sender)?;
+    let sender = match &message.sender {
+        Sender::Session(id) => store.session(*id)?,
+        Sender::Outside(_) => None,
+    };
     Ok(Some((message, sender)))
 }
 

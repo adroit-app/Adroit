@@ -17,6 +17,22 @@ fn a_message_names_its_sender_by_its_code_and_where_it_works() {
 }
 
 #[test]
+fn a_request_from_outside_names_its_program_and_says_it_is_not_the_user_s_own_word() {
+    let mut request = message(SessionId::new(), SessionId::new())
+        .body("go on")
+        .build();
+    request.sender = Sender::Outside("Famulen".into());
+    let read = envelope(&request, None);
+    assert!(
+        read.starts_with("[request] from Famulen, a program outside Adroit"),
+        "{read}"
+    );
+    assert!(read.contains("on the user's behalf"), "{read}");
+    assert!(read.contains("approves nothing"), "{read}");
+    assert!(read.ends_with("\n\ngo on"), "{read}");
+}
+
+#[test]
 fn a_recipient_is_found_by_its_code_or_its_id_and_nothing_else() {
     use crate::delegation::store::{NewSession, Store};
     let dir = tempfile::tempdir().unwrap();

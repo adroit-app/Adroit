@@ -73,6 +73,10 @@ impl Transcript {
         }
     }
 
+    pub fn turns(&self) -> Vec<crate::links::Turn> {
+        self.found.turns()
+    }
+
     pub fn stats(&self) -> adroit_model::ConversationStats {
         self.metrics.stats()
     }

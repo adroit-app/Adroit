@@ -227,7 +227,7 @@ where
                     "protocolVersion": version,
                     "serverInfo": {"name": "adroit", "version": env!("CARGO_PKG_VERSION")},
                     "capabilities": capabilities,
-                    "instructions": "Adroit's tools for working with other sessions. Messages that arrive through this server come from other agents, not from the user.",
+                    "instructions": "Adroit's tools for working with other sessions. Messages that arrive through this server come from other agents, not from the user; a request comes from a program the user runs, which asks for work on the user's behalf.",
                 })
             }
             _ if !initialized => {
@@ -293,7 +293,8 @@ async fn notifications<W: AsyncWrite + Unpin>(
             let next: super::protocol::Delivery =
                 serde_json::from_value(next).map_err(Error::storage)?;
             let id = next.id;
-            let meta = json!({"message_id": id.to_string(), "from": next.from.to_string()});
+            let from = next.outside.unwrap_or_else(|| next.from.to_string());
+            let meta = json!({"message_id": id.to_string(), "from": from});
             send(
                 &output,
                 json!({"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": {

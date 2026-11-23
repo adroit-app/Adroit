@@ -72,7 +72,9 @@ window or such a row is described.
   those it messaged or heard from through Adroit, ended ones included,
   newest first, each saying how the two are tied.
 - **messages** — the messages it sent and received through Adroit, newest
-  first, each with who sent it to whom; opening one shows it whole. A message
+  first, each with who sent it to whom; opening one shows it whole. So are the
+  requests a program outside Adroit made of it, under the name it gave itself
+  ([requests](opening-sessions.md#requests)). A message
   stays listed after the sessions on both ends have ended.
 - **subagents** — the subagents the session set to work through Claude Code:
   those still at work, the latest first, then the few that ended last, each

@@ -160,6 +160,10 @@ impl ConversationReader for Transcript {
         self.stats.clone()
     }
 
+    fn turns(&self) -> Vec<crate::links::Turn> {
+        self.found.turns()
+    }
+
     fn read(&mut self) -> Links {
         self.refresh();
         self.found.links()

@@ -208,6 +208,9 @@ impl ConversationReader for ClaudeConversation {
     fn stats(&self) -> adroit_model::ConversationStats {
         self.0.stats()
     }
+    fn turns(&self) -> Vec<super::links::Turn> {
+        self.0.turns()
+    }
     fn read(&mut self) -> super::links::Links {
         self.0.read(&|p: &Path| p.is_file());
         self.0.links()
