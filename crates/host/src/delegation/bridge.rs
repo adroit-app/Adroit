@@ -48,6 +48,16 @@ impl Daemon for Socket {
     }
 }
 
+/// How long after it asked for the tools Claude Code surely listens to its
+/// channel: it drops what it is sent before, and says nothing once it does.
+const LISTENS: Duration = Duration::from_secs(2);
+/// How many times as long an agent is given to ask for the tools.
+const ASKS: u32 = 5;
+
+/// What the plugins Adroit loads into Pi and OpenCode call themselves. They
+/// listen from the start, and ask for no tools on the channel's connection.
+const PLUGINS: &[&str] = &["adroit-pi", "adroit-opencode"];
+
 type Output<W> = Arc<Mutex<W>>;
 
 struct Background(tokio::task::JoinHandle<Result<()>>);
@@ -168,7 +178,15 @@ fn command(name: &str, arguments: Value) -> std::result::Result<Command, String>
     })
 }
 
-pub async fn run<R, W>(mut input: R, output: W, daemon: impl Daemon, channel: bool) -> Result<()>
+/// Serves the tools on `input` and `output`, and with `channel` hands over the
+/// messages waiting, `settles` after the agent asked for the tools.
+pub async fn run<R, W>(
+    mut input: R,
+    output: W,
+    daemon: impl Daemon,
+    channel: bool,
+    settles: Duration,
+) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -177,7 +195,9 @@ where
     // Asked first so a session the work host does not know is told at once.
     daemon.ask(Command::Context, None).await?;
     let mut initialized = false;
+    let mut settles = settles;
     let mut background: Option<Background> = None;
+    let (listed, asked_for_tools) = tokio::sync::watch::channel(false);
     loop {
         let bytes = tokio::select! {
             frame = async {
@@ -206,9 +226,14 @@ where
         if method == "notifications/initialized" {
             if channel && background.is_none() {
                 let (output, daemon) = (output.clone(), daemon.clone());
-                background = Some(Background(crate::environment::spawn(notifications(
-                    output, daemon,
-                ))));
+                let mut listed = asked_for_tools.clone();
+                background = Some(Background(crate::environment::spawn(async move {
+                    // One that never asks for the tools is not waited for.
+                    let asks = listed.wait_for(|listed| *listed);
+                    let _ = tokio::time::timeout(settles * ASKS, asks).await;
+                    tokio::time::sleep(settles).await;
+                    notifications(output, daemon).await
+                })));
             }
             continue;
         }
@@ -217,6 +242,10 @@ where
         };
         let result = match method {
             "initialize" => {
+                let client = request["params"]["clientInfo"]["name"].as_str();
+                if client.is_some_and(|name| PLUGINS.contains(&name)) {
+                    settles = Duration::ZERO;
+                }
                 let requested = request["params"]["protocolVersion"]
                     .as_str()
                     .unwrap_or_default();
@@ -241,7 +270,10 @@ where
                 continue;
             }
             "ping" => json!({}),
-            "tools/list" => json!({"tools": tools()}),
+            "tools/list" => {
+                listed.send_replace(true);
+                json!({"tools": tools()})
+            }
             "tools/call" => {
                 let params = &request["params"];
                 let name = params["name"].as_str().unwrap_or_default();
@@ -464,6 +496,7 @@ pub fn cli(args: &[String]) -> i32 {
                 tokio::io::stdout(),
                 Socket::new(Path::new(&root), credential),
                 channel,
+                LISTENS,
             ))
         });
     match result {
@@ -625,6 +658,16 @@ mod tests {
     }
 
     async fn exchange(daemon: Fake, channel: bool, lines: &[Value], wait: Duration) -> Vec<Value> {
+        exchange_settling(daemon, channel, lines, wait, Duration::ZERO).await
+    }
+
+    async fn exchange_settling(
+        daemon: Fake,
+        channel: bool,
+        lines: &[Value],
+        wait: Duration,
+        settles: Duration,
+    ) -> Vec<Value> {
         let input: Vec<u8> = lines
             .iter()
             .flat_map(|line| format!("{line}\n").into_bytes())
@@ -635,7 +678,7 @@ mod tests {
         let (client, server) = tokio::io::duplex(1 << 20);
         let (_, write) = tokio::io::split(server);
         let running =
-            crate::environment::spawn(run(BufReader::new(served), write, daemon, channel));
+            crate::environment::spawn(run(BufReader::new(served), write, daemon, channel, settles));
         tokio::time::sleep(wait).await;
         running.abort();
         drop(stdin);
@@ -831,6 +874,58 @@ mod tests {
                 .unwrap()
                 .contains(&"delivered".to_owned())
         );
+    }
+
+    #[tokio::test]
+    async fn a_message_waits_until_claude_code_listens_to_its_channel() {
+        let settles = Duration::from_millis(400);
+        let asked =
+            async |lines: &[Value], wait| {
+                let daemon = Fake::new();
+                let id = adroit_model::MessageId::new();
+                daemon.waiting.lock().unwrap().push(
+                    json!({"id": id, "from": adroit_model::SessionId::new(), "content": "x"}),
+                );
+                let wait = Duration::from_millis(wait);
+                exchange_settling(daemon.clone(), true, lines, wait, settles).await;
+                daemon
+                    .asked
+                    .lock()
+                    .unwrap()
+                    .contains(&"delivered".to_owned())
+            };
+        let mut lines = vec![
+            rpc(1, "initialize", json!({})),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        ];
+        assert!(!asked(&lines, 1200).await, "before it asks for the tools");
+        lines.push(rpc(2, "tools/list", json!({})));
+        assert!(!asked(&lines, 100).await, "as it asks for the tools");
+        assert!(asked(&lines, 1200).await, "once it listens");
+    }
+
+    #[tokio::test]
+    async fn a_message_for_adroit_s_own_plugins_waits_for_nothing() {
+        for plugin in PLUGINS {
+            let daemon = Fake::new();
+            let id = adroit_model::MessageId::new();
+            daemon
+                .waiting
+                .lock()
+                .unwrap()
+                .push(json!({"id": id, "from": adroit_model::SessionId::new(), "content": "x"}));
+            let lines = [
+                rpc(1, "initialize", json!({"clientInfo": {"name": plugin}})),
+                json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            ];
+            let (wait, settles) = (Duration::from_millis(400), Duration::from_secs(60));
+            exchange_settling(daemon.clone(), true, &lines, wait, settles).await;
+            let asked = daemon.asked.lock().unwrap().clone();
+            assert!(
+                asked.contains(&"delivered".to_owned()),
+                "{plugin}: {asked:?}"
+            );
+        }
     }
 
     #[tokio::test]

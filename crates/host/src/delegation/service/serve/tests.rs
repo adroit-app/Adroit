@@ -102,6 +102,16 @@ fn new(parent: Option<SessionId>, name: &str) -> crate::delegation::store::NewSe
 }
 
 #[test]
+fn a_message_waits_until_its_recipient_has_started() {
+    let mut session = record("review").build();
+    assert!(takes_messages(&session));
+    for readiness in [Readiness::Starting, Readiness::Waiting, Readiness::Stalled] {
+        session.readiness = readiness;
+        assert!(!takes_messages(&session), "{readiness:?}");
+    }
+}
+
+#[test]
 fn a_recipient_is_found_by_its_code_or_its_id_and_nothing_else() {
     use crate::delegation::store::{NewSession, Store};
     let dir = tempfile::tempdir().unwrap();

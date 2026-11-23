@@ -14,8 +14,10 @@ use adroit_model::{Agent, SessionCode, State, Wait};
 use serde::Serialize;
 use serde_json::json;
 
+mod again;
 mod events;
 pub(crate) mod keys;
+mod read;
 mod steer;
 
 pub(crate) use events::{began, follow};
@@ -25,7 +27,7 @@ use crate::delegation::protocol::Opener;
 use crate::delegation::questions::{self, Question};
 use crate::delegation::{Message, Readiness, Sender, Session as Record, app};
 
-pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]\n       adroit session watch [--since <seq>] [--once]\n       adroit session answer <session> --question <id> (--allow | --deny [--reason <text>] | --reply <text>...) [--json] < key\n       adroit session interrupt|end <session> [--json] < key";
+pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]\n       adroit session watch [--since <seq>] [--once]\n       adroit session answer <session> --question <id> (--allow | --deny [--reason <text>] | --reply <text>...) [--json] < key\n       adroit session interrupt|end <session> [--json] < key\n       adroit session resume <session> [--from <name> [-- <prompt>]] [--json]\n       adroit session open|changes <session> [--json]\n       adroit session profiles [--json]";
 
 /// The exit status of a wait that timed out.
 const TIMED_OUT: i32 = 3;
@@ -77,6 +79,20 @@ pub(crate) enum Asked {
         session: String,
         act: steer::Act,
     },
+    Resume {
+        session: String,
+        /// Who asks it for work as it is resumed.
+        from: Option<String>,
+        /// None when it is to be read from standard input.
+        prompt: Option<String>,
+    },
+    Open {
+        session: String,
+    },
+    Changes {
+        session: String,
+    },
+    Profiles,
 }
 
 /// What `adroit session <args>` asks, and whether as JSON; none when `args`
@@ -98,8 +114,8 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
             ("show", "--turns") if turns.is_none() => {
                 turns = Some(rest.next()?.parse().ok().filter(|n| *n <= TURNS)?);
             }
-            ("send", "--from") if from.is_none() => from = Some(rest.next()?.clone()),
-            ("send", "--") => {
+            ("send" | "resume", "--from") if from.is_none() => from = Some(rest.next()?.clone()),
+            ("send" | "resume", "--") => {
                 let words: Vec<&str> = rest.by_ref().map(String::as_str).collect();
                 prompt = Some(words.join(" "));
             }
@@ -120,9 +136,11 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
             }
             ("answer", "--reason") if reason.is_none() => reason = Some(rest.next()?.clone()),
             ("answer", "--reply") => replies.push(rest.next()?.clone()),
-            ("show" | "send" | "wait" | "answer" | "interrupt" | "end", word)
-                if !word.starts_with('-') && session.is_none() =>
-            {
+            (
+                "show" | "send" | "wait" | "answer" | "interrupt" | "end" | "resume" | "open"
+                | "changes",
+                word,
+            ) if !word.starts_with('-') && session.is_none() => {
                 session = Some(word.to_string());
             }
             _ => return None,
@@ -151,6 +169,14 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
                 given: answered(given, reason, replies)?,
             },
         },
+        "resume" if from.is_some() || prompt.is_none() => Asked::Resume {
+            session: session?,
+            from,
+            prompt,
+        },
+        "open" => Asked::Open { session: session? },
+        "changes" => Asked::Changes { session: session? },
+        "profiles" => Asked::Profiles,
         "interrupt" => Asked::Steer {
             session: session?,
             act: steer::Act::Interrupt,
@@ -184,7 +210,20 @@ pub(crate) fn takes(args: &[String]) -> bool {
     let operation = args.first().map(String::as_str);
     matches!(
         operation,
-        Some("list" | "show" | "send" | "wait" | "watch" | "answer" | "interrupt" | "end")
+        Some(
+            "list"
+                | "show"
+                | "send"
+                | "wait"
+                | "watch"
+                | "answer"
+                | "interrupt"
+                | "end"
+                | "resume"
+                | "open"
+                | "changes"
+                | "profiles"
+        )
     )
 }
 
@@ -842,6 +881,14 @@ async fn wait(asked: &str, timeout: Duration) -> Result<(Listed, bool), String> 
     }
 }
 
+/// The session `told`, by its name or whole as `json` asks.
+fn named_or_whole(told: serde_json::Value, json: bool) -> String {
+    match json {
+        true => told.to_string(),
+        false => told["name"].as_str().unwrap_or_default().to_string(),
+    }
+}
+
 async fn execute(
     asked: Asked,
     json: bool,
@@ -899,6 +946,28 @@ async fn execute(
             (text, if timed_out { TIMED_OUT } else { 0 })
         }
         Asked::Steer { .. } => return Err("run apart".into()),
+        Asked::Resume {
+            session,
+            from,
+            prompt,
+        } => {
+            let request = from
+                .map(|from| {
+                    let prompt = prompt.or(input).unwrap_or_default().trim().to_string();
+                    match prompt.is_empty() {
+                        true => Err("the prompt is empty"),
+                        false => Ok((from, prompt)),
+                    }
+                })
+                .transpose()?;
+            (
+                named_or_whole(again::resume(&session, request).await?, json),
+                0,
+            )
+        }
+        Asked::Open { session } => (named_or_whole(again::open(&session).await?, json), 0),
+        Asked::Changes { session } => (read::changes(&session, json).await?, 0),
+        Asked::Profiles => (read::profiles(json).await?, 0),
         Asked::Watch { since, .. } => {
             let told = events::changes(since, events::PATIENCE).await?;
             (written(json!(told)), 0)
@@ -931,7 +1000,10 @@ pub(crate) async fn run(args: &[String], cwd: &Path, input: Option<String>) -> O
             effects_possible: true,
         };
     }
-    let effects_possible = matches!(asked, Asked::Send { .. });
+    let effects_possible = matches!(
+        asked,
+        Asked::Send { .. } | Asked::Resume { .. } | Asked::Open { .. }
+    );
     match execute(asked, json, cwd, input).await {
         Ok((text, code)) => Output {
             wrote: Ok(text),
@@ -980,7 +1052,16 @@ pub(crate) fn cli(args: &[String], acting: bool) -> i32 {
         return events::watch(since);
     }
     let mut input = None;
-    if let Asked::Send { prompt, .. } = &asked {
+    let asks = match &asked {
+        Asked::Send { prompt, .. } => Some(prompt),
+        Asked::Resume {
+            from: Some(_),
+            prompt,
+            ..
+        } => Some(prompt),
+        _ => None,
+    };
+    if let Some(prompt) = asks {
         if acting {
             eprintln!(
                 "adroit: a session asks another for work with the `request` tool, and tells it what it should know with the `send` tool"
@@ -1065,6 +1146,10 @@ mod tests {
             &["answer", "wwdc"],
             &["interrupt"],
             &["end", "wwdc", "--allow"],
+            &["resume"],
+            &["resume", "wwdc", "--", "go"],
+            &["open"],
+            &["profiles", "wwdc"],
         ] {
             assert_eq!(asked(wrong), None, "{wrong:?}");
         }
@@ -1084,6 +1169,29 @@ mod tests {
             Some(Asked::Watch {
                 since: None,
                 once: true
+            })
+        );
+    }
+
+    #[test]
+    fn a_session_is_resumed_alone_or_with_a_request_its_sender_names() {
+        let resume = |from: Option<&str>, prompt: Option<&str>| {
+            Some(Asked::Resume {
+                session: "wwdc".into(),
+                from: from.map(String::from),
+                prompt: prompt.map(String::from),
+            })
+        };
+        assert_eq!(asked(&["resume", "wwdc"]), resume(None, None));
+        assert_eq!(
+            asked(&["resume", "wwdc", "--from", "Famulen", "--", "go", "on"]),
+            resume(Some("Famulen"), Some("go on"))
+        );
+        assert_eq!(asked(&["profiles"]), Some(Asked::Profiles));
+        assert_eq!(
+            asked(&["changes", "wwdc"]),
+            Some(Asked::Changes {
+                session: "wwdc".into()
             })
         );
     }

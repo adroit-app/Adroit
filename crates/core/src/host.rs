@@ -283,6 +283,8 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
 /// before a patch.
 struct Listed {
     sessions: Vec<String>,
+    /// When each was last asked to be opened.
+    opened: BTreeMap<String, u64>,
     terminals: Vec<u128>,
 }
 
@@ -292,6 +294,12 @@ fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Option<Listed> {
     work.tree.listed.as_ref()?;
     Some(Listed {
         sessions: work.tree.sessions().iter().map(|s| s.id.clone()).collect(),
+        opened: work
+            .tree
+            .sessions()
+            .iter()
+            .filter_map(|s| Some((s.id.clone(), s.opened_ms?)))
+            .collect(),
         terminals: tree::terminals(Some(work)).iter().map(|t| t.id).collect(),
     })
 }
@@ -300,7 +308,8 @@ fn listed_ids(hosts: &Hosts, environment: &EnvironmentId) -> Option<Listed> {
 /// not started in the background: the first one the session in the focused
 /// window opened is shown with the keys, unless the user is typing, and
 /// every other is opened behind the shown tab, so the user sees it appear
-/// without losing what they type into.
+/// without losing what they type into. So is each session a program outside
+/// Adroit asked since to have opened.
 fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Listed) -> Vec<Effect> {
     let typing = typing(state);
     let Some(work) = state.hosts.work(environment) else {
@@ -335,8 +344,18 @@ fn show_asked(state: &mut ViewState, environment: &EnvironmentId, before: &Liste
                 }),
         )
         .collect();
+    let asked: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.opened_ms.is_some() && s.opened_ms > before.opened.get(&s.id).copied())
+        .map(|s| Tab::Session(environment.clone(), s.id.clone()))
+        .collect();
     let mut effects = Vec::new();
     let mut keys_taken = false;
+    for tab in asked {
+        if !state.content.windows.shows_anywhere(&tab) {
+            state.content.windows.open_behind(tab);
+        }
+    }
     for (tab, opener, cwd) in appeared {
         if keys_taken || looked_at.is_none() || opener != looked_at {
             state.content.windows.open_behind(tab);

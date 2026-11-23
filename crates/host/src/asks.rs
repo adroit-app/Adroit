@@ -47,7 +47,9 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
     ) {
         let prepared = terminal_host::judged(judged.subscribe()).await;
         let starts = match &ask {
-            Ask::Run { args, .. } => args.get(1).is_some_and(|op| op == "start"),
+            Ask::Run { args, .. } => args
+                .get(1)
+                .is_some_and(|op| op == "start" || op == "resume"),
             _ => true,
         };
         // Existing terminals can be used even when preparing terminfo failed.
@@ -172,7 +174,7 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
                 crate::outside::keys::issue(&path, &name, adroit_model::time::now_ms())
             })
             .await
-            .map(|(key, _)| Answer::OutsideKeyIssued { key })
+            .map(|(key, kept)| Answer::OutsideKeyIssued { id: kept.id, key })
         }
         Ask::RevokeOutsideKey { id } => {
             blocking(move || crate::outside::keys::revoke(&crate::outside::keys::path(), id))

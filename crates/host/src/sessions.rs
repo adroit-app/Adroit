@@ -25,6 +25,8 @@ const COMMAND: &str = "adroit.command";
 /// How a command terminal's program ended, its exit status, set by the
 /// adroit that keeps the terminal once it has.
 pub(crate) const EXIT: &str = "adroit.exit";
+/// When a program outside Adroit last asked that the session be opened.
+pub(crate) const OPENED: &str = "adroit.opened";
 const LAST_INPUT: &str = "adroit.last-input";
 const PERMISSIONS: &str = "adroit.permissions";
 /// The conversation a session holds. The tag keeps its original spelling
@@ -112,6 +114,7 @@ pub fn read_any_environment(session: &adroit_term::Session) -> Option<Kept> {
             code: tags::value(t, CODE_TAG).and_then(|code| code.parse().ok()),
             parent: tags::value(t, PARENT_TAG).and_then(|id| id.parse().ok()),
             show: tags::value(t, SHOW_TAG).is_some(),
+            opened_ms: tags::value(t, OPENED).and_then(|at| at.parse().ok()),
             agent,
             profile: match tags::value(t, PROFILE) {
                 Some(id) => id.parse().ok()?,

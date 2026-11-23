@@ -1,8 +1,8 @@
 //! What programs outside Adroit may do to sessions, and the keys the user
 //! gave them.
 
-use adroit_model::OutsideKey;
 use adroit_model::time::{ago, now_ms};
+use adroit_model::{MessageId, OutsideKey};
 use adroit_protocol::{Answer, Ask};
 use dioxus::prelude::*;
 
@@ -30,12 +30,20 @@ fn dated(key: &OutsideKey, now: u64) -> String {
     }
 }
 
+/// The key just given, when it is the one `id`.
+fn shown(issued: &Option<(MessageId, String)>, id: MessageId) -> Option<String> {
+    issued
+        .as_ref()
+        .filter(|(given, _)| *given == id)
+        .map(|(_, key)| key.clone())
+}
+
 #[component]
 pub(super) fn Outside(steer: bool, change: Callback<Change>) -> Element {
     let link = use_context::<Link>();
     let mut keys = use_signal(Vec::<OutsideKey>::new);
     let mut name = use_signal(String::new);
-    let mut issued = use_signal(|| None::<String>);
+    let mut issued = use_signal(|| None::<(MessageId, String)>);
     let mut error = use_signal(|| None::<String>);
     let mut revoking = use_signal(|| None::<OutsideKey>);
     let mut listed = use_signal(|| 0u32);
@@ -62,11 +70,21 @@ pub(super) fn Outside(steer: bool, change: Callback<Change>) -> Element {
                 }
             }
             for key in keys.read().clone() {
-                SettingRow { key: "{key.id}", label: key.name.clone(), hint: dated(&key, now_ms()),
-                    Button { kind: "danger", onclick: {
-                        let key = key.clone();
-                        move |_| revoking.set(Some(key.clone()))
-                    }, "Revoke" }
+                SettingRow { key: "{key.id}", label: key.name.clone(),
+                    hint: if shown(&issued.read(), key.id).is_some() {
+                        "Its key is shown this once. Keep it where only the program reads it.".into()
+                    } else {
+                        dated(&key, now_ms())
+                    },
+                    if let Some(text) = shown(&issued.read(), key.id) {
+                        code { class: "serving-detail", "{text}" }
+                        Button { kind: "primary", onclick: move |_| issued.set(None), "Done" }
+                    } else {
+                        Button { kind: "danger", onclick: {
+                            let key = key.clone();
+                            move |_| revoking.set(Some(key.clone()))
+                        }, "Revoke" }
+                    }
                 }
             }
             if let Some(key) = revoking() {
@@ -101,8 +119,8 @@ pub(super) fn Outside(steer: bool, change: Callback<Change>) -> Element {
                         let asked = link.ask(Ask::IssueOutsideKey { name: name.peek().clone() });
                         spawn(async move {
                             match asked.await {
-                                Answer::OutsideKeyIssued { key } => {
-                                    issued.set(Some(key));
+                                Answer::OutsideKeyIssued { id, key } => {
+                                    issued.set(Some((id, key)));
                                     name.set(String::new());
                                     listed += 1;
                                 }
@@ -112,12 +130,6 @@ pub(super) fn Outside(steer: bool, change: Callback<Change>) -> Element {
                     }
                 }, "Give a key" }
             }
-            if let Some(key) = issued() {
-                SettingRow { label: "The key", hint: "Shown this once. Keep it where only the program reads it.",
-                    code { class: "serving-detail", "{key}" }
-                    Button { onclick: move |_| issued.set(None), "Done" }
-                }
-            }
         }
     }
 }
@@ -125,6 +137,15 @@ pub(super) fn Outside(steer: bool, change: Callback<Change>) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_just_given_is_shown_with_its_own_program_alone() {
+        let (given, other) = (MessageId::new(), MessageId::new());
+        let issued = Some((given, "secret".to_string()));
+        assert_eq!(shown(&issued, given).as_deref(), Some("secret"));
+        assert_eq!(shown(&issued, other), None);
+        assert_eq!(shown(&None, given), None);
+    }
 
     #[test]
     fn a_key_is_dated_by_when_it_was_given_and_last_used() {

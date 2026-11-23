@@ -229,13 +229,14 @@ pub fn plan(
 /// agents do not all start at once.
 const STAGGER: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// Held by what runs sessions on: one being brought back is still recorded as
+/// it was, and its new session not yet listed, until it has started, so a
+/// second run beside it would start it again.
+pub(crate) static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Bring back `chosen`, by the daemon ids they ran as, as [`plan`] says,
 /// recording what stands for each; what is refused waits no more.
 pub async fn bring_back(chosen: Vec<String>) -> Result<Vec<BroughtBack>, String> {
-    // One at a time: a session being brought back is still recorded as
-    // interrupted, and its new session not yet listed, until it has started,
-    // so a second run beside it would start it again.
-    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _turn = ONE_AT_A_TIME.lock().await;
     let root = crate::delegation::app::root();
     let settings = crate::settings::current();
@@ -326,6 +327,48 @@ async fn resume(
             .flatten(),
         None => None,
     };
+    let started = started_again(root, settings, daemon, &record, opener, false).await;
+    let (_, terminal) = match started {
+        Ok(started) => started,
+        Err(why) => return failed(why),
+    };
+    BroughtBack {
+        id: old,
+        name,
+        by: Some(crate::sessions::hex(terminal)),
+        refused: None,
+    }
+}
+
+/// Runs the session of `record` on in a new one, which is opened in the
+/// windows as it appears when `show`.
+pub(crate) async fn again(record: &Session, show: bool) -> Result<SessionId, String> {
+    let (id, _) = started_again(
+        &crate::delegation::app::root(),
+        &crate::settings::current(),
+        &crate::daemon::daemon(),
+        record,
+        None,
+        show,
+    )
+    .await?;
+    Ok(id)
+}
+
+/// The session started to stand for `record`'s, opened by `opener`, by its
+/// record and its terminal.
+async fn started_again(
+    root: &Path,
+    settings: &crate::settings::Settings,
+    daemon: &adroit_term::Daemon,
+    record: &Session,
+    opener: Option<SessionId>,
+    show: bool,
+) -> Result<(SessionId, u128), String> {
+    let old = record
+        .terminal
+        .map(crate::sessions::hex)
+        .unwrap_or_default();
     let request = crate::execution::StartRequest {
         agent: record.agent,
         profile: Some(record.profile.clone()),
@@ -339,20 +382,17 @@ async fn resume(
         home: record.home.clone(),
         env: crate::daemon::agent_env(),
         started_ms: crate::delegation::now_ms(),
+        show,
         ..Default::default()
     };
-    let palette = match crate::themes::palette_in_force(settings) {
-        Ok(palette) => palette,
-        Err(e) => return failed(e),
-    };
+    let palette = crate::themes::palette_in_force(settings)?;
     let program = crate::work_host::adroit_program();
     let (resolved, recorded) =
-        match crate::delegation::app::prepare(root, settings, request, opener, &program).await {
-            Ok(prepared) => prepared,
-            Err(e) => return failed(e),
-        };
+        crate::delegation::app::prepare(root, settings, request, opener, &program).await?;
     let mut spawn = resolved.spawn;
-    spawn.tags.extend(crate::sessions::restored_tags(&old));
+    if !old.is_empty() {
+        spawn.tags.extend(crate::sessions::restored_tags(&old));
+    }
     let attach = recorded.clone();
     let spawned = crate::execution::spawn_headless_prepared(daemon, spawn, &palette, {
         move |terminal| async move { attach.attach(terminal).await }
@@ -362,19 +402,14 @@ async fn resume(
         Ok(terminal) => terminal,
         Err(e) => {
             recorded.failed().await;
-            return failed(crate::execution::spawn_failure(&e));
+            return Err(crate::execution::spawn_failure(&e));
         }
     };
     let (id, by) = (record.id, recorded.id);
-    if let Err(e) = with_store(root, move |store| store.brought_back(id, by)).await {
-        return failed(e.to_string());
-    }
-    BroughtBack {
-        id: old,
-        name,
-        by: Some(crate::sessions::hex(terminal)),
-        refused: None,
-    }
+    with_store(root, move |store| store.brought_back(id, by))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((by, terminal))
 }
 
 async fn reopen(
