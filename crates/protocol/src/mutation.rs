@@ -25,12 +25,18 @@ pub enum MutationState {
 }
 
 impl Ask {
+    /// Whether it is sent so that a reply lost is found again, for which a
+    /// client keeps it and its answer in a journal. Giving a key is not: its
+    /// answer is the key, and one whose answer was lost is taken back from
+    /// the list of them.
     pub fn mutates(&self) -> bool {
         !matches!(
             self,
             Self::TerminalHost
                 | Self::PathEntries { .. }
                 | Self::Drafts
+                | Self::OutsideKeys
+                | Self::IssueOutsideKey { .. }
                 | Self::Picture { .. }
                 | Self::LoginStanding { .. }
                 | Self::Cloned { .. }
@@ -55,5 +61,19 @@ impl Request {
             | Self::DropWorkspace { .. } => true,
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_key_given_is_kept_in_no_journal_and_one_taken_back_is() {
+        let given = Ask::IssueOutsideKey { name: "a".into() };
+        assert!(!given.mutates());
+        assert!(!Ask::OutsideKeys.mutates());
+        let id = adroit_model::MessageId::new();
+        assert!(Ask::RevokeOutsideKey { id }.mutates());
     }
 }

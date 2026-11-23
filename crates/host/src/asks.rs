@@ -163,6 +163,22 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
             watched.relist();
             outcomes.map(|outcomes| Answer::BroughtBack { outcomes })
         }
+        Ask::OutsideKeys => blocking(|| crate::outside::keys::list(&crate::outside::keys::path()))
+            .await
+            .map(|keys| Answer::OutsideKeys { keys }),
+        Ask::IssueOutsideKey { name } => {
+            let path = crate::outside::keys::path();
+            blocking(move || {
+                crate::outside::keys::issue(&path, &name, adroit_model::time::now_ms())
+            })
+            .await
+            .map(|(key, _)| Answer::OutsideKeyIssued { key })
+        }
+        Ask::RevokeOutsideKey { id } => {
+            blocking(move || crate::outside::keys::revoke(&crate::outside::keys::path(), id))
+                .await
+                .map(|()| Answer::Done)
+        }
         Ask::LetGo { ids } => {
             let gone = crate::restore::let_go(ids).await;
             watched.relist();

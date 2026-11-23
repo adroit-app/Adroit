@@ -181,6 +181,9 @@ const ROOTS: [(&str, &str); 5] = [
 const ROOT_NAMES: [&str; 5] = [ROOTS[0].0, ROOTS[1].0, ROOTS[2].0, ROOTS[3].0, ROOTS[4].0];
 
 impl AgentAdapter for OpenCode {
+    fn interrupt_keys(&self) -> &'static [&'static str] {
+        &["Escape", "Escape"]
+    }
     fn agent(&self) -> Agent {
         Agent::OpenCode
     }

@@ -567,6 +567,18 @@ impl Store {
         self.sent(&Sender::Outside(from.to_owned()), to, body)
     }
 
+    /// Keeps that the program outside Adroit called `by` did `what` to
+    /// `session`, as a message of its that nothing is left to hand over of.
+    pub fn record_act(&mut self, by: &str, session: SessionId, what: &str) -> Result<()> {
+        let id = insert(
+            &self.connection,
+            &Sender::Outside(by.to_owned()),
+            session,
+            what,
+        )?;
+        self.delivered(id)
+    }
+
     fn sent(&mut self, from: &Sender, to: SessionId, body: &str) -> Result<MessageId> {
         let transaction = self
             .connection
@@ -1181,6 +1193,19 @@ mod tests {
         let refused = store.ask_from_outside("Famulen", id, "go on").unwrap_err();
         assert_eq!(refused.code, Code::Refused);
         assert!(store.messages_of(id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn what_a_program_did_is_kept_beside_the_session_and_handed_to_no_one() {
+        let (_dir, mut store) = store();
+        let id = register(&mut store, None, "worker");
+        store
+            .record_act("Famulen", id, "Ended the session")
+            .unwrap();
+        assert!(store.next_undelivered(id).unwrap().is_none());
+        let kept = store.messages_of(id).unwrap();
+        assert_eq!(kept[0].sender, Sender::Outside("Famulen".into()));
+        assert_eq!(kept[0].body, "Ended the session");
     }
 
     #[test]

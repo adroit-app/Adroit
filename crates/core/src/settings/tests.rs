@@ -319,6 +319,7 @@ fn settings_written_read_back_the_same() {
         ],
         unshared: Vec::new(),
         delegation: DelegationSettings { enabled: false },
+        outside: OutsideSettings { steer: true },
         zoom: 1.1,
         prompt_min_rows: 2,
         prompt_max_rows: 20,
@@ -963,7 +964,7 @@ fn a_setting_the_file_should_not_hold_is_named_with_those_it_may() {
     let error = |text: &str| Settings::parse(text).unwrap_err().to_string();
     assert_eq!(
         error("nonsense = 1\n"),
-        "unknown field `nonsense`, expected one of `profile`, `profiles`, `delegation`, `zoom`, `prompt_min_rows`, `prompt_max_rows`, `font_family`, `font_size`, `font_weight`, `appearance`, `light_theme`, `dark_theme`, `theme`, `keep_awake`, `notify_waiting`, `rename_sessions`, `restore_sessions`, `shell`, `neovim`, `scratch_dir`, `picker`, `console`, `details`, `usage`, `panel`\n"
+        "unknown field `nonsense`, expected one of `profile`, `profiles`, `delegation`, `outside`, `zoom`, `prompt_min_rows`, `prompt_max_rows`, `font_family`, `font_size`, `font_weight`, `appearance`, `light_theme`, `dark_theme`, `theme`, `keep_awake`, `notify_waiting`, `rename_sessions`, `restore_sessions`, `shell`, `neovim`, `scratch_dir`, `picker`, `console`, `details`, `usage`, `panel`\n"
     );
     assert_eq!(
         error("[delegation]\nnonsense = 1\n"),

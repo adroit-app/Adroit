@@ -34,6 +34,7 @@ mod agents;
 mod details;
 mod environment;
 mod neovim;
+mod outside;
 mod profiles;
 mod specimen;
 
@@ -505,6 +506,7 @@ fn General(now: Settings, change: Callback<Change>) -> Element {
                 }
             }
         }
+        outside::Outside { steer: now.outside.steer, change }
         SettingGroup { title: "Details panel",
             SettingRow { label: "Changes in Log", hint: "How many changes the log lists.",
                 NumberField {

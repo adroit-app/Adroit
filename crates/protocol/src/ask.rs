@@ -165,6 +165,16 @@ pub enum Ask {
         listing: adroit_model::github::Listing,
         number: u64,
     },
+    /// The keys the user gave programs outside Adroit.
+    OutsideKeys,
+    /// Give a program outside Adroit called `name` a key.
+    IssueOutsideKey {
+        name: String,
+    },
+    /// Take back the key `id`.
+    RevokeOutsideKey {
+        id: adroit_model::MessageId,
+    },
     /// Run the command `adroit <args>` as run in `cwd`, with `input` on its
     /// standard input.
     Run {
@@ -312,6 +322,14 @@ pub enum Answer {
     /// Whether a profile is logged in, as the CLI it starts said.
     LoginStanding {
         standing: adroit_model::profile::LoginStanding,
+    },
+    /// The keys the user gave programs outside Adroit.
+    OutsideKeys {
+        keys: Vec<adroit_model::OutsideKey>,
+    },
+    /// The key issued, which is told this once.
+    OutsideKeyIssued {
+        key: String,
     },
     /// What came of bringing back each one chosen.
     BroughtBack {

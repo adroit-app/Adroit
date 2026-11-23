@@ -17,7 +17,7 @@ the agent as a message is, apart from its terminal, headed by the name the
 program gives itself and by what it is. The agent takes it up as work on the
 user's behalf, and not as the user's own word: a request approves nothing and
 answers nothing that waits on the user. The program reads how a session stands
-and what it answered from what the work host knows, and is given no way to
+and what it answered from what the work host knows. A request gives it no way to
 answer what a session asks the user.
 
 ## Alternatives considered
@@ -35,6 +35,5 @@ answer what a session asks the user.
 - The name is the program's own word. Programs that run as the same user are
   kept from being mistaken for one another, not from impersonating.
 - Whether a request is followed is the agent's to judge, as with any message.
-- A session that waits on the user goes on only once the user answers it in
-  Adroit.
+- No request makes a session that waits on the user go on.
 - A session asks another for nothing this way; it has messages.
