@@ -1,7 +1,7 @@
 //! The sessions and terminals there are, placed by what git says of where
 //! each runs, listed every two seconds or as soon as a window asks.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -16,16 +16,33 @@ use crate::work::Seen;
 /// How long what git said about a worktree is trusted before asking again.
 const WORKTREE_TTL: Duration = Duration::from_secs(15);
 
+/// How long git is waited for, on a directory or a repository.
+const GIT: Duration = Duration::from_secs(10);
+
+/// How long reading the sessions is waited for: longer than an agent is
+/// given to list its own.
+const READING: Duration = Duration::from_secs(60);
+
 pub(super) async fn watch(mut watched: Watched) {
     let daemon = crate::daemon::daemon();
     // What git said of each directory a session runs in, and of each
     // repository's worktrees, with when it said it.
-    let mut cache: HashMap<PathBuf, (Instant, Option<Worktree>)> = HashMap::new();
-    let mut lists: HashMap<PathBuf, (Instant, Vec<Worktree>)> = HashMap::new();
+    let mut cache: Said<Option<Worktree>> = HashMap::new();
+    let mut lists: Said<Vec<Worktree>> = HashMap::new();
     let mut ran = Ran::default();
     loop {
-        match read_sessions(&daemon, &watched.inputs()).await {
-            Ok((sessions, terminals)) => {
+        let read = {
+            let (daemon, inputs) = (daemon.clone(), watched.inputs());
+            within(READING, async move {
+                let (sessions, terminals) = read_sessions(&daemon, &inputs).await?;
+                // Listed all the same when the store cannot be read: what
+                // waits is only offered.
+                let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
+                Ok((sessions, terminals, interrupted))
+            })
+        };
+        match read.await {
+            Ok((sessions, terminals, interrupted)) => {
                 let kept = kept_workspaces();
                 let found = inspect(&sessions, &terminals, &kept, &mut cache).await;
                 let scratch = crate::paths::scratch_dir();
@@ -39,9 +56,6 @@ pub(super) async fn watch(mut watched: Watched) {
                 {
                     tracing::warn!(%error, "cannot keep the workspaces sessions started in");
                 }
-                // Listed all the same when the store cannot be read: what waits
-                // is only offered.
-                let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
                 let listing = |listed: &[Worktree]| TreeChange::Listed {
                     listed: Box::new(Listed {
                         tree: tree(listed),
@@ -68,6 +82,67 @@ pub(super) async fn watch(mut watched: Watched) {
         if asked {
             cache.clear();
             lists.clear();
+        }
+    }
+}
+
+/// What `reading` reads, or why not: it panicked or took longer than
+/// `limit`. Waited for without end, one answer that never came would leave
+/// the last list standing for as long as the host runs.
+async fn within<T: Send + 'static>(
+    limit: Duration,
+    reading: impl Future<Output = Result<T, String>> + Send + 'static,
+) -> Result<T, String> {
+    let mut reading = crate::environment::spawn(reading);
+    match tokio::time::timeout(limit, &mut reading).await {
+        Ok(Ok(read)) => read,
+        Ok(Err(error)) => Err(format!("cannot list the sessions: {error}")),
+        Err(_) => {
+            reading.abort();
+            Err(format!(
+                "cannot list the sessions: no answer in {} seconds",
+                limit.as_secs()
+            ))
+        }
+    }
+}
+
+/// What was last said of a key, with when it was said.
+type Said<T> = HashMap<PathBuf, (Instant, T)>;
+
+/// Asks anew of each of `keys` `said` holds nothing recent of, all at once:
+/// one by one, every key would hold the list back by its calls. One not
+/// answered within `limit` keeps what was said of it before, if anything,
+/// and is asked again as late as one answered.
+async fn refresh<T, F>(
+    said: &mut Said<T>,
+    keys: impl IntoIterator<Item = PathBuf>,
+    limit: Duration,
+    ask: impl Fn(PathBuf) -> F,
+) where
+    T: Default + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    let unread: BTreeSet<PathBuf> = keys
+        .into_iter()
+        .filter(|k| {
+            said.get(k)
+                .is_none_or(|(at, _)| at.elapsed() > WORKTREE_TTL)
+        })
+        .collect();
+    let mut asking = tokio::task::JoinSet::new();
+    for key in unread {
+        let answer = ask(key.clone());
+        asking.spawn(async move { (key, tokio::time::timeout(limit, answer).await.ok()) });
+    }
+    while let Some(asked) = asking.join_next().await {
+        let Ok((key, answer)) = asked else { continue };
+        let held = said
+            .entry(key)
+            .or_insert_with(|| (Instant::now(), T::default()));
+        held.0 = Instant::now();
+        if let Some(answer) = answer {
+            held.1 = answer;
         }
     }
 }
@@ -131,7 +206,7 @@ async fn inspect(
     sessions: &[Session],
     terminals: &[TerminalSession],
     kept: &[PathBuf],
-    cache: &mut HashMap<PathBuf, (Instant, Option<Worktree>)>,
+    cache: &mut Said<Option<Worktree>>,
 ) -> HashMap<PathBuf, Option<Worktree>> {
     let dirs = || {
         sessions
@@ -140,30 +215,10 @@ async fn inspect(
             .chain(terminals.iter().map(|s| &s.cwd))
             .chain(kept)
     };
-    // Asked of git all at once: one by one, every directory would hold the
-    // list back by its calls.
-    let mut unread: Vec<PathBuf> = dirs()
-        .filter(|d| {
-            cache
-                .get(*d)
-                .is_none_or(|(at, _)| at.elapsed() > WORKTREE_TTL)
-        })
-        .cloned()
-        .collect();
-    unread.sort();
-    unread.dedup();
-    let mut asking = tokio::task::JoinSet::new();
-    for dir in unread {
-        asking.spawn(async move {
-            let w = adroit_vcs::inspect(&dir).await;
-            (dir, w)
-        });
-    }
-    while let Some(answered) = asking.join_next().await {
-        if let Ok((dir, w)) = answered {
-            cache.insert(dir, (Instant::now(), w));
-        }
-    }
+    refresh(cache, dirs().cloned(), GIT, |dir| async move {
+        adroit_vcs::inspect(&dir).await
+    })
+    .await;
     dirs()
         .filter_map(|d| cache.get(d).map(|(_, w)| (d.clone(), w.clone())))
         .collect()
@@ -173,29 +228,15 @@ async fn inspect(
 /// nothing runs too.
 async fn worktrees(
     found: &HashMap<PathBuf, Option<Worktree>>,
-    lists: &mut HashMap<PathBuf, (Instant, Vec<Worktree>)>,
+    lists: &mut Said<Vec<Worktree>>,
 ) -> Vec<Worktree> {
     let mut repos: Vec<PathBuf> = found.values().flatten().map(|w| w.repo.clone()).collect();
     repos.sort();
     repos.dedup();
-    // Asked all at once, as the directories are.
-    let mut asking = tokio::task::JoinSet::new();
-    for repo in repos.iter().filter(|r| {
-        lists
-            .get(*r)
-            .is_none_or(|(at, _)| at.elapsed() > WORKTREE_TTL)
-    }) {
-        let repo = repo.clone();
-        asking.spawn(async move {
-            let ws = adroit_vcs::git::worktrees(&repo).await.unwrap_or_default();
-            (repo, ws)
-        });
-    }
-    while let Some(answered) = asking.join_next().await {
-        if let Ok((repo, ws)) = answered {
-            lists.insert(repo, (Instant::now(), ws));
-        }
-    }
+    refresh(lists, repos.iter().cloned(), GIT, |repo| async move {
+        adroit_vcs::git::worktrees(&repo).await.unwrap_or_default()
+    })
+    .await;
     repos
         .iter()
         .filter_map(|repo| lists.get(repo))
@@ -286,15 +327,23 @@ pub async fn read_sessions(
     // learned; the sessions are listed all the same.
     // Each login lists the sessions running in it alone, so each is asked as
     // a session of it was started and read against those.
-    for (agent, home, context) in
-        logins_of(
-            &own,
-            |s| async move { crate::programs::of_session(&s).await },
-        )
-        .await
-    {
+    let logins = logins_of(
+        &own,
+        |s| async move { crate::programs::of_session(&s).await },
+    )
+    .await;
+    // All at once: in turn, every login that does not answer would hold the
+    // list back by its wait.
+    let mut asking = tokio::task::JoinSet::new();
+    for (agent, home, context) in logins {
+        let listed = adroit_agents::adapter(agent).list_sessions(context);
+        asking.spawn(async move { (agent, home, listed.await.unwrap_or_default()) });
+    }
+    while let Some(asked) = asking.join_next().await {
+        let Ok((agent, home, listed)) = asked else {
+            continue;
+        };
         let adapter = adroit_agents::adapter(agent);
-        let listed = adapter.list_sessions(context).await.unwrap_or_default();
         let ours = |s: &Session| s.agent == agent && s.home == home;
         let mut these: Vec<Session> = own.iter().filter(|s| ours(s)).cloned().collect();
         let tags = adapter.follow(&mut these, listed);
@@ -405,6 +454,38 @@ mod tests {
     use adroit_model::testing::{session, shell, tree};
 
     use super::*;
+
+    const SOON: Duration = Duration::from_millis(20);
+
+    #[tokio::test]
+    async fn sessions_never_read_are_given_up_so_they_are_read_again() {
+        let stuck = within(SOON, std::future::pending::<Result<(), String>>()).await;
+        assert!(stuck.unwrap_err().contains("no answer"));
+        assert_eq!(within(SOON, async { Ok(1) }).await, Ok(1));
+    }
+
+    #[tokio::test]
+    async fn a_read_of_the_sessions_that_panics_is_told_as_one_that_failed() {
+        let failed: Result<(), String> = within(SOON, async { panic!("broken") }).await;
+        assert!(failed.unwrap_err().contains("cannot list the sessions"));
+    }
+
+    #[tokio::test]
+    async fn what_git_never_answers_of_keeps_what_it_said_before_and_holds_up_nothing_else() {
+        let (stuck, fine) = (PathBuf::from("/stuck"), PathBuf::from("/fine"));
+        let old = Instant::now().checked_sub(2 * WORKTREE_TTL).unwrap();
+        let mut said: Said<u32> = HashMap::from([(stuck.clone(), (old, 1))]);
+        let keys = [stuck.clone(), fine.clone()];
+        refresh(&mut said, keys, SOON, |key| async move {
+            if key.ends_with("stuck") {
+                std::future::pending::<()>().await;
+            }
+            2
+        })
+        .await;
+        assert_eq!((said[&stuck].1, said[&fine].1), (1, 2));
+        assert!(said[&stuck].0 > old);
+    }
 
     #[test]
     fn the_workspace_of_what_starts_running_is_kept_once_and_only_then() {
