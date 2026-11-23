@@ -329,6 +329,7 @@ pub enum Answer {
     },
     /// The key issued, which is told this once.
     OutsideKeyIssued {
+        id: adroit_model::MessageId,
         key: String,
     },
     /// What came of bringing back each one chosen.

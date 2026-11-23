@@ -174,7 +174,7 @@ async fn answer(watched: &Watched, judged: &watch::Sender<Judged>, ask: Ask) -> 
                 crate::outside::keys::issue(&path, &name, adroit_model::time::now_ms())
             })
             .await
-            .map(|(key, _)| Answer::OutsideKeyIssued { key })
+            .map(|(key, kept)| Answer::OutsideKeyIssued { id: kept.id, key })
         }
         Ask::RevokeOutsideKey { id } => {
             blocking(move || crate::outside::keys::revoke(&crate::outside::keys::path(), id))
