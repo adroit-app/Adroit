@@ -22,6 +22,9 @@ pub(super) fn watching(
     tags: Vec<String>,
 ) -> (tempfile::TempDir, Context, Session, adroit_term::Session) {
     let dir = tempfile::tempdir().unwrap();
+    // Binding a socket narrows the process-wide umask for a moment, and a
+    // folder made meanwhile is closed to its own user.
+    adroit_sys::fs::set_mode(dir.path(), 0o700).unwrap();
     let mut store = Store::open(&dir.path().join("state.sqlite3")).unwrap();
     let (id, _) = store
         .register(crate::delegation::store::NewSession {
