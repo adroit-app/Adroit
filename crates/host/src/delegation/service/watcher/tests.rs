@@ -204,7 +204,7 @@ fn a_message_is_handed_over_in_the_login_its_recipient_started_in_after_a_restar
     // Read again as a work host started anew does, asking only what was
     // recorded, never the settings in force.
     let mut store = Store::open(&path).unwrap();
-    let (message, _, started) = next_delivery(&mut store, to).unwrap().unwrap();
+    let (message, _, started) = next_delivery(&mut store, to, true).unwrap().unwrap();
 
     assert_eq!(message.body, "review");
     assert_eq!(started.home, Some("/w/codex".into()));
@@ -240,7 +240,7 @@ fn a_session_of_an_agent_its_settings_gave_no_profile_is_handed_its_messages() {
     let (to, _) = store.register(new(Agent::Codex)).unwrap();
     store.send(from, to, "review").unwrap();
 
-    let (message, _, handed) = next_delivery(&mut store, to).unwrap().unwrap();
+    let (message, _, handed) = next_delivery(&mut store, to, true).unwrap().unwrap();
 
     assert_eq!(message.body, "review");
     assert_eq!((handed.agent(), handed.home), (Agent::Codex, None));

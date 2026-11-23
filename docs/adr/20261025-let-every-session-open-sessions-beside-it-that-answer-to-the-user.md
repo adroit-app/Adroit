@@ -37,12 +37,14 @@ with it; a session never opens one to carry out a step of its own work, or
 only to have something run alongside.
 
 Sessions talk as peers: a message tells what the recipient should know or
-asks what it knows, and never assigns it work; the recipient weighs it as any
+asks what it knows, and never hands it work; the recipient weighs it as any
 other input and still answers to the user, and the sender plans nothing on a
 reply coming. Adroit carries the messages, addressed by session identity, and
 hands each to the receiving agent through that agent's own way of hearing from
-outside; handing it over is receipt. Which session opened which, and the
-messages, are all the work host keeps between sessions.
+outside; handing it over is receipt. Which session opened which, the
+messages, and whom the user lets ask another for work
+(20261123-let-a-session-ask-another-for-work-only-where-the-user-lets-it.md)
+are all the work host keeps between sessions.
 
 ## Alternatives considered
 
@@ -62,8 +64,8 @@ messages, are all the work host keeps between sessions.
   sessions sharing a checkout could only coordinate through the user.
 - Ask for an acknowledgement of every message. Receipt becomes work, and costs
   a turn.
-- Let a message assign work and wait for its result. Workers come back through
-  the messages, with the same summary between the user and the work.
+- Let any message hand over work and wait for its result. Workers come back
+  through the messages, with the same summary between the user and the work.
 - Keep sessions from talking at all. A session would rebuild from a diff what
   the session that made it could say.
 

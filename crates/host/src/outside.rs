@@ -983,7 +983,7 @@ pub(crate) fn cli(args: &[String], acting: bool) -> i32 {
     if let Asked::Send { prompt, .. } = &asked {
         if acting {
             eprintln!(
-                "adroit: a session cannot ask another for work; tell it what it should know with the `send` tool"
+                "adroit: a session asks another for work with the `request` tool, and tells it what it should know with the `send` tool"
             );
             return 1;
         }

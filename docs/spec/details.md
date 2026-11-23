@@ -74,8 +74,14 @@ window or such a row is described.
 - **messages** — the messages it sent and received through Adroit, newest
   first, each with who sent it to whom; opening one shows it whole. So are the
   requests a program outside Adroit made of it, under the name it gave itself
-  ([requests](opening-sessions.md#requests)). A message
+  ([requests](opening-sessions.md#requests)). A request says whether it was
+  taken up as work or told as information. A message
   stays listed after the sessions on both ends have ended.
+- **requests** — the sessions that may ask it for work or have asked it
+  ([requests between sessions](opening-sessions.md#requests-between-sessions)):
+  the one that opened it, then the others, each with its code and whether what
+  it asks is taken up as work or told as information. Opening one switches
+  that; copying one copies its name.
 - **subagents** — the subagents the session set to work through Claude Code:
   those still at work, the latest first, then the few that ended last, each
   named by what it was last asked about, marked with what kind it is, and

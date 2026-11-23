@@ -195,6 +195,11 @@ mod tests {
             agent: adroit_model::Agent::Claude,
         });
         round_trips(Request::HandBackName { id: "0a".into() });
+        round_trips(Request::TakeRequests {
+            id: "0a".into(),
+            from: "k7f3".parse().unwrap(),
+            taken_up: true,
+        });
         round_trips(Request::Compose {
             asked: 4,
             agent: adroit_model::Agent::Codex,

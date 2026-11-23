@@ -43,6 +43,9 @@ pub(crate) async fn apply(watched: &Watched, window: WindowId, mut job: Request)
             agent,
         } => rename(watched, window, id, name, was, agent).await,
         Request::HandBackName { id } => hand_back_name(id).await,
+        Request::TakeRequests { id, from, taken_up } => {
+            take_requests(watched, id, from, taken_up).await
+        }
         Request::Release { id } => {
             crate::held::release(id).await;
             Ok(())
@@ -64,9 +67,9 @@ async fn authorize(job: &mut Request) -> Result<(), String> {
         Request::Stop { session } | Request::Kill { session, .. } => {
             id_of(&session.id).ok_or("invalid session ID")?
         }
-        Request::Rename { id, .. } | Request::HandBackName { id } => {
-            id_of(id).ok_or("invalid session ID")?
-        }
+        Request::Rename { id, .. }
+        | Request::HandBackName { id }
+        | Request::TakeRequests { id, .. } => id_of(id).ok_or("invalid session ID")?,
         Request::Release { id } | Request::EndTerminal { id } => *id,
         _ => return Ok(()),
     };
@@ -297,6 +300,22 @@ async fn hand_back_name(id: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+async fn take_requests(
+    watched: &Watched,
+    id: String,
+    from: adroit_model::SessionCode,
+    taken_up: bool,
+) -> Result<(), String> {
+    let terminal = id_of(&id).ok_or("invalid session ID")?;
+    crate::delegation::app::with_store(&crate::delegation::app::root(), move |store| {
+        store.let_ask_terminal(&from, terminal, taken_up)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    watched.host().ask_again();
+    Ok(())
 }
 
 /// How long a program is left after the command before Enter.

@@ -36,4 +36,5 @@ answer what a session asks the user.
   kept from being mistaken for one another, not from impersonating.
 - Whether a request is followed is the agent's to judge, as with any message.
 - No request makes a session that waits on the user go on.
-- A session asks another for nothing this way; it has messages.
+- A session asks another for nothing this way; it has requests of its own,
+  where the user lets it.

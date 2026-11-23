@@ -95,11 +95,41 @@ impl Sender {
     }
 }
 
+/// What a message is to its recipient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    /// What it should know, or a question.
+    Message,
+    /// Work it is asked for.
+    Request,
+    /// Work it was asked for by a session it does not take work up from, and
+    /// was told as a message.
+    Declined,
+}
+
+impl Kind {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Message => "message",
+            Self::Request => "request",
+            Self::Declined => "declined",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        [Self::Message, Self::Request, Self::Declined]
+            .into_iter()
+            .find(|known| known.key() == key)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub id: MessageId,
     pub sender: Sender,
     pub recipient: SessionId,
+    pub kind: Kind,
     pub body: String,
     pub sent_ms: u64,
     pub delivered: bool,

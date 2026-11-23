@@ -45,6 +45,9 @@ pub enum Component {
     Sessions,
     /// The messages the session sent and received through Adroit.
     Messages,
+    /// The sessions that may ask the session for work, and whether it takes it
+    /// up.
+    Requests,
     /// The subagents the session set to work.
     Subagents,
     /// The claude.ai artifacts the conversation brought up.
@@ -172,6 +175,7 @@ impl Component {
         Component::About,
         Component::Sessions,
         Component::Messages,
+        Component::Requests,
         Component::Subagents,
         Component::Artifacts,
         Component::Images,
@@ -218,6 +222,7 @@ impl Component {
             Component::About => "about",
             Component::Sessions => "sessions",
             Component::Messages => "messages",
+            Component::Requests => "requests",
             Component::Subagents => "subagents",
             Component::Artifacts => "artifacts",
             Component::Images => "images",
@@ -265,6 +270,7 @@ impl Component {
             Component::About => "About",
             Component::Sessions => "Sessions",
             Component::Messages => "Messages",
+            Component::Requests => "Requests",
             Component::Subagents => "Subagents",
             Component::Artifacts => "Artifacts",
             Component::Images => "Images",
@@ -322,6 +328,9 @@ impl Component {
             Component::About => "The facts of the session that change little.",
             Component::Sessions => "The sessions tied to this one.",
             Component::Messages => "What the session sent and received through Adroit.",
+            Component::Requests => {
+                "The sessions that may ask this one for work; opening one lets it, or no longer."
+            }
             Component::Subagents => "The subagents the session set to work.",
             Component::Artifacts => "The claude.ai artifacts the conversation brought up.",
             Component::Images => "The images the console drew and the image files seen.",
@@ -383,6 +392,7 @@ impl Component {
             Component::About => Icon::InfoCircle,
             Component::Sessions => Icon::UsersGroup,
             Component::Messages => Icon::Message,
+            Component::Requests => Icon::MessageUp,
             Component::Subagents => Icon::ListTree,
             Component::Artifacts => Icon::AppWindow,
             Component::Images => Icon::Photo,
@@ -430,6 +440,7 @@ impl Component {
             | Component::About
             | Component::Sessions
             | Component::Messages
+            | Component::Requests
             | Component::Subagents
             | Component::Prompts => Kind::Session,
             Component::Artifacts
@@ -605,6 +616,7 @@ impl Component {
                 | Component::About
                 | Component::Sessions
                 | Component::Messages
+                | Component::Requests
                 | Component::Subagents
                 | Component::Artifacts
                 | Component::Images
@@ -984,6 +996,7 @@ impl Surface {
                     &[
                         p(C::Prompts),
                         p(C::Messages),
+                        p(C::Requests),
                         p(C::Subagents),
                         p(C::Sessions),
                     ],

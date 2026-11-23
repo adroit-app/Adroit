@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use adroit_model::profile::ProfileId;
 use adroit_model::timeline::Entry;
-use adroit_model::{Agent, AgentPermissions, SessionCode, TerminalSession};
+use adroit_model::{Agent, AgentPermissions, Requester, SessionCode, TerminalSession};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use super::{Code, Error, Message, MessageId, Readiness, Result, Sender, Session, SessionId};
+use super::{Code, Error, Kind, Message, MessageId, Readiness, Result, Sender, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -119,6 +119,14 @@ const MIGRATIONS: &[&str] = &[
          body TEXT NOT NULL
      );
      CREATE INDEX standings_by_session ON standings(session);",
+    // Whom the user let, or no longer lets, ask which session for work, by
+    // the codes sessions keep when they are brought back.
+    "CREATE TABLE requesters (
+         sender TEXT NOT NULL,
+         recipient TEXT NOT NULL,
+         taken_up INTEGER NOT NULL,
+         PRIMARY KEY (sender, recipient)
+     );",
 ];
 
 /// The most changes of how sessions stand kept: the latest.
@@ -540,7 +548,122 @@ impl Store {
         if from == to {
             return Err(Error::new(Code::Invalid, "a session cannot message itself"));
         }
-        self.sent(&Sender::Session(from), to, body)
+        self.sent(&Sender::Session(from), to, body, Kind::Message)
+    }
+
+    /// Keeps `body` for `to` as work `from` asks of it.
+    pub fn ask(&mut self, from: SessionId, to: SessionId, body: &str) -> Result<MessageId> {
+        if from == to {
+            return Err(Error::new(Code::Invalid, "a session cannot ask itself"));
+        }
+        self.sent(&Sender::Session(from), to, body, Kind::Request)
+    }
+
+    /// Whether `to` takes up work `from` asks of it: as the user said, and
+    /// otherwise only when `from` opened it.
+    pub fn takes_requests(&self, from: SessionId, to: SessionId) -> Result<bool> {
+        let (from, to) = (self.known(from)?.code, self.known(to)?.code);
+        self.takes_up(&from, &to)
+    }
+
+    fn takes_up(&self, from: &SessionCode, to: &SessionCode) -> Result<bool> {
+        let codes = [from.as_str(), to.as_str()];
+        let said = self
+            .connection
+            .query_row(
+                "SELECT taken_up FROM requesters WHERE sender = ?1 AND recipient = ?2",
+                codes,
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(said) = said {
+            return Ok(said);
+        }
+        Ok(self.connection.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM sessions AS opened
+                 JOIN sessions AS opener ON opener.id = opened.parent
+                 WHERE opener.code = ?1 AND opened.code = ?2 AND ?1 <> ?2
+             )",
+            codes,
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Keeps whether the session `to` takes up the work the one with the
+    /// code `from` asks of it.
+    pub fn let_ask(&mut self, from: &SessionCode, to: SessionId, taken_up: bool) -> Result<()> {
+        let to = self.known(to)?.code;
+        self.by_code(from)?
+            .ok_or_else(|| Error::new(Code::NotFound, "no session has that code"))?;
+        self.connection.execute(
+            "INSERT INTO requesters (sender, recipient, taken_up) VALUES (?1, ?2, ?3)
+             ON CONFLICT (sender, recipient) DO UPDATE SET taken_up = ?3",
+            params![from.as_str(), to.as_str(), taken_up],
+        )?;
+        Ok(())
+    }
+
+    /// [`Store::let_ask`] for the session running in `terminal`.
+    pub fn let_ask_terminal(
+        &mut self,
+        from: &SessionCode,
+        terminal: u128,
+        taken_up: bool,
+    ) -> Result<()> {
+        let to = self
+            .sessions()?
+            .into_iter()
+            .find(|s| s.terminal == Some(terminal) && !s.ended)
+            .ok_or_else(|| Error::new(Code::NotFound, "no session runs there"))?
+            .id;
+        self.let_ask(from, to, taken_up)
+    }
+
+    /// The sessions that may ask `id` for work or have asked it: the one that
+    /// opened it, then the others.
+    pub fn requesters(&self, id: SessionId) -> Result<Vec<Requester>> {
+        let to = self.known(id)?.code;
+        let mut statement = self.connection.prepare(
+            "SELECT opener.code FROM sessions AS opened
+                 JOIN sessions AS opener ON opener.id = opened.parent
+                 WHERE opened.code = ?1
+             UNION ALL
+             SELECT sender.code FROM messages
+                 JOIN sessions AS sender ON sender.id = messages.sender
+                 JOIN sessions AS recipient ON recipient.id = messages.recipient
+                 WHERE recipient.code = ?1 AND messages.kind IN ('request', 'declined')
+             UNION ALL
+             SELECT sender FROM requesters WHERE recipient = ?1",
+        )?;
+        let codes: Vec<String> = statement
+            .query_map([to.as_str()], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out: Vec<Requester> = Vec::new();
+        for code in codes {
+            let code: SessionCode = code.parse().map_err(Error::storage)?;
+            if code == to || out.iter().any(|known| known.code == code) {
+                continue;
+            }
+            let Some(session) = self.by_code(&code)? else {
+                continue;
+            };
+            out.push(Requester {
+                taken_up: self.takes_up(&code, &to)?,
+                name: session.name,
+                code,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Keeps how the request `id` is handed over.
+    pub fn handing_over(&mut self, id: MessageId, kind: Kind) -> Result<()> {
+        self.connection.execute(
+            "UPDATE messages SET kind = ?2 WHERE id = ?1",
+            params![id.to_string(), kind.key()],
+        )?;
+        Ok(())
     }
 
     /// Keeps `body` for `to` as asked by the program outside Adroit that
@@ -564,7 +687,7 @@ impl Store {
                 ),
             ));
         }
-        self.sent(&Sender::Outside(from.to_owned()), to, body)
+        self.sent(&Sender::Outside(from.to_owned()), to, body, Kind::Request)
     }
 
     /// Keeps that the program outside Adroit called `by` did `what` to
@@ -575,11 +698,12 @@ impl Store {
             &Sender::Outside(by.to_owned()),
             session,
             what,
+            Kind::Message,
         )?;
         self.delivered(id)
     }
 
-    fn sent(&mut self, from: &Sender, to: SessionId, body: &str) -> Result<MessageId> {
+    fn sent(&mut self, from: &Sender, to: SessionId, body: &str, kind: Kind) -> Result<MessageId> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -591,7 +715,7 @@ impl Store {
                 format!("{} has ended and cannot be sent to", recipient.name),
             ));
         }
-        let id = insert(&transaction, from, to, body)?;
+        let id = insert(&transaction, from, to, body, kind)?;
         transaction.commit()?;
         Ok(id)
     }
@@ -851,7 +975,7 @@ fn known(connection: &Connection, id: SessionId) -> Result<Session> {
     session(connection, id)?.ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))
 }
 
-const MESSAGE_COLUMNS: &str = "id, sender, outside, recipient, body, sent_ms, delivered";
+const MESSAGE_COLUMNS: &str = "id, sender, outside, recipient, kind, body, sent_ms, delivered";
 
 fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     let id: String = row.get("id")?;
@@ -859,6 +983,7 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
     let outside: Option<String> = row.get("outside")?;
     let recipient: String = row.get("recipient")?;
     let sent_ms: i64 = row.get("sent_ms")?;
+    let kind: String = row.get("kind")?;
     let body = row.get("body")?;
     let delivered = row.get("delivered")?;
     Ok((|| {
@@ -870,6 +995,8 @@ fn read_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Message>> {
                 (None, None) => return Err(Error::storage("a message names no sender")),
             },
             recipient: recipient.parse().map_err(Error::storage)?,
+            kind: Kind::from_key(&kind)
+                .ok_or_else(|| Error::storage(format!("no message is a {kind}")))?,
             body,
             sent_ms: sent_ms as u64,
             delivered,
@@ -882,6 +1009,7 @@ fn insert(
     sender: &Sender,
     recipient: SessionId,
     body: &str,
+    kind: Kind,
 ) -> Result<MessageId> {
     if body.trim().is_empty() {
         return Err(Error::new(Code::Invalid, "a message needs a body"));
@@ -892,12 +1020,13 @@ fn insert(
         Sender::Outside(name) => (None, Some(name)),
     };
     connection.execute(
-        "INSERT INTO messages (id, sender, outside, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, 'message', ?5, ?6)",
+        "INSERT INTO messages (id, sender, outside, recipient, kind, body, sent_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id.to_string(),
             session.map(|id| id.to_string()),
             outside,
             recipient.to_string(),
+            kind.key(),
             body,
             super::now_ms() as i64,
         ],
@@ -1059,6 +1188,10 @@ mod tests {
         store.register(new(parent, name)).unwrap().0
     }
 
+    fn code(store: &Store, id: SessionId) -> SessionCode {
+        store.known(id).unwrap().code
+    }
+
     fn bodies(store: &mut Store, id: SessionId) -> Vec<String> {
         let mut bodies = Vec::new();
         while let Some(message) = store.next_undelivered(id).unwrap() {
@@ -1162,6 +1295,105 @@ mod tests {
         store.end(b).unwrap();
 
         assert_eq!(store.send(a, b, "hello").unwrap_err().code, Code::Refused);
+    }
+
+    #[test]
+    fn a_session_may_ask_those_it_opened_for_work_and_no_other_until_the_user_lets_it() {
+        let (_dir, mut store) = store();
+        let opener = register(&mut store, None, "opener");
+        let opened = register(&mut store, Some(opener), "opened");
+        let sibling = register(&mut store, Some(opener), "sibling");
+        let grandchild = register(&mut store, Some(opened), "grandchild");
+        for (from, to, takes) in [
+            (opener, opened, true),
+            (opened, opener, false),
+            (opened, sibling, false),
+            (opener, grandchild, false),
+        ] {
+            assert_eq!(store.takes_requests(from, to).unwrap(), takes);
+        }
+
+        store.let_ask(&code(&store, opened), opener, true).unwrap();
+        store.let_ask(&code(&store, opener), opened, false).unwrap();
+
+        assert!(store.takes_requests(opened, opener).unwrap());
+        assert!(!store.takes_requests(opener, opened).unwrap());
+        assert!(!store.takes_requests(opened, sibling).unwrap());
+    }
+
+    #[test]
+    fn whom_the_user_let_ask_holds_for_the_records_that_keep_both_sessions_codes() {
+        let (_dir, mut store) = store();
+        let a = register(&mut store, None, "a");
+        let b = register(&mut store, None, "b");
+        store.let_ask(&code(&store, a), b, true).unwrap();
+        let resumed = |store: &mut Store, id, name| {
+            let code = code(store, id);
+            store.end(id).unwrap();
+            store
+                .register(NewSession {
+                    code: Some(code),
+                    ..new(None, name)
+                })
+                .unwrap()
+                .0
+        };
+        let (a, b) = (
+            resumed(&mut store, a, "a again"),
+            resumed(&mut store, b, "b again"),
+        );
+        assert!(store.takes_requests(a, b).unwrap());
+    }
+
+    #[test]
+    fn a_request_is_told_apart_from_a_message_and_remembers_how_it_was_handed_over() {
+        let (_dir, mut store) = store();
+        let a = register(&mut store, None, "a");
+        let b = register(&mut store, Some(a), "b");
+        store.ask(a, b, "do it").unwrap();
+        store.send(a, b, "know it").unwrap();
+
+        let request = store.next_undelivered(b).unwrap().unwrap();
+        assert_eq!(request.kind, Kind::Request);
+        store.handing_over(request.id, Kind::Declined).unwrap();
+        store.delivered(request.id).unwrap();
+
+        let kinds: Vec<_> = store
+            .messages_of(b)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.kind)
+            .collect();
+        assert_eq!(kinds, [Kind::Message, Kind::Declined]);
+    }
+
+    #[test]
+    fn those_listed_as_asking_a_session_are_its_opener_and_those_that_asked_or_were_let() {
+        let (_dir, mut store) = store();
+        let opener = register(&mut store, None, "opener");
+        let id = register(&mut store, Some(opener), "shown");
+        let asked = register(&mut store, None, "asked");
+        let told = register(&mut store, None, "told");
+        let allowed = register(&mut store, None, "allowed");
+        store.ask(asked, id, "do it").unwrap();
+        store.send(told, id, "know it").unwrap();
+        store.let_ask(&code(&store, allowed), id, true).unwrap();
+
+        let mut listed: Vec<_> = store
+            .requesters(id)
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.name, r.taken_up))
+            .collect();
+        listed.sort();
+        assert_eq!(
+            listed,
+            [
+                ("allowed".into(), true),
+                ("asked".into(), false),
+                ("opener".into(), true)
+            ]
+        );
     }
 
     #[test]
@@ -1602,7 +1834,7 @@ PRAGMA user_version = 1;
                 .connection
                 .execute_batch(
                     "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
-                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; DROP TABLE standings; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
+                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -1859,7 +2091,7 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "DROP TABLE timeline; DROP TABLE standings; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                    "DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
                 )
                 .unwrap();
             (old, by, other)
