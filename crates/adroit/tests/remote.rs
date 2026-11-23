@@ -475,3 +475,65 @@ fn the_hosts_a_window_on_the_work_machine_started_are_the_ones_a_paired_client_r
         assert!(local.hello.mutation_epoch.is_none());
     });
 }
+
+#[test]
+fn a_paired_client_has_a_work_host_that_answers_nothing_restarted_with_its_terminals_kept() {
+    let hosts = Hosts::new();
+    let started = isolated(hosts.0.path())
+        .args(["terminal", "start", "--program", "command", "--json", "--"])
+        .args(["/bin/sh", "-c", "read answer"])
+        .output()
+        .unwrap();
+    assert!(started.status.success());
+    let first = remote_info(&hosts);
+    let files = adroit_net::GatewayFiles::in_dir(
+        hosts
+            .0
+            .path()
+            .join("state/adroit/instances/headless-test/remote"),
+    );
+    let server = adroit_net::Identity::load_or_create(&files.key).unwrap();
+    let client = adroit_net::Identity::generate().unwrap();
+    adroit_net::Enroll::enroll(
+        &adroit_net::PeerFile::open(&files.peers).unwrap(),
+        client.fingerprint(),
+        "laptop",
+    )
+    .unwrap();
+    let address = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .to_string();
+    let mut gateway = isolated(hosts.0.path())
+        .args(["remote", "gateway", "--listen", &address, "--no-advertise"])
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let stopped = std::process::Command::new("kill")
+        .args(["-STOP", &first["work"]["pid"].to_string()])
+        .status()
+        .unwrap();
+    assert!(stopped.success());
+    let remote = adroit_net::Remote::new(client, server.fingerprint(), &address);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let restarted = runtime.block_on(async {
+        loop {
+            match remote.restart_work().await {
+                Err(adroit_net::Error::Unreachable(_)) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                done => break done,
+            }
+        }
+    });
+    let second = restarted.as_ref().map(|()| remote_info(&hosts));
+    gateway.kill().unwrap();
+    gateway.wait().unwrap();
+    let second = second.unwrap();
+    assert_ne!(first["work"]["pid"], second["work"]["pid"]);
+    assert_eq!(first["terminal"], second["terminal"]);
+}

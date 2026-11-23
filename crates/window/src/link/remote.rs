@@ -106,6 +106,9 @@ impl Sender {
     pub fn status(&self) -> Status {
         lock(&self.shared.status).clone()
     }
+    pub fn remote(&self) -> Option<Remote> {
+        self.remote.clone()
+    }
     pub fn retry(&self) {
         self.shared.retry.notify_one();
     }

@@ -34,15 +34,20 @@ pub(super) async fn watch(mut watched: Watched) {
         let read = {
             let (daemon, inputs) = (daemon.clone(), watched.inputs());
             within(READING, async move {
-                let (sessions, terminals) = read_sessions(&daemon, &inputs).await?;
+                let read = read_sessions(&daemon, &inputs).await?;
                 // Listed all the same when the store cannot be read: what
                 // waits is only offered.
                 let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
-                Ok((sessions, terminals, interrupted))
+                Ok((read, interrupted))
             })
         };
         match read.await {
-            Ok((sessions, terminals, interrupted)) => {
+            Ok((read, interrupted)) => {
+                let Read {
+                    sessions,
+                    terminals,
+                    silent,
+                } = read;
                 let kept = kept_workspaces();
                 let found = inspect(&sessions, &terminals, &kept, &mut cache).await;
                 let scratch = crate::paths::scratch_dir();
@@ -64,7 +69,9 @@ pub(super) async fn watch(mut watched: Watched) {
                         interrupted: interrupted.clone(),
                     }),
                 };
-                watched.record([TreeChange::Failing { error: None }]);
+                watched.record([TreeChange::Failing {
+                    error: unanswered(&silent),
+                }]);
                 // Each window lists every worktree git knows, or only those
                 // where something runs, as it asks.
                 watched.record_to([listing(&[])], |s| !s.tree.every_worktree);
@@ -244,12 +251,28 @@ async fn worktrees(
         .collect()
 }
 
+/// The sessions and terminals there are.
+pub struct Read {
+    pub sessions: Vec<Session>,
+    pub terminals: Vec<TerminalSession>,
+    /// The agents that did not answer, which the list does without.
+    pub silent: BTreeSet<&'static str>,
+}
+
+/// What is said of the agents in `silent`, none when there are none.
+fn unanswered(silent: &BTreeSet<&'static str>) -> Option<String> {
+    let names: Vec<&str> = silent.iter().copied().collect();
+    (!names.is_empty()).then(|| {
+        format!(
+            "{} gave no answer on this machine; it may not be able to start there",
+            names.join(", ")
+        )
+    })
+}
+
 /// Every session to list, those the daemon runs for adroit, with the
 /// terminals.
-pub async fn read_sessions(
-    daemon: &Daemon,
-    inputs: &BTreeMap<u128, u64>,
-) -> Result<(Vec<Session>, Vec<TerminalSession>), String> {
+pub async fn read_sessions(daemon: &Daemon, inputs: &BTreeMap<u128, u64>) -> Result<Read, String> {
     let kept = daemon.sessions().await.map_err(|e| e.to_string())?;
     let (mut own, mut kept_shells) = (Vec::new(), Vec::new());
     let mut learned = Vec::new();
@@ -334,15 +357,20 @@ pub async fn read_sessions(
     .await;
     // All at once: in turn, every login that does not answer would hold the
     // list back by its wait.
+    let mut silent = BTreeSet::new();
     let mut asking = tokio::task::JoinSet::new();
     for (agent, home, context) in logins {
         let listed = adroit_agents::adapter(agent).list_sessions(context);
-        asking.spawn(async move { (agent, home, listed.await.unwrap_or_default()) });
+        asking.spawn(async move { (agent, home, listed.await) });
     }
     while let Some(asked) = asking.join_next().await {
         let Ok((agent, home, listed)) = asked else {
             continue;
         };
+        if listed == Err(adroit_agents::Unlisted::Unanswered) {
+            silent.insert(agent.label());
+        }
+        let listed = listed.unwrap_or_default();
         let adapter = adroit_agents::adapter(agent);
         let ours = |s: &Session| s.agent == agent && s.home == home;
         let mut these: Vec<Session> = own.iter().filter(|s| ours(s)).cloned().collect();
@@ -367,7 +395,11 @@ pub async fn read_sessions(
             .tag(id, adroit_term::tags::tagged(key, &value), held)
             .await;
     }
-    Ok((own, kept_shells))
+    Ok(Read {
+        sessions: own,
+        terminals: kept_shells,
+        silent,
+    })
 }
 
 /// Whether the screen of a session whose program reports `reported` is read
@@ -462,6 +494,13 @@ mod tests {
         let stuck = within(SOON, std::future::pending::<Result<(), String>>()).await;
         assert!(stuck.unwrap_err().contains("no answer"));
         assert_eq!(within(SOON, async { Ok(1) }).await, Ok(1));
+    }
+
+    #[test]
+    fn an_agent_that_gives_no_answer_is_named_and_none_is_when_all_answer() {
+        assert_eq!(unanswered(&BTreeSet::new()), None);
+        let said = unanswered(&BTreeSet::from(["Claude Code"])).unwrap();
+        assert!(said.contains("Claude Code"), "{said}");
     }
 
     #[tokio::test]

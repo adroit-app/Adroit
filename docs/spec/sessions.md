@@ -192,7 +192,9 @@ windows, and keep running when they close.
   show, keeps what is written in the prompts, lets sessions open and message
   sessions ([sessions that open sessions](opening-sessions.md)) and judges how each
   session it started stands. When it cannot list the sessions, as when what
-  it asks never answers, the window says so and it lists them again. It listens
+  it asks never answers, the window says so on the environment's heading and in its
+  details, and it lists them again. It says so too of an agent that gives no
+  answer, whose sessions are listed all the same. It listens
   on `$ADROIT_HOST`, or
   `host/host.sock` in the same state folder as the terminal host's `felis`
   folder. Windows and the `adroit` commands reach it there

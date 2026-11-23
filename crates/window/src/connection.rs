@@ -75,6 +75,8 @@ pub(crate) enum Note {
     SendUnconfirmed,
     /// The host speaks no version this window speaks.
     Incompatible,
+    /// The host cannot list the sessions, or an agent gives no answer there.
+    Failing,
 }
 
 impl Note {
@@ -89,13 +91,14 @@ impl Note {
             Note::ReadOnly => "Read only".into(),
             Note::SendUnconfirmed => "Send unconfirmed".into(),
             Note::Incompatible => "Incompatible".into(),
+            Note::Failing => "Not answering".into(),
         }
     }
 
     pub(crate) fn class(self) -> &'static str {
         match self {
             Note::Connecting | Note::Reconnecting => "busy",
-            Note::Offline { .. } | Note::Incompatible => "fail",
+            Note::Offline { .. } | Note::Incompatible | Note::Failing => "fail",
             Note::ReadOnly => "quiet",
             Note::SendUnconfirmed => "wait",
         }
@@ -126,6 +129,7 @@ impl Standing {
             Some(Note::Connecting) => "Connecting",
             Some(Note::Reconnecting) => "Reconnecting",
             Some(Note::Offline { .. }) => "Connection stopped",
+            Some(Note::Failing) => "Connected, but something there does not answer",
             Some(Note::Incompatible) => "The host speaks no version this window speaks",
         }
     }
@@ -169,6 +173,17 @@ pub(crate) fn standing(link: &Link, remote: Option<&RemoteStatus>, now_ms: u64) 
     }
 }
 
+impl Standing {
+    /// With what its host fails at noted, unless something else is to be
+    /// said: that says more of why what is shown may be old.
+    fn failing(mut self, failing: bool) -> Self {
+        if failing && self.mark == Mark::Connected && self.note.is_none() {
+            self.note = Some(Note::Failing);
+        }
+        self
+    }
+}
+
 /// `ms` in the largest whole unit, as short as a heading has room for.
 fn short_age(ms: u64) -> String {
     let s = ms / 1000;
@@ -188,7 +203,10 @@ pub(crate) fn standing_of(app: &AppCtx, environment: &EnvironmentId) -> Standing
         .map(|h| h.link.clone())
         .unwrap_or_default();
     let remotes = app.remotes.read();
-    standing(&link, remotes.get(environment), *app.clock.read())
+    let failing = hosts
+        .work(environment)
+        .is_some_and(|work| work.tree.failing.is_some());
+    standing(&link, remotes.get(environment), *app.clock.read()).failing(failing)
 }
 
 /// Where `environment` works, as its heading's menu offers to reach it.
@@ -249,7 +267,11 @@ pub(crate) fn EnvironmentCard(environment: EnvironmentId) -> Element {
         .as_ref()
         .and_then(|r| r.last_work_ms)
         .map(|at| adroit_model::time::ago(now.saturating_sub(at)));
-    let problem = remote.as_ref().and_then(|r| r.problem.clone());
+    let problem = remote.as_ref().and_then(|r| r.problem.clone()).or_else(|| {
+        let hosts = app.hosts.read();
+        let work = hosts.work(&environment)?;
+        work.tree.failing.clone()
+    });
     rsx! {
         div { class: "environment-card",
             div { class: "environment-card-head",
@@ -782,6 +804,17 @@ mod tests {
         let got = standing(&refused(), Some(&remote(|_| {})), 0);
         assert_eq!(got.mark, Mark::Stopped);
         assert_eq!(got.note, Some(Note::Incompatible));
+    }
+
+    #[test]
+    fn a_host_that_fails_at_something_is_noted_only_where_nothing_else_is_said() {
+        let noted = |status: &RemoteStatus, failing| {
+            standing(&ready(), Some(status), 0).failing(failing).note
+        };
+        assert_eq!(noted(&remote(|_| {}), true), Some(Note::Failing));
+        assert_eq!(noted(&remote(|_| {}), false), None);
+        let offline = remote(|s| s.phase = RemotePhase::Error);
+        assert_eq!(noted(&offline, true), Some(Note::Offline { age_ms: None }));
     }
 
     #[test]

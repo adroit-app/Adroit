@@ -100,6 +100,7 @@ pub enum Action {
     EnvironmentRemove,
     EnvironmentRename,
     EnvironmentRetry,
+    EnvironmentRestartHost,
     EnvironmentPair,
     WorkspaceAdd,
     WorkspaceRemove,
@@ -415,6 +416,9 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::EnvironmentRetry, "environment.retry", "try at once to reach again the work machine of the environment selected in the tree, or else of the tab shown, while the window waits to try it ([details](environments.md))")
         .icon(Icon::Refresh)
         .row("Retry now", Reach),
+    S::new(A::EnvironmentRestartHost, "environment.restart_host", "have the work machine of the environment selected in the tree, or else of the tab shown, restart its work host, which ends no session ([details](remote-execution.md#paired-work-machines))")
+        .icon(Icon::ServerBolt)
+        .row("Restart work host", Reach),
     S::new(A::EnvironmentPair, "environment.pair", "pair again with the work machine of the environment selected in the tree, or else of the tab shown, as when it no longer accepts this computer or answers at another address ([details](environments.md#create-and-configure))")
         .icon(Icon::Link)
         .row("Pair again…", Reach),
@@ -706,6 +710,7 @@ mod tests {
             EnvironmentRemove,
             EnvironmentRename,
             EnvironmentRetry,
+            EnvironmentRestartHost,
             EnvironmentPair,
             WorkspaceAdd,
             WorkspaceRemove,

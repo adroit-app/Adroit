@@ -6,6 +6,7 @@ use adroit_net::{
     PAIRING_PERIOD, Pairing, PeerFile, Waiting, ask_gateway,
 };
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -112,6 +113,7 @@ async fn keep_hosts_up() {
 #[derive(Default)]
 struct Discovered {
     missing: AtomicBool,
+    restarting: tokio::sync::Mutex<()>,
 }
 
 impl Hosts for Discovered {
@@ -134,6 +136,20 @@ impl Hosts for Discovered {
             info: serde_json::to_vec(&info).map_err(|error| error.to_string())?,
             work: info.work.socket,
             terminal: info.terminal.socket,
+        })
+    }
+
+    fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        use crate::work_host::{adroit_program, ensure, serve_args, socket, stop};
+        Box::pin(async {
+            let _turn = self.restarting.lock().await;
+            tracing::info!("restarting the work host for a paired client");
+            let socket = socket();
+            stop(&socket).await.map_err(|e| e.to_string())?;
+            ensure(&socket, &adroit_program(), &serve_args())
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(())
         })
     }
 }
@@ -500,6 +516,10 @@ mod tests {
                 work: "/nonexistent/w".into(),
                 terminal: "/nonexistent/t".into(),
             })
+        }
+
+        fn restart_work(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
