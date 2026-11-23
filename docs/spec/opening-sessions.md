@@ -381,7 +381,8 @@ sessions work in too tells their changes with the session's own.
 
 `vcs` is `git`, `jj`, or null outside both. `added` and `removed` of a file are
 null where its lines are not counted, as of a binary one. Many files and
-commits are cut, which `truncated` tells; the sums count every file.
+commits are cut, and the lines of a very long diff are not all counted, which
+`truncated` tells; the sums count every file whose lines are.
 
 ### Profiles
 

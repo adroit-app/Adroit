@@ -212,6 +212,14 @@ pub async fn history(path: &Path, n: usize) -> Result<Vec<Commit>, Error> {
     Ok(parse_log(&out))
 }
 
+/// The last `n` commits of a worktree's branch that `base` does not hold, each
+/// before its parents.
+pub async fn history_since(path: &Path, base: &str, n: usize) -> Result<Vec<Commit>, Error> {
+    let (count, since) = (format!("-n{n}"), format!("{base}..HEAD"));
+    let out = git(path, &["log", "--topo-order", &count, LOG_FORMAT, &since]).await?;
+    Ok(parse_log(&out))
+}
+
 /// The files commit `rev` changed.
 pub async fn commit_files(path: &Path, rev: &str) -> Result<Vec<Change>, Error> {
     let out = git(

@@ -22,11 +22,24 @@ pub struct Changed {
     /// The commits or changes since, the newest first.
     pub commits: Vec<Commit>,
     pub files: Vec<(Change, Counts)>,
+    /// Whether the diff is too long for every file's lines to be counted.
+    pub cut: bool,
 }
 
 /// The lines each file of the diff `text`, in git's form, adds and removes,
 /// by the path it has after.
 pub fn parse_counts(text: &str) -> HashMap<String, Counts> {
+    counted(text, false)
+}
+
+/// Whether `text`, read up to so many lines and bytes, may have been cut there.
+fn reached(text: &str, lines: usize, bytes: usize) -> bool {
+    text.len() >= bytes || text.lines().count() >= lines
+}
+
+/// [`parse_counts`] of a diff that may be `cut`, whose last file is then not
+/// counted.
+fn counted(text: &str, cut: bool) -> HashMap<String, Counts> {
     let mut out: HashMap<String, Counts> = HashMap::new();
     let mut path: Option<String> = None;
     // How many lines the hunk read still holds, before and after: within it, a
@@ -71,6 +84,9 @@ pub fn parse_counts(text: &str) -> HashMap<String, Counts> {
         } else if let Some(hunk) = line.strip_prefix("@@ -") {
             left = hunk_lines(hunk).unwrap_or_default();
         }
+    }
+    if cut && let Some(last) = path {
+        out.insert(last, None);
     }
     out
 }
@@ -154,9 +170,11 @@ async fn in_jj(dir: &Path, commits: usize) -> Result<Changed, Error> {
         COUNTED_BYTES,
     )
     .await?;
-    let counts = parse_counts(&diff);
+    let cut = reached(&diff, COUNTED_LINES, COUNTED_BYTES);
+    let counts = counted(&diff, cut);
     Ok(Changed {
         backend: Backend::Jj,
+        cut,
         base,
         commits: jj::history(root, commits).await?,
         files: jj::parse_files(&files)
@@ -207,14 +225,10 @@ async fn in_git(dir: &Path, commits: usize) -> Result<Changed, Error> {
             files.push((change, counted));
         }
     }
-    let ahead = git::history(root, commits).await?;
-    let until = ahead.iter().position(|c| c.node == base || c.id == base);
     Ok(Changed {
         backend: Backend::Git,
-        commits: ahead
-            .into_iter()
-            .take(until.unwrap_or(usize::MAX))
-            .collect(),
+        cut: false,
+        commits: git::history_since(root, &base, commits).await?,
         base,
         files,
     })
@@ -254,6 +268,45 @@ mod tests {
                 ("now", Some((0, 0))),
             ]
         );
+    }
+
+    #[test]
+    fn a_file_whose_diff_was_cut_is_not_counted_and_those_before_it_are() {
+        let diff = "diff --git a/a b/a\n@@ -0,0 +1 @@\n+x\n\
+            diff --git a/b b/b\n@@ -0,0 +1,9 @@\n+x\n";
+        let cut = counted(diff, true);
+        assert_eq!((cut["a"], cut["b"]), (Some((1, 0)), None));
+        let whole = counted(diff, false);
+        assert_eq!(whole["b"], Some((1, 0)));
+    }
+
+    #[test]
+    fn a_diff_read_up_to_a_limit_is_taken_as_cut() {
+        assert!(reached("a\nb\n", 2, 100));
+        assert!(reached("abcd", 9, 4));
+        assert!(!reached("a\nb\n", 3, 100));
+    }
+
+    #[tokio::test]
+    async fn the_commits_of_a_branch_merged_in_from_before_the_base_are_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let commit = |name: &str| git(root, &["commit", "-q", "--allow-empty", "-m", name]);
+        git(root, &["init", "-q", "-b", "main"]);
+        commit("root");
+        git(root, &["checkout", "-q", "-b", "side"]);
+        commit("side");
+        git(root, &["checkout", "-q", "main"]);
+        commit("base");
+        git(root, &["checkout", "-q", "-b", "work"]);
+        commit("work");
+        git(root, &["merge", "-q", "--no-ff", "-m", "merge", "side"]);
+
+        let got = changed(root, 10).await.unwrap().unwrap();
+
+        let mut subjects: Vec<_> = got.commits.iter().map(|c| c.subject.as_str()).collect();
+        subjects.sort();
+        assert_eq!(subjects, ["merge", "side", "work"]);
     }
 
     #[test]

@@ -69,7 +69,8 @@ fn changes_json(
     out["added"] = json!(counted().map(|c| c.0).sum::<u64>());
     out["removed"] = json!(counted().map(|c| c.1).sum::<u64>());
     out["truncated"] = json!(
-        changed.files.len() > FILES
+        changed.cut
+            || changed.files.len() > FILES
             || changed.commits.len() > COMMITS
             || changed.files.iter().any(|(c, _)| c.path.len() > TEXT)
             || changed.commits.iter().any(|c| c.subject.len() > TEXT)
@@ -239,6 +240,7 @@ mod tests {
             backend: Backend::Jj,
             base: "abc".into(),
             commits: Vec::new(),
+            cut: false,
             files: (0..files)
                 .map(|n| {
                     let change = Change {
@@ -269,6 +271,16 @@ mod tests {
         assert_eq!(told["files"].as_array().unwrap().len(), FILES);
         assert_eq!(told["truncated"], true);
         assert_eq!(told["added"], json!((FILES + 1) * 2));
+    }
+
+    #[test]
+    fn lines_left_uncounted_are_told_as_cut() {
+        let changed = Changed {
+            cut: true,
+            ..changed(1)
+        };
+        let told = changes_json(std::path::Path::new("/r"), None, Some(&changed));
+        assert_eq!(told["truncated"], true);
     }
 
     #[test]
