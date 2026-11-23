@@ -97,6 +97,24 @@ pub(crate) fn shows_file(shown: Option<&Tab>, terminals: &[TerminalSession], pat
     }
 }
 
+/// The icon a row of a place draws before its name, if it draws one.
+fn place_icon(it: &Item, t: &Tree, open: bool) -> Option<Icon> {
+    match it {
+        Item::Workspace(_, root) if t.workspace_of(root).is_some_and(|w| w.scratch) => {
+            Some(Icon::Notes)
+        }
+        Item::Workspace(_, _) if !open => Some(Icon::Folder),
+        Item::Workspace(_, _) => Some(Icon::FolderOpen),
+        Item::Worktree(_, path) if t.workspace_of(path).is_some_and(|w| !w.git) => {
+            Some(if open { Icon::FolderOpen } else { Icon::Folder })
+        }
+        Item::Worktree(_, _) => Some(Icon::GitBranch),
+        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) if open => Some(Icon::ChevronDown),
+        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) => Some(Icon::ChevronRight),
+        _ => None,
+    }
+}
+
 fn short(path: &Path) -> String {
     adroit_core::picker::short(path, &crate::paths::home())
 }
@@ -391,17 +409,7 @@ pub(crate) fn TreeRow(item: Item, context: RowContext, on: RowEvents) -> Element
         Item::Terminal(_, id) => Some(runs_of(terminals, *id)),
         _ => None,
     };
-    let place_icon = match &it {
-        Item::Workspace(_, root) if t.workspace_of(root).is_some_and(|w| w.scratch) => {
-            Some(Icon::Notes)
-        }
-        Item::Workspace(_, _) if !open => Some(Icon::Folder),
-        Item::Workspace(_, _) => Some(Icon::FolderOpen),
-        Item::Worktree(_, _) => Some(Icon::GitBranch),
-        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) if open => Some(Icon::ChevronDown),
-        Item::Across(..) | Item::Heading(..) | Item::GitHub(..) => Some(Icon::ChevronRight),
-        _ => None,
-    };
+    let place_icon = place_icon(&it, t, open);
     // What the console shows stands out wherever the selection is.
     let kind = match &own {
         Item::Session(environment, id)
@@ -564,6 +572,28 @@ mod tests {
 
     use super::*;
     use crate::shell::status_bar::mode_tip;
+
+    #[test]
+    fn a_scratch_row_is_drawn_as_a_folder_and_a_worktree_row_as_a_branch() {
+        use adroit_model::testing::shell;
+
+        let pad = "/private/tmp/claude-501/p/s/scratchpad/callback";
+        let t = tree()
+            .terminal(shell(1, pad))
+            .found(pad, None)
+            .session(session("a").cwd("/api/.claude/worktrees/x"))
+            .checkout("/api/.claude/worktrees/x", "/api", "x")
+            .scratch("/data/adroit/scratch")
+            .temporary("/private/tmp")
+            .build();
+        let row = |path: &str| Item::Worktree(EnvironmentId::unbound(), path.into());
+        assert_eq!(place_icon(&row(pad), &t, false), Some(Icon::Folder));
+        assert_eq!(place_icon(&row(pad), &t, true), Some(Icon::FolderOpen));
+        assert_eq!(
+            place_icon(&row("/api/.claude/worktrees/x"), &t, false),
+            Some(Icon::GitBranch)
+        );
+    }
 
     #[test]
     fn a_file_is_shown_by_its_viewer_or_by_the_neovim_started_on_it() {

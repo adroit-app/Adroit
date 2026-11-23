@@ -50,7 +50,7 @@ pub(super) async fn watch(mut watched: Watched) {
                 } = read;
                 let kept = kept_workspaces();
                 let found = inspect(&sessions, &terminals, &kept, &mut cache).await;
-                let scratch = crate::paths::scratch_dir();
+                let scratch = crate::paths::scratch();
                 let tree = |listed: &[Worktree]| {
                     build(&sessions, &terminals, &found, listed, &kept, Some(&scratch))
                 };

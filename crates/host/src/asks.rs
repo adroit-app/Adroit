@@ -345,8 +345,11 @@ async fn start_session(watched: &Watched, start: SessionStart) -> Result<Answer,
 /// Start the shell, Neovim or command `start` asks for, held, and list it at
 /// once.
 async fn start_terminal(watched: &Watched, start: TerminalStart) -> Result<Answer, String> {
-    let cwd = here(start.cwd).map_err(|e| format!("cannot open {}: {e}", start.name))?;
+    let at = here(start.cwd).map_err(|e| format!("cannot open {}: {e}", start.name))?;
     let settings = settings::current();
+    let root = settings::scratch_folder(&settings, &crate::paths::home());
+    let cwd = scratch::start_dir(&at, &root)
+        .map_err(|e| format!("cannot make the scratch folder for {}: {e}", start.name))?;
     let mut resolved = crate::execution::resolve_terminal(
         &settings,
         TerminalStartRequest {

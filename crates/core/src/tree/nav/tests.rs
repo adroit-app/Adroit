@@ -1422,3 +1422,19 @@ fn a_filter_matches_a_name_whose_letters_come_in_its_order_as_the_pickers_do() {
     // A lowercase filter ignores case; one with an uppercase letter keeps it.
     assert_eq!(rows(&narrowed(&t, "LOGS"), &Folds::default()), []);
 }
+
+#[test]
+fn scratch_works_in_the_scratch_folder_though_only_a_temporary_directory_is_listed() {
+    let pad = "/private/tmp/callback";
+    let t = testing::tree()
+        .terminal(testing::shell(1, pad))
+        .found(pad, None)
+        .scratch("/data/adroit/scratch")
+        .temporary("/private/tmp")
+        .build();
+    assert_eq!(
+        place_of(&t, &ws("/data/adroit/scratch")),
+        Some(at("/data/adroit/scratch"))
+    );
+    assert_eq!(place_of(&t, &worktree(pad)), Some(at(pad)));
+}

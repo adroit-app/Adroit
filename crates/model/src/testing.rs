@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use crate::profile::AgentProfile;
 use crate::{
-    Agent, AgentPermissions, Session, SessionId, State, TerminalSession, Tree, Wait, Worktree,
-    build,
+    Agent, AgentPermissions, Scratch, Session, SessionId, State, TerminalSession, Tree, Wait,
+    Worktree, build,
 };
 
 /// A session adroit runs, with `id` as its id and its name.
@@ -201,6 +201,7 @@ pub struct TreeBuilder {
     listed: Vec<Worktree>,
     kept: Vec<PathBuf>,
     scratch: Option<PathBuf>,
+    temporary: Vec<PathBuf>,
 }
 
 impl TreeBuilder {
@@ -241,6 +242,12 @@ impl TreeBuilder {
         self
     }
 
+    /// A temporary directory, whose throwaway directories join Scratch.
+    pub fn temporary(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.temporary.push(dir.into());
+        self
+    }
+
     /// A workspace the tree keeps, whether anything runs in it or not.
     pub fn kept(mut self, dir: impl Into<PathBuf>) -> Self {
         self.kept.push(dir.into());
@@ -254,7 +261,12 @@ impl TreeBuilder {
             &self.found,
             &self.listed,
             &self.kept,
-            self.scratch.as_deref(),
+            self.scratch
+                .map(|root| Scratch {
+                    root,
+                    temporary: self.temporary,
+                })
+                .as_ref(),
         )
     }
 }

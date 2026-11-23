@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use adroit_model::{Agent, Process, Session};
+use adroit_model::{Agent, Process, Scratch, Session, Worktree};
 use adroit_protocol::{Answer, Event, Request, Told, Typing};
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -162,12 +162,13 @@ async fn keep_workspace(watched: &Watched, window: WindowId, dir: PathBuf) -> Re
         watched.tell(window, failure(text.clone()));
         return Err(text);
     }
-    let scratch = crate::paths::scratch_dir();
-    let root = match dir.starts_with(&scratch) {
-        true => scratch,
-        false => adroit_vcs::inspect(&dir)
-            .await
-            .map_or(dir, |worktree| worktree.repo),
+    let worktree = adroit_vcs::inspect(&dir).await;
+    let root = match kept_root(dir, worktree, &crate::paths::scratch()) {
+        Ok(root) => root,
+        Err(text) => {
+            watched.tell(window, failure(text.clone()));
+            return Err(text);
+        }
     };
     let state = crate::paths::instance_state();
     let kept =
@@ -178,6 +179,24 @@ async fn keep_workspace(watched: &Watched, window: WindowId, dir: PathBuf) -> Re
     }
     watched.relist();
     result.map(|_| ())
+}
+
+/// The workspace to keep for `dir`, which git holds in `worktree`, or why
+/// there is none.
+fn kept_root(
+    dir: PathBuf,
+    worktree: Option<Worktree>,
+    scratch: &Scratch,
+) -> Result<PathBuf, String> {
+    match worktree {
+        _ if scratch.holds(&dir) => Ok(scratch.root.clone()),
+        Some(worktree) => Ok(worktree.repo),
+        None if scratch.temporary(&dir) => Err(format!(
+            "{} is temporary: Scratch lists it while something runs there",
+            dir.display()
+        )),
+        None => Ok(dir),
+    }
 }
 
 /// Keep the workspace `root` in the tree no more.
@@ -307,6 +326,23 @@ fn failure(text: String) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_temporary_directory_outside_git_is_not_kept_and_says_why() {
+        let scratch = Scratch {
+            root: "/data/scratch".into(),
+            temporary: vec!["/tmp".into()],
+        };
+        let root = |dir: &str, worktree| kept_root(dir.into(), worktree, &scratch);
+        assert_eq!(
+            root("/tmp/trial", None),
+            Err("/tmp/trial is temporary: Scratch lists it while something runs there".into())
+        );
+        let clone = Worktree::plain("/tmp/felis");
+        assert_eq!(root("/tmp/felis/src", Some(clone)), Ok("/tmp/felis".into()));
+        assert_eq!(root("/notes", None), Ok("/notes".into()));
+        assert_eq!(root("/data/scratch/x", None), Ok("/data/scratch".into()));
+    }
 
     #[test]
     fn a_command_is_pasted_and_entered_after_a_moment() {
