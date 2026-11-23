@@ -1,7 +1,7 @@
 //! Attaching to the sessions and shells the window shows, which panes are
 //! live, and closing a shell's.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -84,10 +84,24 @@ pub(crate) fn ensure_pane(
         )
         .await;
         hub.attaching.borrow_mut().remove(&tab);
-        if let Ok(pane) = pane {
-            hub.panes.borrow_mut().insert(tab.clone(), Arc::new(pane));
-            attached();
-            let _ = hub.wake.send(tab);
+        match pane {
+            Ok(pane) => {
+                hub.failed.borrow_mut().remove(&tab);
+                hub.panes.borrow_mut().insert(tab.clone(), Arc::new(pane));
+                attached();
+                let _ = hub.wake.send(tab);
+            }
+            Err(error) => {
+                let text = error.to_string();
+                let before = hub.failed.borrow_mut().insert(tab.clone(), text.clone());
+                // A local session that cannot be attached to has ended, which
+                // its listing tells.
+                if app.remote_status_of(tab.environment()).is_some()
+                    && before.as_ref() != Some(&text)
+                {
+                    app.status(Some(format!("cannot attach to the console: {text}")));
+                }
+            }
         }
         tell_live(app, &hub);
     });
@@ -177,26 +191,51 @@ impl Ui {
     }
 
     /// Keep the panes of `environment` and the images drawn only of these
-    /// sessions and terminals: one no longer listed has nothing to show.
+    /// sessions and terminals and those still live: one ended has nothing to
+    /// show.
     pub(crate) fn keep_panes(
         &self,
         environment: &EnvironmentId,
         sessions: &BTreeSet<String>,
         terminals: &BTreeSet<u128>,
     ) {
-        self.hub.panes.borrow_mut().retain(|tab, _| match tab {
-            _ if tab.environment() != environment => true,
-            Tab::Session(_, id) => sessions.contains(id),
-            Tab::Terminal(_, id) => terminals.contains(id),
-            Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => true,
-        });
-        let live = |e: &EnvironmentId, id: &str| e != environment || sessions.contains(id);
+        keep_listed(
+            &mut self.hub.panes.borrow_mut(),
+            environment,
+            sessions,
+            terminals,
+            |pane| !pane.exited(),
+        );
+        let panes = self.hub.panes.borrow();
+        let live = |e: &EnvironmentId, id: &str| {
+            e != environment
+                || sessions.contains(id)
+                || panes.contains_key(&Tab::Session(e.clone(), id.into()))
+        };
         let mut gallery = self.local.gallery;
         let gone = gallery.peek().store.sessions().any(|(e, id)| !live(e, id));
         if gone {
             gallery.write().store.retain(live);
         }
     }
+}
+
+/// Keep the panes of `environment` only of these sessions and terminals, and
+/// those still live: a listing made before one started, or that reaches the
+/// window late, does not name it yet.
+fn keep_listed<P>(
+    panes: &mut HashMap<Tab, P>,
+    environment: &EnvironmentId,
+    sessions: &BTreeSet<String>,
+    terminals: &BTreeSet<u128>,
+    live: impl Fn(&P) -> bool,
+) {
+    panes.retain(|tab, pane| match tab {
+        _ if tab.environment() != environment => true,
+        Tab::Session(_, id) => sessions.contains(id) || live(pane),
+        Tab::Terminal(_, id) => terminals.contains(id) || live(pane),
+        Tab::Draft { .. } | Tab::Viewer(_, _) | Tab::Drawn { .. } | Tab::GitHub { .. } => true,
+    });
 }
 
 /// Close a shell's windows, and show another thing of its worktree if no
@@ -235,5 +274,38 @@ mod tests {
             &Tab::Viewer(EnvironmentId::unbound(), "/tmp/file".into()),
             &panes
         ));
+    }
+
+    #[test]
+    fn a_live_pane_the_listing_has_yet_to_name_is_kept_until_it_ends() {
+        let here = EnvironmentId::unbound();
+        let there = EnvironmentId::new("there");
+        let session = |id: &str| Tab::Session(here.clone(), id.into());
+        let terminal = |id| Tab::Terminal(here.clone(), id);
+        let elsewhere = Tab::Session(there, "ended".into());
+        // (shown, live, kept by a listing of session `listed` and terminal 1)
+        let cases = [
+            (session("listed"), false, true),
+            (session("new"), true, true),
+            (session("ended"), false, false),
+            (terminal(1), false, true),
+            (terminal(2), true, true),
+            (terminal(3), false, false),
+            (elsewhere, false, true),
+        ];
+        let mut panes: HashMap<Tab, bool> = cases
+            .iter()
+            .map(|(tab, live, _)| (tab.clone(), *live))
+            .collect();
+        keep_listed(
+            &mut panes,
+            &here,
+            &BTreeSet::from(["listed".to_string()]),
+            &BTreeSet::from([1]),
+            |live| *live,
+        );
+        for (tab, _, kept) in cases {
+            assert_eq!(panes.contains_key(&tab), kept, "{tab:?}");
+        }
     }
 }

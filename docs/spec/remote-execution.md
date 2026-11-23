@@ -75,8 +75,16 @@ unavailable remote one.
 The connection state remains visible, including how old the displayed work
 is during a disconnect, on each environment's heading. A connection that
 keeps failing is reported in the status line once, naming its environment
-while the window shows several. Reconnection preserves the terminal host's identity;
+while the window shows several. It is then shown offline and still tried,
+less often, unless only the user can settle why it fails, such as a key the
+work machine refuses. A connection whose other machine went without closing
+it, as when it slept or changed networks, is noticed and made again.
+Reconnection preserves the terminal host's identity;
 a replacement terminal host requires opening a new connection explicitly.
+
+A console stays shown while its session is live, whether or not the work
+host's listing names the session yet. One that cannot be attached to is tried
+again, and the status line says why it could not be, once for each reason.
 
 Prompts are sent from an open session or draft. Before sending, the window
 retains the full draft durably and stops editing the prompt of that
