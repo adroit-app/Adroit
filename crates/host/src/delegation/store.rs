@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use super::{Code, Error, Message, MessageId, Readiness, Result, Sender, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -110,7 +110,19 @@ const MIGRATIONS: &[&str] = &[
     // A program outside Adroit that asks a session for work is kept by the
     // name it gave itself; every message from before is a session's.
     "ALTER TABLE messages ADD COLUMN outside TEXT;",
+    // Each change of how a session stands, for programs outside Adroit to
+    // follow.
+    "CREATE TABLE standings (
+         seq INTEGER PRIMARY KEY AUTOINCREMENT,
+         session TEXT NOT NULL,
+         at_ms INTEGER NOT NULL,
+         body TEXT NOT NULL
+     );
+     CREATE INDEX standings_by_session ON standings(session);",
 ];
+
+/// The most changes of how sessions stand kept: the latest.
+const STANDINGS: i64 = 10_000;
 
 /// The longest name a program outside Adroit goes by, in characters.
 const OUTSIDE_NAME: usize = 64;
@@ -638,6 +650,76 @@ impl Store {
         .collect()
     }
 
+    /// Keeps that `session` now stands as `body` says.
+    pub fn record_standing(&mut self, session: &str, body: &serde_json::Value) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO standings (session, at_ms, body) VALUES (?1, ?2, ?3)",
+            params![session, super::now_ms() as i64, body.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM standings WHERE seq <= ?1",
+            [transaction.last_insert_rowid() - STANDINGS],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// The number of the oldest change kept and of the newest there was.
+    pub fn standings_kept(&self) -> Result<(i64, i64)> {
+        let (oldest, newest): (Option<i64>, Option<i64>) =
+            self.connection
+                .query_row("SELECT MIN(seq), MAX(seq) FROM standings", [], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?;
+        Ok((oldest.unwrap_or(1), newest.unwrap_or(0)))
+    }
+
+    /// The first `most` changes after `since`: the number of each, when it
+    /// was and how it left its session.
+    pub fn standings_since(
+        &self,
+        since: i64,
+        most: usize,
+    ) -> Result<Vec<(i64, u64, serde_json::Value)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT seq, at_ms, body FROM standings WHERE seq > ?1 ORDER BY seq LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![since, most as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (seq, at_ms, body) = row?;
+            let body = serde_json::from_str(&body).map_err(Error::storage)?;
+            Ok((seq, at_ms as u64, body))
+        })
+        .collect()
+    }
+
+    /// How each session last stood, by its id.
+    pub fn last_standings(&self) -> Result<Vec<(String, serde_json::Value)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT session, body FROM standings WHERE seq IN (SELECT MAX(seq) FROM standings GROUP BY session)",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.map(|row| {
+            let (session, body) = row?;
+            Ok((
+                session,
+                serde_json::from_str(&body).map_err(Error::storage)?,
+            ))
+        })
+        .collect()
+    }
+
     fn update(&mut self, id: SessionId, sql: &str, value: String) -> Result<()> {
         let changed = self
             .connection
@@ -1102,6 +1184,25 @@ mod tests {
     }
 
     #[test]
+    fn the_last_standing_of_each_session_and_only_the_latest_changes_are_kept() {
+        let (_dir, mut store) = store();
+        let state = |state: &str| serde_json::json!({"state": state});
+        store.record_standing("a", &state("working")).unwrap();
+        store.record_standing("b", &state("idle")).unwrap();
+        store.record_standing("a", &state("done")).unwrap();
+        let mut last = store.last_standings().unwrap();
+        last.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            last,
+            [("a".into(), state("done")), ("b".into(), state("idle"))]
+        );
+        for _ in 0..STANDINGS {
+            store.record_standing("b", &state("idle")).unwrap();
+        }
+        assert_eq!(store.standings_kept().unwrap(), (4, STANDINGS + 3));
+    }
+
+    #[test]
     fn a_message_to_no_known_session_is_refused() {
         let (_dir, mut store) = store();
         let a = register(&mut store, None, "a");
@@ -1476,7 +1577,7 @@ PRAGMA user_version = 1;
                 .connection
                 .execute_batch(
                     "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
-                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
+                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; DROP TABLE standings; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -1733,7 +1834,7 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "DROP TABLE timeline; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                    "DROP TABLE timeline; DROP TABLE standings; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
                 )
                 .unwrap();
             (old, by, other)

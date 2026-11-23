@@ -242,6 +242,7 @@ impl Ask {
             Self::Cloned { .. } => true,
             Self::Run { args, .. } => {
                 matches!(args.as_slice(), [on, wait, ..] if matches!(on.as_str(), "terminal" | "session") && wait == "wait")
+                    || matches!(args.as_slice(), [on, watch, ..] if on == "session" && watch == "watch")
             }
             _ => false,
         }
@@ -356,6 +357,7 @@ mod tests {
     #[test]
     fn waiting_for_a_session_ends_with_the_one_who_asked() {
         assert!(run(&["session", "wait", "wwdc"]).waits());
+        assert!(run(&["session", "watch", "--once"]).waits());
         assert!(!run(&["session", "show", "wwdc"]).waits());
     }
 

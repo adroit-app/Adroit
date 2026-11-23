@@ -334,6 +334,10 @@ async fn rpc_error<W: AsyncWrite + Unpin>(
 /// nothing for any other event, or while the work host cannot say.
 async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
     let name = event["hook_event_name"].as_str()?;
+    if name == "PermissionRequest" {
+        ask_the_user(event, daemon).await;
+        return None;
+    }
     let cleared = match name {
         "UserPromptSubmit" => false,
         "SessionStart" if event["source"] == "clear" => true,
@@ -344,6 +348,49 @@ async fn hook(event: &Value, daemon: impl Daemon) -> Option<Value> {
         .ok()?
         .note?;
     Some(json!({"hookSpecificOutput": {"hookEventName": name, "additionalContext": note}}))
+}
+
+/// How long a hook waits before it tells a work host that went away again.
+const TELL_AGAIN: Duration = Duration::from_secs(2);
+
+/// Tells the work host what the agent asks the user, for as long as the agent
+/// keeps the hook. Claude Code shows the dialog meanwhile, but that of a
+/// subagent's only once the hook has returned, so one is told of nothing.
+async fn ask_the_user(event: &Value, daemon: impl Daemon) {
+    let Some(tool) = event["tool_name"].as_str() else {
+        return;
+    };
+    if !event["agent_id"].is_null() {
+        return;
+    }
+    let asking = super::questions::Asking {
+        id: super::MessageId::new(),
+        tool: tool.to_owned(),
+        input: event["tool_input"].clone(),
+        dir: event["cwd"].as_str().map(String::from),
+    };
+    loop {
+        match daemon.ask(Command::Asking(asking.clone()), None).await {
+            Err(error) if error.code == Code::Storage => {}
+            // Answered otherwise, as by a work host that knows no questions.
+            _ => return,
+        }
+        tokio::time::sleep(TELL_AGAIN).await;
+    }
+}
+
+/// Ends once the process that started this one has gone, leaving no one to
+/// hand an answer to.
+async fn orphaned() {
+    #[cfg(unix)]
+    {
+        let parent = std::os::unix::process::parent_id();
+        while std::os::unix::process::parent_id() == parent {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+    #[cfg(not(unix))]
+    std::future::pending::<()>().await;
 }
 
 /// `adroit mcp hook`: answers the hook event on standard input. It always
@@ -361,9 +408,15 @@ fn hook_cli() -> i32 {
     else {
         return 0;
     };
-    let answer = crate::cli::block_on(hook(&event, Socket::new(Path::new(&root), credential)))
-        .ok()
-        .flatten();
+    let daemon = Socket::new(Path::new(&root), credential);
+    let answer = crate::cli::block_on(async {
+        tokio::select! {
+            answer = hook(&event, daemon) => answer,
+            () = orphaned() => None,
+        }
+    })
+    .ok()
+    .flatten();
     if let Some(answer) = answer {
         println!("{answer}");
     }
@@ -491,6 +544,34 @@ mod tests {
             assert_eq!(hook(&event, daemon.clone()).await, None, "{source}");
             assert!(daemon.asked.lock().unwrap().is_empty(), "{source}");
         }
+    }
+
+    #[tokio::test]
+    async fn what_the_agent_asks_is_told_and_decided_by_no_hook() {
+        let daemon = Fake::new();
+        let event = json!({"hook_event_name": "PermissionRequest", "tool_name": "Bash",
+            "tool_input": {"command": "ls"}, "cwd": "/repo"});
+        assert_eq!(hook(&event, daemon.clone()).await, None);
+        assert_eq!(*daemon.asked.lock().unwrap(), ["asking"]);
+    }
+
+    #[tokio::test]
+    async fn what_a_subagent_asks_is_not_told_as_its_dialog_would_wait_for_the_hook() {
+        let daemon = Fake::new();
+        let event = json!({"hook_event_name": "PermissionRequest", "tool_name": "Bash",
+            "tool_input": {"command": "ls"}, "agent_id": "a1"});
+        assert_eq!(hook(&event, daemon.clone()).await, None);
+        assert!(daemon.asked.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn what_the_agent_asks_is_told_again_once_the_work_host_is_back() {
+        let daemon = Fake::new();
+        *daemon.away.lock().unwrap() = 1;
+        let event = json!({"hook_event_name": "PermissionRequest", "tool_name": "Bash",
+            "tool_input": {}});
+        hook(&event, daemon.clone()).await;
+        assert_eq!(daemon.asked.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]
