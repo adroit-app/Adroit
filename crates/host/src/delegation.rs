@@ -9,6 +9,7 @@ pub mod app;
 pub mod bridge;
 pub mod launch;
 pub mod protocol;
+pub mod questions;
 pub mod service;
 pub mod store;
 

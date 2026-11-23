@@ -5,13 +5,14 @@ use std::sync::Arc;
 use adroit_model::timeline::Timeline;
 use adroit_model::{Agent, SessionId};
 use serde_json::Value;
-use tokio::io::BufReader;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::Context;
 use super::commands::{close, listed, prompted, record_timeline, rename, start};
 use crate::delegation::{
     Code, Error, Message, Result, Sender, Session,
     protocol::{self, Command, Request, Response, VERSION},
+    questions,
     store::Store,
 };
 
@@ -26,16 +27,47 @@ pub(super) async fn serve(listener: adroit_sys::local::Listener, context: Contex
         };
         let context = context.clone();
         crate::environment::spawn(async move {
-            let _permit = permit;
-            let _ = reply(stream, context).await;
+            let _ = reply(stream, context, permit).await;
         });
     }
 }
 
-async fn reply(stream: adroit_sys::local::Stream, context: Context) -> Result<()> {
+async fn reply(
+    stream: adroit_sys::local::Stream,
+    context: Context,
+    permit: tokio::sync::OwnedSemaphorePermit,
+) -> Result<()> {
     let (read, mut write) = tokio::io::split(stream);
-    let frame = protocol::read_frame(&mut BufReader::new(read)).await?;
+    let mut read = BufReader::new(read);
+    let frame = protocol::read_frame(&mut read).await?;
     let result = match serde_json::from_slice::<Request>(&frame) {
+        Ok(Request {
+            version: VERSION,
+            credential,
+            command: Command::Asking(asking),
+            ..
+        }) => {
+            // Waits as long as the user likes, which must not keep others out.
+            drop(permit);
+            let caller = context
+                .call(move |store| store.authenticate(&credential))
+                .await?;
+            let Some(_waits) = questions::hold(caller, asking, crate::delegation::now_ms()) else {
+                let refused = Response {
+                    version: VERSION,
+                    result: Err(Error::new(
+                        Code::Refused,
+                        "the session has too many questions waiting",
+                    )),
+                };
+                return protocol::write_frame(&mut write, &refused).await;
+            };
+            while matches!(read.fill_buf().await, Ok(more) if !more.is_empty()) {
+                let more = read.buffer().len();
+                read.consume(more);
+            }
+            return Ok(());
+        }
         Ok(request) if request.version == VERSION => dispatch(&context, request).await,
         Ok(_) => Err(Error::new(Code::Invalid, "unsupported protocol version")),
         Err(error) => Err(Error::new(
@@ -123,6 +155,10 @@ async fn dispatch(context: &Context, request: Request) -> Result<Value> {
                 None => Ok(Value::Null),
             }
         }
+        Command::Asking(_) => Err(Error::new(
+            Code::Invalid,
+            "what is asked is held on a connection of its own",
+        )),
         Command::Delivered { id } => {
             let recipient = caller.id;
             context

@@ -237,13 +237,8 @@ pub async fn ensure(socket: &Path, program: &Path, args: &[String]) -> Result<bo
 /// runs, with `input` on its standard input, and say what it wrote. Returns
 /// the process exit code.
 pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
-    let ran = (|| {
-        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-        crate::cli::block_on(asked(&socket(), Ask::Run { args, cwd, input }))
-            .map_err(|e| e.to_string())?
-    })();
-    match ran {
-        Ok(Answer::Ran {
+    match ran(args, input) {
+        Ok(Ran {
             stdout,
             stderr,
             code,
@@ -256,14 +251,38 @@ pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
             }
             code
         }
-        Ok(Answer::Failed { text }) | Err(text) => {
+        Err(text) => {
             eprintln!("adroit: {text}");
             1
         }
-        Ok(answer) => {
-            eprintln!("adroit: the work host answered {answer:?}");
-            1
-        }
+    }
+}
+
+/// What a command the work host ran wrote, and its exit status.
+pub(crate) struct Ran {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
+}
+
+/// `adroit <args>` as the work host ran it, started where none runs, with
+/// `input` on its standard input.
+pub(crate) fn ran(args: Vec<String>, input: Option<String>) -> std::result::Result<Ran, String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let answer = crate::cli::block_on(asked(&socket(), Ask::Run { args, cwd, input }))
+        .map_err(|e| e.to_string())??;
+    match answer {
+        Answer::Ran {
+            stdout,
+            stderr,
+            code,
+        } => Ok(Ran {
+            stdout,
+            stderr,
+            code,
+        }),
+        Answer::Failed { text } => Err(text),
+        answer => Err(format!("the work host answered {answer:?}")),
     }
 }
 

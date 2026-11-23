@@ -79,6 +79,7 @@ impl Watcher {
         let now = context.daemon.generation();
         let mut interrupted = self.terminals(context, &native, now.as_deref()).await?;
         let records = context.call(|store| store.sessions()).await?;
+        let all = records.clone();
         for mut record in records.into_iter().filter(|record| !record.ended) {
             let Some(terminal) = record.terminal else {
                 continue;
@@ -102,6 +103,9 @@ impl Watcher {
                 continue;
             }
             let native = listed.expect("a listed terminal that runs");
+            crate::outside::began(&record, &all, native)
+                .await
+                .map_err(Error::storage)?;
             if record.readiness != Readiness::Ready {
                 let screen = context
                     .daemon

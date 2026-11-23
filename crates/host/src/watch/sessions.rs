@@ -48,6 +48,9 @@ pub(super) async fn watch(mut watched: Watched) {
                     terminals,
                     silent,
                 } = read;
+                if let Err(error) = crate::outside::follow(&sessions).await {
+                    tracing::warn!(%error, "cannot keep how the sessions stand");
+                }
                 let kept = kept_workspaces();
                 let found = inspect(&sessions, &terminals, &kept, &mut cache).await;
                 let scratch = crate::paths::scratch();

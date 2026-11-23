@@ -14,11 +14,16 @@ use adroit_model::{Agent, SessionCode, State, Wait};
 use serde::Serialize;
 use serde_json::json;
 
+mod events;
+
+pub(crate) use events::{began, follow};
+
 use crate::command::Output;
 use crate::delegation::protocol::Opener;
+use crate::delegation::questions::{self, Question};
 use crate::delegation::{Message, Readiness, Sender, Session as Record, app};
 
-pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]";
+pub(crate) const USAGE: &str = "usage: adroit session list [--dir <path>] [--ended] [--json]\n       adroit session show <session> [--turns <n>] [--json]\n       adroit session send <session> --from <name> [--json] [-- <prompt>]\n       adroit session wait <session> [--timeout <secs>] [--json]\n       adroit session watch [--since <seq>] [--once]";
 
 /// The exit status of a wait that timed out.
 const TIMED_OUT: i32 = 3;
@@ -36,6 +41,8 @@ const READING: Duration = Duration::from_secs(20);
 const REPLY: usize = 24 * 1024;
 const EARLIER: usize = 4 * 1024;
 const TASK: usize = 512;
+/// The longest input of a question shown, in bytes.
+const INPUT: usize = 24 * 1024;
 /// The most a session shown may take as JSON, in bytes: earlier turns and
 /// then the tasks are left out to keep to it.
 const SHOWN: usize = 60 * 1024;
@@ -60,6 +67,10 @@ pub(crate) enum Asked {
         session: String,
         timeout: Duration,
     },
+    Watch {
+        since: Option<i64>,
+        once: bool,
+    },
 }
 
 /// What `adroit session <args>` asks, and whether as JSON; none when `args`
@@ -68,6 +79,7 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
     let (operation, rest) = args.split_first()?;
     let (mut session, mut dir, mut turns, mut from) = (None, None, None, None);
     let (mut timeout, mut prompt) = (None, None);
+    let (mut since, mut once) = (None, false);
     let (mut ended, mut json) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -87,6 +99,10 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
                 let secs = rest.next()?.parse().ok();
                 timeout = Some(secs.filter(|s| (1..=WAIT_MOST).contains(s))?);
             }
+            ("watch", "--since") if since.is_none() => {
+                since = Some(rest.next()?.parse().ok().filter(|n| *n >= 0)?);
+            }
+            ("watch", "--once") => once = true,
             ("show" | "send" | "wait", word) if !word.starts_with('-') && session.is_none() => {
                 session = Some(word.to_string());
             }
@@ -108,6 +124,7 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
             session: session?,
             timeout: timeout.map_or(WAIT, Duration::from_secs),
         },
+        "watch" => Asked::Watch { since, once },
         _ => return None,
     };
     Some((asked, json))
@@ -116,7 +133,7 @@ pub(crate) fn parse(args: &[String]) -> Option<(Asked, bool)> {
 /// Whether `args` ask for one of the operations here.
 pub(crate) fn takes(args: &[String]) -> bool {
     let operation = args.first().map(String::as_str);
-    matches!(operation, Some("list" | "show" | "send" | "wait"))
+    matches!(operation, Some("list" | "show" | "send" | "wait" | "watch"))
 }
 
 /// How long `adroit <args>` may wait for a session, when it is a wait.
@@ -124,6 +141,7 @@ pub(crate) fn waits_for(args: &[String]) -> Option<Duration> {
     match args.split_first() {
         Some((session, rest)) if session == "session" => match parse(rest)?.0 {
             Asked::Wait { timeout, .. } => Some(timeout),
+            Asked::Watch { .. } => Some(events::PATIENCE),
             _ => None,
         },
         _ => None,
@@ -521,6 +539,33 @@ struct Shown {
     truncated: bool,
     /// The requests from outside not handed to the session yet.
     undelivered: usize,
+    /// What the session asks the user, where its agent tells of it.
+    question: Option<Asks>,
+}
+
+/// What a session asks the user, as a program outside Adroit is told of it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Asks {
+    #[serde(flatten)]
+    question: Question,
+    /// Whether the input is too long to be shown whole, and is then the
+    /// beginning of its text.
+    truncated: bool,
+}
+
+impl Asks {
+    fn of(question: Question) -> Self {
+        let text = question.input.to_string();
+        let (shown, truncated) = cut(&text, INPUT);
+        let input = match truncated {
+            true => json!(shown),
+            false => question.input.clone(),
+        };
+        Self {
+            question: Question { input, ..question },
+            truncated,
+        }
+    }
 }
 
 impl Shown {
@@ -530,6 +575,7 @@ impl Shown {
         asked: usize,
         tasks: &[Task],
         undelivered: usize,
+        question: Option<Question>,
     ) -> Self {
         let from = turns.len().saturating_sub(asked);
         let last = turns.len().saturating_sub(1);
@@ -559,6 +605,7 @@ impl Shown {
             timeline,
             truncated,
             undelivered,
+            question: question.map(Asks::of),
         };
         while shown.turns.len() > 1 && shown.json().len() > SHOWN {
             shown.turns.remove(0);
@@ -566,6 +613,10 @@ impl Shown {
         }
         while !shown.timeline.is_empty() && shown.json().len() > SHOWN {
             shown.timeline.pop();
+            shown.truncated = true;
+        }
+        if shown.json().len() > SHOWN && !shown.turns.is_empty() {
+            shown.turns.clear();
             shown.truncated = true;
         }
         shown
@@ -577,6 +628,9 @@ impl Shown {
 
     fn text(&self) -> String {
         let mut out = vec![line(&self.listed)];
+        if let Some(Asks { question, .. }) = &self.question {
+            out.push(format!("? {}: {}", question.tool, question.input));
+        }
         for shown in &self.turns {
             out.push(format!("\n> {}", shown.turn.prompt));
             out.extend(shown.turn.reply.clone());
@@ -636,12 +690,17 @@ async fn show(asked: &str, turns_asked: usize) -> Result<Shown, String> {
         .filter(|m| !m.delivered)
         .count();
     let spoke = turns.last().and_then(|t| t.last_ms);
+    let question = match &found.standing {
+        Standing::Runs(State::Waiting(_)) => found.session.delegation.and_then(questions::of),
+        _ => None,
+    };
     Ok(Shown::new(
         found.listed(spoke),
         &turns,
         turns_asked,
         Timeline::replay(&entries).tasks(),
         undelivered,
+        question,
     ))
 }
 
@@ -787,6 +846,10 @@ async fn execute(
             };
             (text, if timed_out { TIMED_OUT } else { 0 })
         }
+        Asked::Watch { since, .. } => {
+            let told = events::changes(since, events::PATIENCE).await?;
+            (written(json!(told)), 0)
+        }
     })
 }
 
@@ -822,6 +885,9 @@ pub(crate) fn cli(args: &[String], acting: bool) -> i32 {
         eprintln!("{USAGE}");
         return 2;
     };
+    if let Asked::Watch { since, once: false } = asked {
+        return events::watch(since);
+    }
     let mut input = None;
     if let Asked::Send { prompt, .. } = &asked {
         if acting {
@@ -903,10 +969,58 @@ mod tests {
             &["send", "--from", "Famulen", "--", "go"],
             &["wait", "wwdc", "--timeout", "0"],
             &["wait", "wwdc", "--from", "x"],
+            &["watch", "wwdc"],
+            &["watch", "--since", "-1"],
             &["answer", "wwdc"],
         ] {
             assert_eq!(asked(wrong), None, "{wrong:?}");
         }
+    }
+
+    #[test]
+    fn a_watch_goes_on_from_the_change_named_until_stopped_unless_asked_once() {
+        assert_eq!(
+            asked(&["watch", "--since", "4"]),
+            Some(Asked::Watch {
+                since: Some(4),
+                once: false
+            })
+        );
+        assert_eq!(
+            asked(&["watch", "--once"]),
+            Some(Asked::Watch {
+                since: None,
+                once: true
+            })
+        );
+    }
+
+    #[test]
+    fn a_question_is_shown_whole_or_says_it_was_cut() {
+        let question = |command: &str| Question {
+            id: adroit_model::MessageId::new(),
+            kind: questions::Kind::Permission,
+            tool: "Bash".into(),
+            input: json!({"command": command}),
+            dir: Some("/repo".into()),
+            asked_ms: 1,
+        };
+        let whole = Asks::of(question("ls"));
+        assert_eq!(whole.question.input["command"], "ls");
+        assert!(!whole.truncated);
+        let long = Asks::of(question(&"x".repeat(INPUT)));
+        assert!(long.truncated);
+        assert_eq!(long.question.input.as_str().unwrap().len(), INPUT);
+        let turns: Vec<Turn> = (1..=3).map(|n| turn(n, &"\n".repeat(REPLY))).collect();
+        let shown = Shown::new(
+            listed(),
+            &turns,
+            3,
+            &[],
+            0,
+            Some(question(&"\"".repeat(INPUT))),
+        );
+        assert!(shown.json().len() <= SHOWN, "{}", shown.json().len());
     }
 
     #[test]
@@ -1108,7 +1222,7 @@ mod tests {
     #[test]
     fn the_last_turns_asked_for_are_shown_oldest_first() {
         let turns = [turn(1, "a"), turn(2, "b"), turn(3, "c")];
-        let shown = Shown::new(listed(), &turns, 2, &[task("ok")], 0);
+        let shown = Shown::new(listed(), &turns, 2, &[task("ok")], 0, None);
         let replies: Vec<_> = shown
             .turns
             .iter()
@@ -1116,7 +1230,11 @@ mod tests {
             .collect();
         assert_eq!(replies, ["b", "c"]);
         assert!(!shown.truncated && !shown.turns[0].truncated);
-        assert!(Shown::new(listed(), &turns, 0, &[], 0).turns.is_empty());
+        assert!(
+            Shown::new(listed(), &turns, 0, &[], 0, None)
+                .turns
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1124,7 +1242,7 @@ mod tests {
         let long = "あ".repeat(REPLY);
         let turns: Vec<Turn> = (1..=TURNS as u64).map(|n| turn(n, &long)).collect();
         let tasks: Vec<Task> = (0..200).map(|_| task(&long)).collect();
-        let shown = Shown::new(listed(), &turns, TURNS, &tasks, 0);
+        let shown = Shown::new(listed(), &turns, TURNS, &tasks, 0, None);
         assert!(shown.json().len() <= SHOWN);
         assert!(shown.truncated);
         let last = shown.turns.last().unwrap();

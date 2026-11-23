@@ -21,15 +21,26 @@ pub fn install(program: &Path, dir: &Path) -> std::io::Result<()> {
     std::fs::write(hooks.join("hooks.json"), self::hooks(program))
 }
 
+/// How long Claude Code keeps the hook told what it asks the user, in seconds.
+const WAITS: u64 = 24 * 60 * 60;
+
 /// The hooks that ask `program` what to tell Claude: once a conversation is
-/// cleared and as each prompt arrives.
+/// cleared and as each prompt arrives; and the one that tells `program` what
+/// Claude asks the user.
 fn hooks(program: &Path) -> String {
     let asked = serde_json::json!([{
         "type": "command",
         "command": format!("{} mcp hook", crate::shell_word(program)),
         "timeout": 5,
     }]);
+    // Kept for as long as the user takes to answer.
+    let waits = serde_json::json!([{
+        "type": "command",
+        "command": format!("{} mcp hook", crate::shell_word(program)),
+        "timeout": WAITS,
+    }]);
     let hooks = serde_json::json!({"hooks": {
+        "PermissionRequest": [{"hooks": waits}],
         "SessionStart": [{"matcher": "clear", "hooks": asked}],
         "UserPromptSubmit": [{"hooks": asked}],
     }});
@@ -79,6 +90,9 @@ mod tests {
         assert_eq!(start["hooks"][0]["command"], asked);
         let prompt = &hooks["hooks"]["UserPromptSubmit"][0];
         assert_eq!(prompt["hooks"][0]["command"], asked);
+        let asks = &hooks["hooks"]["PermissionRequest"][0]["hooks"][0];
+        assert_eq!(asks["command"], asked);
+        assert_eq!(asks["timeout"], WAITS);
     }
 
     #[test]

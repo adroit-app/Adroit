@@ -241,6 +241,7 @@ $ adroit session list [--dir <path>] [--ended] [--json]
 $ adroit session show <session> [--turns <n>] [--json]
 $ adroit session send <session> --from <name> [--json] [-- <prompt>]
 $ adroit session wait <session> [--timeout <secs>] [--json]
+$ adroit session watch [--since <seq>] [--once]
 ```
 
 A session is named by its id or its [code](sessions.md#a-sessions-code), or
@@ -258,6 +259,8 @@ and exits with 1, and with 2 when it was not asked properly.
   60 seconds unless `--timeout` says otherwise. A session just started or
   asked is waited for through the turn that follows. It prints the session as
   it then stands, and exits with 3 when the time ran out.
+- **`watch`** prints each change of how a session stands as it comes, one JSON
+  object on a line ([changes](#changes)), until it is stopped.
 
 None of them answers what a session asks you, in permission, trust or any
 other dialog: it is told of as waiting, and answered in Adroit.
@@ -276,6 +279,9 @@ what is their own beside it:
  "timeline":[{"id":"t1","parent":null,"title":"Fix the login","status":"in_progress",
    "weight":1.0,"description":null,"note":null}],
  "truncated":false,"undelivered":0,
+ "question":{"id":"8ff034cc-…","kind":"permission","tool":"Bash",
+   "input":{"command":"cargo publish"},"dir":"/Users/me/src/api",
+   "asked_ms":1795445078627,"truncated":false},
 
  "timed_out":false}
 ```
@@ -298,6 +304,13 @@ what is their own beside it:
   can be shown. What is shown is kept to 60 KiB as JSON: `truncated` on a turn
   tells that its text was cut, and on the session that turns or tasks were
   left out or a task's text cut.
+- `question`, in `show`, is what a Claude Code session asks you while it
+  waits: its `kind` is `permission` to use a tool, `question` for one of
+  Claude's own or `plan` to go on with a plan, and `input` is what it would
+  give the `tool`, whole, or the beginning of its text where `truncated`. Its
+  id is its own for as long as it is asked. It is null while nothing is asked,
+  and for what is not told: what a subagent asks, trust and other dialogs, a
+  session started before Adroit told of questions, and other agents.
 - `wait` adds `timed_out`.
 - `send --json` prints the request and the session it went to:
 
@@ -307,6 +320,31 @@ what is their own beside it:
 
 The conversation is read from what the agent itself keeps, so a session whose
 agent has not told its conversation yet has no turns.
+
+### Changes
+
+`watch` prints a change whenever a session's state, what it waits for or its
+question changes, as the session then stands, with `question` as its `id`,
+`kind` and `tool`:
+
+```json
+{"seq":3,"at_ms":1795445079541,"id":"7c5d…","code":"95nd","name":"fix-login",
+ "agent":"claude","dir":"/Users/me/src/api","state":"waiting",
+ "waiting_for":"permission","message":"approve Bash: cargo publish",
+ "opened_by":null,"started_ms":1795445071170,
+ "question":{"id":"8ff0…","kind":"permission","tool":"Bash"}}
+```
+
+Changes are numbered in order by `seq` and kept apart from the work host, the
+latest of them for long. `--since <seq>` prints what came after that change
+first, so a program that stopped takes up where it left off; without it a
+watch starts at the present. When changes asked for are no longer kept, a line
+`{"missed":true,"next":<seq>}` says so, and the sessions are to be listed
+anew. A watch goes on when the work host is replaced.
+
+`--once` waits a while for a change and prints what there is as
+`{"events":[…],"next":<seq>,"missed":false}`, for a program that keeps none
+running: `next` is what it gives as `--since` the next time.
 
 ### Requests
 

@@ -78,6 +78,9 @@ pub enum Command {
     Delivered {
         id: MessageId,
     },
+    /// What the caller's agent asks the user, held for as long as the one
+    /// who tells of it stays connected.
+    Asking(super::questions::Asking),
 }
 
 impl Command {
@@ -312,7 +315,9 @@ pub async fn ask(
         },
     )
     .await?;
-    let frame = read_frame(&mut BufReader::new(read)).await?;
+    let frame = read_frame(&mut BufReader::new(read))
+        .await
+        .map_err(|error| Error::new(Code::Storage, format!("the work host went away: {error}")))?;
     let response: Response = serde_json::from_slice(&frame).map_err(Error::storage)?;
     response.result
 }
