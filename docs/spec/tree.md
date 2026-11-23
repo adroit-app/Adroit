@@ -11,7 +11,8 @@ conversations can be resumed in Adroit
 A **workspace** is where sessions and the shells you open in Adroit run:
 
 - Scratch, holding every session and shell that runs in the scratch folder or
-  below it ([scratch sessions](#scratch-sessions));
+  below it, or in the temporary directory outside git
+  ([scratch sessions](#scratch-sessions));
 - a git repository, holding every session and shell that runs in any of its
   worktrees or in a directory below one;
 - otherwise the directory a session or a shell runs in.
@@ -67,8 +68,19 @@ notes                      ← a directory outside git: no worktree row
 ├── Files
 └── Sessions
     └── outline-the-talk
-Scratch                    ← every scratch session, straight under it
-└── explain-regex-flags
+Scratch                    ← the scratch folder and a temporary directory
+├── Sessions
+│   └── explain-regex-flags
+├── Terminals
+│   └── $ probe
+├── scratch                ← the scratch folder
+│   ├── Files
+│   └── Sessions
+│       └── explain-regex-flags
+└── callback               ← a directory in a session's scratchpad
+    ├── Files
+    └── Terminals
+        └── $ probe
 ```
 
 A git workspace with a remote on GitHub lists Pull Requests and Issues
@@ -298,9 +310,18 @@ one the settings name, or `$XDG_DATA_HOME/adroit/scratch`
 the first one starts.
 
 The tree lists everything that runs in the scratch folder or below it as one
-workspace, Scratch, after every other, its sessions and shells straight under
-it. Starting a session from it starts another scratch session; a shell opened
-from it runs in the scratch folder.
+workspace, Scratch, after every other. Starting a session from it starts
+another scratch session; a shell opened from it runs in the scratch folder.
+
+Scratch also holds the throwaway directories sessions work in: each directory
+in the temporary directory outside git where something runs, such as one in
+the scratchpad Claude Code keeps for a session. Scratch lists each of them as
+a repository lists a worktree, a row of its own named after the directory,
+with the scratch folder as its main checkout; while only the scratch folder
+has something running in it, its sessions and shells sit straight under
+Scratch. A temporary directory's row goes once nothing runs there, and adding
+one to the tree is refused. A git
+repository in the temporary directory is a workspace of its own as any other.
 
 A scratch session keeps to talk that belongs to no project. When the talk
 turns to work on a project, it opens a session in that project's directory,

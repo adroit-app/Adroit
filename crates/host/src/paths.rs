@@ -34,3 +34,52 @@ pub fn keys_path() -> PathBuf {
         adroit_model::paths::keys_path()
     }
 }
+
+/// Where throwaway work runs.
+pub fn scratch() -> adroit_model::Scratch {
+    adroit_model::Scratch {
+        root: scratch_dir(),
+        temporary: temporary_dirs(),
+    }
+}
+
+/// The temporary directories, by the paths they are reached by and those
+/// they resolve to: a directory in one outside git is throwaway work that
+/// Scratch holds.
+fn temporary_dirs() -> Vec<PathBuf> {
+    let mut named = vec![std::env::temp_dir()];
+    if cfg!(unix) {
+        named.push(PathBuf::from("/tmp"));
+    }
+    let mut dirs: Vec<PathBuf> = named
+        .into_iter()
+        .flat_map(|dir| {
+            let resolved = dir.canonicalize().ok();
+            std::iter::once(dir).chain(resolved)
+        })
+        .collect();
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_temporary_directories_hold_the_process_s_own_both_as_named_and_resolved() {
+        let dirs = temporary_dirs();
+        let own = std::env::temp_dir();
+        assert!(dirs.contains(&own));
+        assert!(dirs.contains(&own.canonicalize().unwrap()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_temporary_directories_hold_tmp_and_where_it_leads() {
+        let dirs = temporary_dirs();
+        assert!(dirs.contains(&PathBuf::from("/tmp")));
+        assert!(dirs.contains(&PathBuf::from("/private/tmp")));
+    }
+}

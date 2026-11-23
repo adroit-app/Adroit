@@ -4,9 +4,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Where a session started from a draft in `worktree` runs: the scratch
-/// folder `root`, made if it is not there yet, for a draft in it, otherwise
-/// the draft's own directory.
+/// Where a session started from a draft in `worktree`, or a terminal opened
+/// there, runs: the scratch folder `root`, made if it is not there yet, for
+/// one in it, otherwise the directory itself.
 pub fn start_dir(worktree: &Path, root: &Path) -> io::Result<PathBuf> {
     if worktree == root {
         std::fs::create_dir_all(root)?;

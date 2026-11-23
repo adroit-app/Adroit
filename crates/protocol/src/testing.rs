@@ -6,7 +6,7 @@
 //! sets, so a part added to [`WorkSnapshot`] changes this file alone.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use adroit_model::testing::worktree;
 use adroit_model::{Session, TerminalSession, Worktree, build};
@@ -116,7 +116,7 @@ impl ListedBuilder {
             &found,
             &self.worktrees,
             &self.kept,
-            None::<&Path>,
+            None,
         );
         Listed {
             sessions: self.sessions,

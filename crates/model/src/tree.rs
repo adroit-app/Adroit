@@ -58,10 +58,11 @@ pub struct WorktreeNode {
 
 impl WorkspaceNode {
     /// Whether the sessions sit straight under the workspace, with no
-    /// worktree row: outside git, or when only the main checkout is listed.
+    /// worktree row: outside git and Scratch, or when only the main checkout
+    /// is listed.
     pub fn flat(&self) -> bool {
         match self.worktrees.as_slice() {
-            [only] => !self.git || only.worktree.is_main(),
+            [only] => !(self.git || self.scratch) || only.worktree.is_main(),
             _ => false,
         }
     }
@@ -142,28 +143,58 @@ impl Tree {
     }
 }
 
+/// Where throwaway work runs: the scratch folder, and the temporary
+/// directories whose directories outside git join it as rows of their own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scratch {
+    pub root: PathBuf,
+    pub temporary: Vec<PathBuf>,
+}
+
+impl Scratch {
+    /// Whether `dir` is in the scratch folder or is the folder itself.
+    pub fn holds(&self, dir: impl AsRef<Path>) -> bool {
+        dir.as_ref().starts_with(&self.root)
+    }
+
+    /// Whether `dir` is in a temporary directory or is one itself.
+    pub fn temporary(&self, dir: impl AsRef<Path>) -> bool {
+        self.temporary.iter().any(|t| dir.as_ref().starts_with(t))
+    }
+}
+
 /// Build the tree. `found` tells, for each directory a session or a shell
 /// runs in, the git worktree holding it, or `None` outside git; a directory
 /// missing from it is taken as outside git. `listed` adds worktrees without
 /// sessions, those git knows of a workspace when every worktree is to be shown.
 /// `kept` names workspaces listed whether anything runs in them or not, each
 /// placed as a session running there would be; one where something runs
-/// gains no row by it. Whatever runs in `scratch` or below it, whatever git
-/// says, is in one workspace of that directory, listed after every other.
+/// gains no row by it. Whatever runs in the scratch folder or below it,
+/// whatever git says, is in one workspace of that folder, listed after every
+/// other; a directory in a temporary one outside git joins it as a row of its
+/// own, as a worktree joins its repository.
 pub fn build(
     sessions: &[Session],
     terminals: &[TerminalSession],
     found: &HashMap<PathBuf, Option<Worktree>>,
     listed: &[Worktree],
     kept: &[PathBuf],
-    scratch: Option<&Path>,
+    scratch: Option<&Scratch>,
 ) -> Tree {
     let mut tree = Tree::default();
-    let held = |dir: &Path| match scratch.filter(|root| dir.starts_with(root)) {
-        Some(root) => (Worktree::plain(root), Holder::Scratch),
-        None => match found.get(dir).cloned().flatten() {
-            Some(w) => (w, Holder::Git),
-            None => (Worktree::plain(dir), Holder::Plain),
+    let held = |dir: &Path| match scratch {
+        Some(s) if s.holds(dir) => (Worktree::plain(&s.root), Holder::Scratch),
+        _ => match (found.get(dir).cloned().flatten(), scratch) {
+            (Some(w), _) => (w, Holder::Git),
+            (None, Some(s)) if s.temporary(dir) => (
+                Worktree {
+                    path: dir.to_path_buf(),
+                    repo: s.root.clone(),
+                    branch: None,
+                },
+                Holder::Scratch,
+            ),
+            (None, _) => (Worktree::plain(dir), Holder::Plain),
         },
     };
     for session in sessions {
@@ -178,6 +209,11 @@ pub fn build(
     }
     for dir in kept {
         let (worktree, holder) = held(dir);
+        // A temporary directory's row, as a worktree's, stands for what runs
+        // there and goes with it.
+        if !worktree.is_main() {
+            continue;
+        }
         if !tree.workspaces.iter().any(|ws| ws.root == worktree.repo) {
             worktree_node(&mut tree, &worktree, holder);
         }
@@ -582,5 +618,88 @@ mod tests {
             .build();
         let names: Vec<_> = t.workspaces.iter().map(|w| w.name.as_str()).collect();
         assert_eq!(names, ["api", "zebra", "Scratch"]);
+    }
+
+    const TMP: &str = "/private/tmp";
+    const PAD: &str = "/private/tmp/claude-501/-src-api/4a5b/scratchpad/callback";
+
+    fn paths(ws: &WorkspaceNode) -> Vec<&Path> {
+        ws.worktrees
+            .iter()
+            .map(|w| w.worktree.path.as_path())
+            .collect()
+    }
+
+    #[test]
+    fn a_temporary_directory_outside_git_is_a_row_of_scratch_beside_the_scratch_folder() {
+        let t = tree()
+            .session(session("a").cwd(SCRATCH))
+            .terminal(shell(1, PAD))
+            .found(PAD, None)
+            .scratch(SCRATCH)
+            .temporary(TMP)
+            .build();
+        assert_eq!(t.workspaces.len(), 1);
+        let ws = &t.workspaces[0];
+        assert!(ws.scratch && !ws.flat());
+        assert_eq!(paths(ws), [Path::new(SCRATCH), Path::new(PAD)]);
+        assert!(ws.worktrees[0].worktree.is_main());
+        assert_eq!(ws.worktrees[1].worktree.repo, PathBuf::from(SCRATCH));
+        assert_eq!(ids(&ws.worktrees[0]), ["a"]);
+        assert_eq!(shell_ids(&ws.worktrees[1]), [1]);
+    }
+
+    #[test]
+    fn scratch_where_only_temporary_directories_run_lists_them_as_rows() {
+        let t = tree()
+            .terminal(shell(1, PAD))
+            .found(PAD, None)
+            .scratch(SCRATCH)
+            .temporary(TMP)
+            .build();
+        let ws = &t.workspaces[0];
+        assert_eq!(
+            (ws.name.as_str(), ws.root.as_path()),
+            ("Scratch", Path::new(SCRATCH))
+        );
+        assert!(!ws.flat());
+        assert_eq!(paths(ws), [Path::new(PAD)]);
+    }
+
+    #[test]
+    fn a_git_repository_in_the_temporary_directory_is_a_workspace_of_its_own() {
+        let clone = "/private/tmp/felis";
+        let t = tree()
+            .terminal(shell(1, clone))
+            .checkout(clone, clone, "main")
+            .scratch(SCRATCH)
+            .temporary(TMP)
+            .build();
+        let ws = &t.workspaces[0];
+        assert_eq!(
+            (ws.name.as_str(), ws.git, ws.scratch),
+            ("felis", true, false)
+        );
+    }
+
+    #[test]
+    fn a_kept_temporary_directory_adds_no_row_once_nothing_runs_there() {
+        let t = tree()
+            .kept(SCRATCH)
+            .kept(PAD)
+            .found(PAD, None)
+            .scratch(SCRATCH)
+            .temporary(TMP)
+            .build();
+        assert_eq!(t.workspaces.len(), 1);
+        assert_eq!(paths(&t.workspaces[0]), [Path::new(SCRATCH)]);
+        assert!(t.workspaces[0].flat());
+    }
+
+    #[test]
+    fn a_temporary_directory_is_its_own_workspace_while_there_is_no_scratch_folder() {
+        let t = tree().terminal(shell(1, PAD)).found(PAD, None).build();
+        assert_eq!(t.workspaces[0].name, "callback");
+        assert!(!t.workspaces[0].scratch);
     }
 }
