@@ -191,7 +191,9 @@ windows, and keep running when they close.
   session and terminal, reads the files, repositories and settings the windows
   show, keeps what is written in the prompts, lets sessions open and message
   sessions ([sessions that open sessions](opening-sessions.md)) and judges how each
-  session it started stands. It listens on `$ADROIT_HOST`, or
+  session it started stands. When it cannot list the sessions, as when what
+  it asks never answers, the window says so and it lists them again. It listens
+  on `$ADROIT_HOST`, or
   `host/host.sock` in the same state folder as the terminal host's `felis`
   folder. Windows and the `adroit` commands reach it there
   ([work protocol](work-protocol.md)).

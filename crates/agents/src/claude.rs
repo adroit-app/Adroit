@@ -2,6 +2,8 @@
 //! keeps of their conversations.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 
 use adroit_model::{ParseError, Running};
 use tokio::process::Command;
@@ -32,6 +34,8 @@ pub enum Error {
     },
     #[error("{program} failed: {stderr}")]
     Failed { program: String, stderr: String },
+    #[error("{program} did not answer in time")]
+    Unanswered { program: String },
     #[error(transparent)]
     Sessions(#[from] ParseError),
 }
@@ -112,31 +116,38 @@ pub(crate) fn denies(name: &str) -> bool {
         || (name.starts_with("CLAUDE_CODE_SKIP_") && name.ends_with("_AUTH"))
 }
 
-/// What `cmd`, running `program`, prints, or why it failed.
-async fn output(program: &str, mut cmd: Command) -> Result<String, Error> {
-    let out = cmd.output().await.map_err(|source| Error::Spawn {
-        program: program.into(),
-        source,
-    })?;
-    if !out.status.success() {
-        return Err(Error::Failed {
-            program: program.into(),
-            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
-        });
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
+/// How long Claude Code is given to list its sessions.
+const LISTING: Duration = Duration::from_secs(10);
 
 /// The conversations running in a terminal of their own, adroit's sessions
 /// among them, which Claude Code, started by `start`, lists.
 pub async fn list_sessions(
     start: impl FnOnce(Vec<String>) -> Started,
 ) -> Result<Vec<Running>, Error> {
+    list_sessions_within(LISTING, start).await
+}
+
+async fn list_sessions_within(
+    limit: Duration,
+    start: impl FnOnce(Vec<String>) -> Started,
+) -> Result<Vec<Running>, Error> {
     let (program, args, env) = start(vec!["agents".into(), "--json".into()]);
     let mut cmd = Command::new(&program);
-    cmd.args(args).envs(env);
-    let out = output(&program, cmd).await?;
-    Ok(parse_listing(&out)?)
+    cmd.args(args)
+        .envs(env)
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    let Ok(ended) = tokio::time::timeout(limit, cmd.output()).await else {
+        return Err(Error::Unanswered { program });
+    };
+    match ended {
+        Err(source) => Err(Error::Spawn { program, source }),
+        Ok(out) if !out.status.success() => Err(Error::Failed {
+            program,
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        }),
+        Ok(out) => Ok(parse_listing(&String::from_utf8_lossy(&out.stdout))?),
+    }
 }
 
 /// The sessions in `out`, read from the first line a listing can be read
@@ -304,6 +315,14 @@ pub fn shell_line(prompt: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[cfg_attr(windows, ignore = "runs Unix programs")]
+    async fn a_listing_claude_code_never_gives_is_given_up() {
+        let stuck = |_| ("sleep".to_string(), vec!["30".to_string()], Vec::new());
+        let listed = list_sessions_within(Duration::from_millis(50), stuck).await;
+        assert!(matches!(listed, Err(Error::Unanswered { .. })));
+    }
 
     #[test]
     fn a_session_starts_named_with_its_conversation_and_first_prompt() {

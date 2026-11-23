@@ -110,7 +110,7 @@ impl Repo {
 /// What `program` prints, run with `args` in `cwd`, or why it failed.
 async fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, Error> {
     let mut cmd = Command::new(program);
-    cmd.args(args);
+    cmd.args(args).kill_on_drop(true);
     if let Some(cwd) = cwd {
         cmd.current_dir(cwd);
     }
