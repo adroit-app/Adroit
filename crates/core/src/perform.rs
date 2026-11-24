@@ -223,6 +223,8 @@ pub(crate) fn perform(
             let environment = content::focused_environment(state);
             step(state, Msg::InterruptedOpen(environment))
         }
+        Action::RelayReview => step(state, Msg::RelayReview),
+        Action::RelayDecline => crate::overlay::decline_relay(state),
         Action::SessionProfileNext => switch_profile(state, true),
         Action::SessionProfilePrev => switch_profile(state, false),
         // On a shell's row, that shell closes, whichever tab is shown; ending

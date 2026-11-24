@@ -35,6 +35,7 @@ pub struct ListedBuilder {
     sessions: Vec<Session>,
     terminals: Vec<TerminalSession>,
     interrupted: Vec<adroit_model::Interrupted>,
+    relays: Vec<adroit_model::Relay>,
     repo: Option<PathBuf>,
     found: HashMap<PathBuf, Option<Worktree>>,
     worktrees: Vec<Worktree>,
@@ -55,6 +56,12 @@ impl ListedBuilder {
     /// What waits to be brought back, as the terminal host took it.
     pub fn interrupted(mut self, interrupted: adroit_model::Interrupted) -> Self {
         self.interrupted.push(interrupted);
+        self
+    }
+
+    /// Words a session proposes to pass on as the user's.
+    pub fn relay(mut self, relay: adroit_model::Relay) -> Self {
+        self.relays.push(relay);
         self
     }
 
@@ -123,6 +130,7 @@ impl ListedBuilder {
             terminals: self.terminals,
             tree,
             interrupted: self.interrupted,
+            relays: self.relays,
         }
     }
 }

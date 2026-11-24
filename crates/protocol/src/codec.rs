@@ -109,6 +109,7 @@ mod tests {
         });
         round_trips(Request::Typed {
             inputs: BTreeMap::from([(u128::MAX, 1_700_000_000_000)]),
+            entered: BTreeMap::from([(u128::MAX, 20)]),
         });
         round_trips(Request::TerminalOpened {
             terminal: shell(u128::MAX - 1, "/w"),
@@ -200,6 +201,12 @@ mod tests {
             from: "k7f3".parse().unwrap(),
             taken_up: true,
         });
+        let id = adroit_model::MessageId::new();
+        round_trips(Request::ApproveRelay {
+            id,
+            to: vec!["k7f3".parse().unwrap()],
+        });
+        round_trips(Request::DeclineRelay { id });
         round_trips(Request::Compose {
             asked: 4,
             agent: adroit_model::Agent::Codex,

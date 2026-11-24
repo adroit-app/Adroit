@@ -146,6 +146,7 @@ struct QueuedWrite {
 pub struct Pane {
     id: u128,
     last_input_ms: AtomicU64,
+    last_enter_ms: AtomicU64,
     input: crate::InputPermission,
     state: Arc<Mutex<State>>,
     out: mpsc::UnboundedSender<QueuedWrite>,
@@ -381,6 +382,7 @@ impl Pane {
         let pane = Self {
             id,
             last_input_ms: AtomicU64::new(0),
+            last_enter_ms: AtomicU64::new(0),
             input,
             state,
             out,
@@ -400,6 +402,16 @@ impl Pane {
     /// this pane attached, in milliseconds since the Unix epoch.
     pub fn last_input_ms(&self) -> Option<u64> {
         match self.last_input_ms.load(Ordering::Relaxed) {
+            0 => None,
+            at => Some(at),
+        }
+    }
+
+    /// When the Enter key, which sends what was written, last went to the
+    /// program since this pane attached, as [`Pane::last_input_ms`] tells
+    /// times.
+    pub fn last_enter_ms(&self) -> Option<u64> {
+        match self.last_enter_ms.load(Ordering::Relaxed) {
             0 => None,
             at => Some(at),
         }
@@ -577,6 +589,12 @@ impl Pane {
                 let sent = self.send(InputMsg::Key(e));
                 if sent {
                     self.record_input();
+                    if *key == Key::new("Enter") {
+                        self.last_enter_ms.store(
+                            self.last_input_ms.load(Ordering::Relaxed),
+                            Ordering::Relaxed,
+                        );
+                    }
                 }
                 sent
             }

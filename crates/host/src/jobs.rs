@@ -46,6 +46,9 @@ pub(crate) async fn apply(watched: &Watched, window: WindowId, mut job: Request)
         Request::TakeRequests { id, from, taken_up } => {
             take_requests(watched, id, from, taken_up).await
         }
+        Request::Typed { entered, .. } => wrote(entered).await,
+        Request::ApproveRelay { id, to } => approve_relay(watched, window, id, to).await,
+        Request::DeclineRelay { id } => decline_relay(watched, window, id).await,
         Request::Release { id } => {
             crate::held::release(id).await;
             Ok(())
@@ -316,6 +319,66 @@ async fn take_requests(
     .map_err(|e| e.to_string())?;
     watched.host().ask_again();
     Ok(())
+}
+
+/// Keep when, by this host's clock, the user sent what they wrote to the
+/// sessions running in these terminals, each so many milliseconds ago.
+pub(crate) async fn wrote(entered: std::collections::BTreeMap<u128, u64>) -> Result<(), String> {
+    let now = adroit_model::time::now_ms();
+    crate::delegation::app::with_store(&crate::delegation::app::root(), move |store| {
+        entered
+            .into_iter()
+            .try_for_each(|(terminal, ago)| store.wrote(terminal, now.saturating_sub(ago)))
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Pass the words proposed as `id` on to the sessions `to`, as the user
+/// approved, telling the window which of them were not reached.
+async fn approve_relay(
+    watched: &Watched,
+    window: WindowId,
+    id: adroit_model::MessageId,
+    to: Vec<adroit_model::SessionCode>,
+) -> Result<(), String> {
+    let passed =
+        crate::delegation::app::with_store(&crate::delegation::app::root(), move |store| {
+            store.approve_relay(id, &to)
+        })
+        .await
+        .map_err(|e| e.to_string());
+    // What was proposed may be gone, which the window is to see too.
+    watched.relist();
+    match passed {
+        Ok(passed) => {
+            watched.tell(window, notice(passed.said()));
+            watched.host().ask_again();
+            Ok(())
+        }
+        Err(text) => {
+            watched.tell(window, failure(format!("Passed on nothing: {text}")));
+            Err(text)
+        }
+    }
+}
+
+async fn decline_relay(
+    watched: &Watched,
+    window: WindowId,
+    id: adroit_model::MessageId,
+) -> Result<(), String> {
+    let declined =
+        crate::delegation::app::with_store(&crate::delegation::app::root(), move |store| {
+            store.decline_relay(id)
+        })
+        .await
+        .map_err(|e| e.to_string());
+    watched.relist();
+    if let Err(text) = &declined {
+        watched.tell(window, failure(text.clone()));
+    }
+    declined
 }
 
 /// How long a program is left after the command before Enter.

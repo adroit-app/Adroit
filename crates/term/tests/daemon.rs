@@ -834,8 +834,11 @@ async fn only_input_sent_to_the_program_updates_the_last_input_time() {
     pane.wheel(1, 1, 1);
     pane.resize(Size::new(50, 6));
     assert_eq!(pane.last_input_ms(), None);
+    assert!(pane.key(&Key::new("ArrowUp")));
+    assert_eq!(pane.last_enter_ms(), None);
     assert!(pane.key(&Key::new("Enter")));
     let key_at = pane.last_input_ms().unwrap();
+    assert_eq!(pane.last_enter_ms(), Some(key_at));
     tokio::time::sleep(Duration::from_millis(2)).await;
     pane.type_text("answer");
     let typed_at = pane.last_input_ms().unwrap();
@@ -843,6 +846,7 @@ async fn only_input_sent_to_the_program_updates_the_last_input_time() {
     tokio::time::sleep(Duration::from_millis(2)).await;
     pane.paste("selection");
     assert!(pane.last_input_ms().unwrap() >= typed_at);
+    assert_eq!(pane.last_enter_ms(), Some(key_at));
 }
 
 #[tokio::test]

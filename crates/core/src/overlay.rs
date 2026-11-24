@@ -25,6 +25,7 @@ pub mod context_menu;
 pub mod hints;
 pub mod lightbox;
 pub mod naming;
+pub mod relay;
 pub mod rename;
 #[cfg(test)]
 mod tests;
@@ -35,6 +36,10 @@ use context_menu::{Reach, Target};
 use lightbox::Lightbox;
 use naming::Naming;
 pub(crate) use naming::{end_naming, keep_naming, start_naming, type_naming};
+pub(crate) use relay::{
+    approve_relay, decline_relay, leave_relay, proposed_anew, relay_later, review_relay,
+    toggle_relay,
+};
 use rename::Rename;
 pub(crate) use rename::{end_rename, keep_rename, start_rename, type_name};
 
@@ -50,6 +55,7 @@ pub struct Overlays {
     /// A session's images looked at one at a time.
     pub lightbox: Option<Lightbox>,
     pub banner: Banner,
+    pub relays: relay::Relays,
 }
 
 /// A menu a right click opened, where it was clicked and on what.
@@ -197,6 +203,7 @@ pub(crate) fn press(state: &mut ViewState, key: Key) -> Vec<Effect> {
             Some(Action::OverlayChoose) => answer(state, true),
             Some(Action::OverlayClose) => answer(state, false),
             Some(Action::PasteOverwrite) => crate::tree::clipboard::overwrite(state),
+            Some(Action::RelayDecline) => decline_relay(state),
             Some(Action::PasteRename) => crate::tree::clipboard::rename(state),
             _ => Vec::new(),
         },
@@ -313,10 +320,20 @@ pub(crate) fn ask_stop(state: &mut ViewState, selection: bool) -> Vec<Effect> {
 
 /// The question answered: yes asks done what it asked about.
 pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
+    if yes
+        && state
+            .overlays
+            .confirm
+            .as_ref()
+            .is_some_and(|a| !a.answerable())
+    {
+        return Vec::new();
+    }
     let Some(ask) = state.overlays.confirm.take() else {
         return Vec::new();
     };
     if !yes {
+        leave_relay(state, &ask);
         return Vec::new();
     }
     let stop = |environment: &EnvironmentId, session: Session| Effect::Host {
@@ -390,6 +407,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
             state.tree.marks.clear();
             vec![Effect::TrashEntries { environment, paths }]
         }
+        ask @ Ask::Relay { .. } => approve_relay(&ask),
         Ask::Clash(clash) => {
             state.overlays.confirm = Some(Ask::Clash(clash));
             crate::tree::clipboard::overwrite(state)

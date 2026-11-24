@@ -7,13 +7,15 @@ use std::time::Duration;
 
 use adroit_model::profile::ProfileId;
 use adroit_model::timeline::Entry;
-use adroit_model::{Agent, AgentPermissions, Requester, SessionCode, TerminalSession};
+use adroit_model::{
+    Agent, AgentPermissions, Relay, RelayTo, Requester, SessionCode, TerminalSession,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{Code, Error, Kind, Message, MessageId, Readiness, Result, Sender, Session, SessionId};
 use crate::settings::Settings;
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// The tables as the first schema made them; a new database is made by it
 /// and then by every step in `MIGRATIONS`, so it ends as one carried forward.
@@ -127,6 +129,21 @@ const MIGRATIONS: &[&str] = &[
          taken_up INTEGER NOT NULL,
          PRIMARY KEY (sender, recipient)
      );",
+    // The user's words sessions propose to pass on, to the codes of those
+    // they are to reach, and what the user decided of them; and when a
+    // message was handed over, which tells what its recipient was told last
+    // beside when the user last wrote to it.
+    "CREATE TABLE relays (
+         id TEXT PRIMARY KEY,
+         proposer TEXT NOT NULL REFERENCES sessions(id),
+         recipients TEXT NOT NULL,
+         body TEXT NOT NULL,
+         proposed_ms INTEGER NOT NULL,
+         decision TEXT,
+         decided_ms INTEGER
+     );
+     ALTER TABLE messages ADD COLUMN delivered_ms INTEGER;
+     ALTER TABLE sessions ADD COLUMN wrote_ms INTEGER;",
 ];
 
 /// The most changes of how sessions stand kept: the latest.
@@ -137,6 +154,42 @@ const OUTSIDE_NAME: usize = 64;
 /// The longest request a program outside Adroit makes, in bytes: escaped and
 /// enveloped, it still fits the frame it is handed over in.
 const OUTSIDE_BODY: usize = 64 * 1024;
+
+/// The longest words proposed to be passed on, in bytes, for the reason
+/// [`OUTSIDE_BODY`] is, and the most sessions they are to reach.
+const RELAY_BODY: usize = 64 * 1024;
+const RELAY_TO: usize = 32;
+/// How many of a session's proposals wait for the user at once.
+const RELAYS_WAITING: i64 = 3;
+
+/// What came of passing the user's words on: the sessions they were sent to
+/// and those that had ended, by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Passed {
+    pub sent: Vec<String>,
+    pub missed: Vec<String>,
+}
+
+impl Passed {
+    /// What the user is told of it.
+    pub fn said(&self) -> String {
+        let sent = format!("Passed your words on to {}", self.sent.join(", "));
+        match self.missed.as_slice() {
+            [] => sent,
+            missed => format!("{sent}; not to {}, ended meanwhile", missed.join(", ")),
+        }
+    }
+}
+
+/// Whether `c` would not be seen, or would change how what is around it is
+/// read: words approved are to be the words the user saw.
+fn hidden(c: char) -> bool {
+    (c.is_control() && c != '\n' && c != '\t')
+        || matches!(c,
+            '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}' | '\u{200e}' | '\u{200f}'
+            | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}'
+            | '\u{e0000}'..='\u{e007f}')
+}
 
 /// What the window or the work host knows of a session before its program starts.
 #[derive(Debug, Clone)]
@@ -288,16 +341,7 @@ impl Store {
     /// The record standing for the session with `code` now: the newest one
     /// holding it, since one brought back or resumed takes on the code.
     pub fn by_code(&self, code: &SessionCode) -> Result<Option<Session>> {
-        self.connection
-            .query_row(
-                &format!(
-                    "SELECT {SESSION_COLUMNS} FROM sessions WHERE code = ?1 ORDER BY rowid DESC LIMIT 1"
-                ),
-                [code.as_str()],
-                read_session,
-            )
-            .optional()?
-            .transpose()
+        by_code(&self.connection, code)
     }
 
     /// The code of the session that last held `conversation`, for a session
@@ -657,6 +701,211 @@ impl Store {
         Ok(out)
     }
 
+    /// Keeps `body`, which `from` proposes to pass on to the sessions `to` as
+    /// the user's own words, until the user decides of it.
+    pub fn propose_relay(
+        &mut self,
+        from: SessionId,
+        to: &[SessionId],
+        body: &str,
+    ) -> Result<Relay> {
+        let invalid = |why: String| Err(Error::new(Code::Invalid, why));
+        if body.trim().is_empty() {
+            return invalid("there are no words to pass on".into());
+        }
+        if body.len() > RELAY_BODY {
+            return invalid(format!("words passed on hold at most {RELAY_BODY} bytes"));
+        }
+        if let Some(c) = body.chars().find(|c| hidden(*c)) {
+            return invalid(format!(
+                "the words hold U+{:04X}, which the user would not see",
+                c as u32
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let proposer = known(&transaction, from)?;
+        let mut recipients: Vec<RelayTo> = Vec::new();
+        for id in to {
+            let to = known(&transaction, *id)?;
+            if to.code == proposer.code {
+                return invalid("a session cannot pass words on to itself".into());
+            }
+            if to.ended {
+                return Err(Error::new(
+                    Code::Refused,
+                    format!("{} has ended and cannot be sent to", to.name),
+                ));
+            }
+            if !recipients.iter().any(|known| known.code == to.code) {
+                recipients.push(RelayTo {
+                    code: to.code,
+                    name: to.name,
+                });
+            }
+        }
+        if recipients.is_empty() || recipients.len() > RELAY_TO {
+            return invalid(format!("words are passed on to 1 to {RELAY_TO} sessions"));
+        }
+        let waiting: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM relays WHERE proposer = ?1 AND decision IS NULL",
+            [from.to_string()],
+            |row| row.get(0),
+        )?;
+        if waiting >= RELAYS_WAITING {
+            return Err(Error::new(
+                Code::Refused,
+                "what you proposed before still waits for the user; let them decide of it first",
+            ));
+        }
+        let relay = Relay {
+            id: MessageId::new(),
+            from: proposer.code,
+            from_name: proposer.name,
+            to: recipients,
+            body: body.to_owned(),
+            proposed_ms: super::now_ms(),
+        };
+        let codes: Vec<&str> = relay.to.iter().map(|to| to.code.as_str()).collect();
+        transaction.execute(
+            "INSERT INTO relays (id, proposer, recipients, body, proposed_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                relay.id.to_string(),
+                from.to_string(),
+                serde_json::to_string(&codes).map_err(Error::storage)?,
+                relay.body,
+                relay.proposed_ms as i64,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(relay)
+    }
+
+    /// What sessions that run propose to pass on and the user has not decided
+    /// of, oldest first, each to those it is to reach that still run.
+    pub fn relays_waiting(&self) -> Result<Vec<Relay>> {
+        let mut statement = self.connection.prepare(
+            "SELECT relays.id, relays.proposer, recipients, body, proposed_ms FROM relays
+                 JOIN sessions ON sessions.id = relays.proposer
+                 WHERE decision IS NULL AND sessions.ended = 0 ORDER BY relays.rowid",
+        )?;
+        let rows: Vec<(String, String, String, String, i64)> = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::new();
+        for (id, proposer, recipients, body, proposed_ms) in rows {
+            let proposer = self.known(proposer.parse().map_err(Error::storage)?)?;
+            let codes: Vec<SessionCode> =
+                serde_json::from_str(&recipients).map_err(Error::storage)?;
+            let mut to = Vec::new();
+            for code in codes {
+                if let Some(session) = self.by_code(&code)?.filter(|s| !s.ended) {
+                    to.push(RelayTo {
+                        code,
+                        name: session.name,
+                    });
+                }
+            }
+            out.push(Relay {
+                id: id.parse().map_err(Error::storage)?,
+                from: proposer.code,
+                from_name: proposer.name,
+                to,
+                body,
+                proposed_ms: proposed_ms as u64,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Sends what is proposed as `id` to those of `to` that run, as the user's
+    /// own words, which the user approved as it stands.
+    pub fn approve_relay(&mut self, id: MessageId, to: &[SessionCode]) -> Result<Passed> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (proposer, recipients, body) = undecided(&transaction, id)?;
+        let refused = |why: &str| Err(Error::new(Code::Refused, why));
+        if to.is_empty() || to.iter().any(|code| !recipients.contains(code)) {
+            return refused("the words were not proposed to those sessions");
+        }
+        let mut passed = Passed {
+            sent: Vec::new(),
+            missed: Vec::new(),
+        };
+        // In the order proposed, each once.
+        for code in recipients.iter().filter(|code| to.contains(code)) {
+            let session = by_code(&transaction, code)?
+                .ok_or_else(|| Error::new(Code::NotFound, "no session has that code"))?;
+            if session.ended {
+                passed.missed.push(session.name);
+                continue;
+            }
+            insert(
+                &transaction,
+                &Sender::Session(proposer),
+                session.id,
+                &body,
+                Kind::Relayed,
+            )?;
+            passed.sent.push(session.name);
+        }
+        if passed.sent.is_empty() {
+            return refused("every session the words were to reach has ended");
+        }
+        decide(&transaction, id, "approved")?;
+        transaction.commit()?;
+        Ok(passed)
+    }
+
+    /// Keeps that the user passes on nothing of what is proposed as `id`.
+    pub fn decline_relay(&mut self, id: MessageId) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        undecided(&transaction, id)?;
+        decide(&transaction, id, "declined")?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Keeps that the user sent what they wrote to the session running in
+    /// `terminal` at `at_ms`.
+    pub fn wrote(&mut self, terminal: u128, at_ms: u64) -> Result<()> {
+        self.connection.execute(
+            "UPDATE sessions SET wrote_ms = MAX(COALESCE(wrote_ms, 0), ?2)
+                 WHERE terminal = ?1 AND ended = 0",
+            params![crate::sessions::hex(terminal), at_ms as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Whether the user's words passed on were handed to the session `id`,
+    /// also as the one it was resumed from, since the user last wrote to it.
+    pub fn told_through_another(&self, id: SessionId) -> Result<bool> {
+        let code = self.known(id)?.code;
+        Ok(self.connection.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM messages JOIN sessions ON sessions.id = messages.recipient
+                 WHERE sessions.code = ?1 AND kind = 'relayed' AND delivered = 1
+                     AND delivered_ms >= (
+                         SELECT COALESCE(MAX(wrote_ms), 0) FROM sessions WHERE code = ?1
+                     )
+             )",
+            [code.as_str()],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Keeps how the request `id` is handed over.
     pub fn handing_over(&mut self, id: MessageId, kind: Kind) -> Result<()> {
         self.connection.execute(
@@ -739,8 +988,8 @@ impl Store {
 
     pub fn delivered(&mut self, id: MessageId) -> Result<()> {
         self.connection.execute(
-            "UPDATE messages SET delivered = 1 WHERE id = ?1",
-            [id.to_string()],
+            "UPDATE messages SET delivered = 1, delivered_ms = COALESCE(delivered_ms, ?2) WHERE id = ?1",
+            params![id.to_string(), super::now_ms() as i64],
         )?;
         Ok(())
     }
@@ -973,6 +1222,56 @@ fn session(connection: &Connection, id: SessionId) -> Result<Option<Session>> {
 
 fn known(connection: &Connection, id: SessionId) -> Result<Session> {
     session(connection, id)?.ok_or_else(|| Error::new(Code::NotFound, "the session is unknown"))
+}
+
+fn by_code(connection: &Connection, code: &SessionCode) -> Result<Option<Session>> {
+    connection
+        .query_row(
+            &format!(
+                "SELECT {SESSION_COLUMNS} FROM sessions WHERE code = ?1 ORDER BY rowid DESC LIMIT 1"
+            ),
+            [code.as_str()],
+            read_session,
+        )
+        .optional()?
+        .transpose()
+}
+
+/// What is proposed as `id` while the user has not decided of it and the
+/// session that proposed it runs: that session, the codes it is to reach and
+/// the words.
+fn undecided(
+    connection: &Connection,
+    id: MessageId,
+) -> Result<(SessionId, Vec<SessionCode>, String)> {
+    let found: Option<(String, String, String, bool)> = connection
+        .query_row(
+            "SELECT proposer, recipients, body, decision IS NULL AND sessions.ended = 0 FROM relays
+                 JOIN sessions ON sessions.id = relays.proposer WHERE relays.id = ?1",
+            [id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    match found {
+        Some((proposer, recipients, body, true)) => Ok((
+            proposer.parse().map_err(Error::storage)?,
+            serde_json::from_str(&recipients).map_err(Error::storage)?,
+            body,
+        )),
+        Some(_) => Err(Error::new(
+            Code::Refused,
+            "the words were decided of already, or the session that proposed them has ended",
+        )),
+        None => Err(Error::new(Code::NotFound, "no words are proposed as that")),
+    }
+}
+
+fn decide(connection: &Connection, id: MessageId, decision: &str) -> Result<()> {
+    connection.execute(
+        "UPDATE relays SET decision = ?2, decided_ms = ?3 WHERE id = ?1",
+        params![id.to_string(), decision, super::now_ms() as i64],
+    )?;
+    Ok(())
 }
 
 const MESSAGE_COLUMNS: &str = "id, sender, outside, recipient, kind, body, sent_ms, delivered";
@@ -1343,6 +1642,176 @@ mod tests {
             resumed(&mut store, b, "b again"),
         );
         assert!(store.takes_requests(a, b).unwrap());
+    }
+
+    /// `from`, `to` and `other`, of which none opened another.
+    fn three(store: &mut Store) -> (SessionId, SessionId, SessionId) {
+        (
+            register(store, None, "from"),
+            register(store, None, "to"),
+            register(store, None, "other"),
+        )
+    }
+
+    #[test]
+    fn words_proposed_reach_no_session_until_the_user_approves_them() {
+        let (_dir, mut store) = store();
+        let (from, to, other) = three(&mut store);
+        let relay = store.propose_relay(from, &[to, other], "use tabs").unwrap();
+        assert!(store.next_undelivered(to).unwrap().is_none());
+        assert_eq!(
+            store.relays_waiting().unwrap(),
+            std::slice::from_ref(&relay)
+        );
+
+        let codes = [code(&store, to), code(&store, other)];
+        let passed = store.approve_relay(relay.id, &codes).unwrap();
+
+        assert_eq!(passed.said(), "Passed your words on to to, other");
+        for id in [to, other] {
+            let words = store.next_undelivered(id).unwrap().unwrap();
+            assert_eq!(
+                (words.kind, words.sender, words.body.as_str()),
+                (Kind::Relayed, Sender::Session(from), "use tabs")
+            );
+        }
+        assert!(store.relays_waiting().unwrap().is_empty());
+        assert_eq!(store.messages_of(from).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn words_declined_reach_no_session_and_cannot_be_approved_after() {
+        let (_dir, mut store) = store();
+        let (from, to, _) = three(&mut store);
+        let relay = store.propose_relay(from, &[to], "use tabs").unwrap();
+        store.decline_relay(relay.id).unwrap();
+
+        let refused = store.approve_relay(relay.id, &[code(&store, to)]);
+        assert_eq!(refused.unwrap_err().code, Code::Refused);
+        assert!(store.next_undelivered(to).unwrap().is_none());
+        assert!(store.relays_waiting().unwrap().is_empty());
+    }
+
+    #[test]
+    fn words_are_approved_once_and_only_for_sessions_they_were_proposed_to() {
+        let (_dir, mut store) = store();
+        let (from, to, other) = three(&mut store);
+        let relay = store.propose_relay(from, &[to], "use tabs").unwrap();
+        let (to_code, other_code) = (code(&store, to), code(&store, other));
+        let refused = |store: &mut Store, to: &[SessionCode]| {
+            store.approve_relay(relay.id, to).unwrap_err().code
+        };
+        assert_eq!(refused(&mut store, &[]), Code::Refused);
+        assert_eq!(refused(&mut store, &[other_code]), Code::Refused);
+        store
+            .approve_relay(relay.id, std::slice::from_ref(&to_code))
+            .unwrap();
+        assert_eq!(refused(&mut store, &[to_code]), Code::Refused);
+        let unknown = store.approve_relay(MessageId::new(), &[]).unwrap_err();
+        assert_eq!(unknown.code, Code::NotFound);
+        assert_eq!(store.messages_of(to).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn words_go_only_to_those_chosen_and_still_running_as_they_are_approved() {
+        let (_dir, mut store) = store();
+        let (from, to, other) = three(&mut store);
+        let left_out = register(&mut store, None, "left out");
+        let relay = store
+            .propose_relay(from, &[to, other, left_out, to], "use tabs")
+            .unwrap();
+        let codes = [code(&store, to), code(&store, other)];
+        store.end(other).unwrap();
+
+        let passed = store.approve_relay(relay.id, &codes).unwrap();
+
+        assert_eq!(
+            passed.said(),
+            "Passed your words on to to; not to other, ended meanwhile"
+        );
+        assert!(store.messages_of(left_out).unwrap().is_empty());
+        let late = store.propose_relay(from, &[to], "again").unwrap();
+        store.end(to).unwrap();
+        let refused = store.approve_relay(late.id, &codes[..1]).unwrap_err();
+        assert_eq!(refused.code, Code::Refused);
+    }
+
+    #[test]
+    fn what_a_session_proposed_goes_with_it() {
+        let (_dir, mut store) = store();
+        let (from, to, _) = three(&mut store);
+        let relay = store.propose_relay(from, &[to], "use tabs").unwrap();
+        store.end(from).unwrap();
+        assert!(store.relays_waiting().unwrap().is_empty());
+        let refused = store.approve_relay(relay.id, &[code(&store, to)]);
+        assert_eq!(refused.unwrap_err().code, Code::Refused);
+    }
+
+    #[test]
+    fn words_the_user_would_not_see_whole_or_to_no_running_other_session_are_not_proposed() {
+        let (_dir, mut store) = store();
+        let (from, to, ended) = three(&mut store);
+        store.end(ended).unwrap();
+        let mut refused =
+            |to: &[SessionId], body: &str| store.propose_relay(from, to, body).unwrap_err().code;
+        let long = "x".repeat(RELAY_BODY + 1);
+        for body in [" ", "a\u{202e}b", "a\u{1b}[8mb", "a\u{200b}", &long] {
+            assert_eq!(refused(&[to], body), Code::Invalid, "{body:.20?}");
+        }
+        assert_eq!(refused(&[], "hi"), Code::Invalid);
+        assert_eq!(refused(&[to, from], "hi"), Code::Invalid);
+        assert_eq!(refused(&[to, ended], "hi"), Code::Refused);
+        assert_eq!(refused(&[SessionId::new()], "hi"), Code::NotFound);
+        let said = "\tタブを使って。\n👩‍💻";
+        assert_eq!(store.propose_relay(from, &[to], said).unwrap().body, said);
+    }
+
+    #[test]
+    fn only_a_few_proposals_of_a_session_wait_at_once() {
+        let (_dir, mut store) = store();
+        let (from, to, other) = three(&mut store);
+        let first = store.propose_relay(from, &[to], "one").unwrap();
+        for _ in 1..RELAYS_WAITING {
+            store.propose_relay(from, &[to], "more").unwrap();
+        }
+        let refused = store.propose_relay(from, &[to], "more").unwrap_err();
+        assert_eq!(refused.code, Code::Refused);
+        store.propose_relay(other, &[to], "mine").unwrap();
+        store.decline_relay(first.id).unwrap();
+        store.propose_relay(from, &[to], "more").unwrap();
+    }
+
+    #[test]
+    fn words_count_as_told_once_handed_over_until_the_user_writes_also_after_resuming() {
+        let (_dir, mut store) = store();
+        let (from, to, _) = three(&mut store);
+        let relay = store.propose_relay(from, &[to], "use tabs").unwrap();
+        let to_code = code(&store, to);
+        store
+            .approve_relay(relay.id, std::slice::from_ref(&to_code))
+            .unwrap();
+        assert!(!store.told_through_another(to).unwrap());
+        let words = store.next_undelivered(to).unwrap().unwrap();
+        store.delivered(words.id).unwrap();
+        assert!(store.told_through_another(to).unwrap());
+        assert!(!store.told_through_another(from).unwrap());
+        store.end(to).unwrap();
+        let again = NewSession {
+            code: Some(to_code),
+            ..new(None, "again")
+        };
+        let (again, _) = store.register(again).unwrap();
+        store.attach(again, 7, None).unwrap();
+        assert!(store.told_through_another(again).unwrap());
+
+        let now = crate::delegation::now_ms();
+        store.wrote(8, now + 1000).unwrap();
+        store.wrote(7, now - 60_000).unwrap();
+        assert!(store.told_through_another(again).unwrap());
+        store.wrote(7, now + 1000).unwrap();
+        assert!(!store.told_through_another(again).unwrap());
+        store.wrote(7, now).unwrap();
+        assert!(!store.told_through_another(again).unwrap());
     }
 
     #[test]
@@ -1834,7 +2303,7 @@ PRAGMA user_version = 1;
                 .connection
                 .execute_batch(
                     "DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code;
-                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
+                     ALTER TABLE sessions DROP COLUMN name_given; DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; DROP TABLE relays; ALTER TABLE sessions DROP COLUMN wrote_ms; ALTER TABLE messages DROP COLUMN delivered_ms; ALTER TABLE messages DROP COLUMN outside; PRAGMA user_version = 5;",
                 )
                 .unwrap();
             id
@@ -2091,7 +2560,7 @@ PRAGMA user_version = 1;
             store
                 .connection
                 .execute_batch(
-                    "DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
+                    "DROP TABLE timeline; DROP TABLE standings; DROP TABLE requesters; DROP TABLE relays; ALTER TABLE sessions DROP COLUMN wrote_ms; ALTER TABLE messages DROP COLUMN delivered_ms; ALTER TABLE messages DROP COLUMN outside; DROP INDEX sessions_by_code; ALTER TABLE sessions DROP COLUMN code; PRAGMA user_version = 6;",
                 )
                 .unwrap();
             (old, by, other)

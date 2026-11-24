@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use adroit_model::{EnvironmentId, Process, Session};
+use adroit_model::{EnvironmentId, Process, Relay, Session, SessionCode};
 
 use crate::details::Entry;
 use crate::icons::Icon;
@@ -52,6 +52,13 @@ pub enum Ask {
     /// A paste whose target is there already: overwritten, pasted by
     /// another name, or skipped.
     Clash(crate::tree::clipboard::Clash),
+    /// Pass the words a session of the environment proposes on as the
+    /// user's, to all it proposes but those `left_out`.
+    Relay {
+        environment: EnvironmentId,
+        relay: Relay,
+        left_out: Vec<SessionCode>,
+    },
 }
 
 impl Ask {
@@ -149,7 +156,34 @@ impl Ask {
                 ),
                 "Overwrite",
             ),
+            Self::Relay { relay, .. } => (
+                Icon::MessageUp,
+                "Pass these words on as yours?".into(),
+                format!("{} ({}) proposes them. Each session takes them as if you had typed them there.", relay.from_name, relay.from),
+                "Approve",
+            ),
         }
+    }
+
+    /// The sessions the words asked about are passed on to; none for any
+    /// other question.
+    pub fn relay_to(&self) -> Vec<SessionCode> {
+        match self {
+            Self::Relay {
+                relay, left_out, ..
+            } => relay
+                .to
+                .iter()
+                .map(|to| to.code.clone())
+                .filter(|code| !left_out.contains(code))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether it can be answered yes as it stands.
+    pub fn answerable(&self) -> bool {
+        !matches!(self, Self::Relay { .. }) || !self.relay_to().is_empty()
     }
 
     /// Whether it can be answered by another name as well as yes or no.
@@ -169,7 +203,8 @@ impl Ask {
             | Self::UpdateMachine(..)
             | Self::MoveEntries { .. }
             | Self::TrashEntries { .. }
-            | Self::Clash(_) => false,
+            | Self::Clash(_)
+            | Self::Relay { .. } => false,
         }
     }
 }

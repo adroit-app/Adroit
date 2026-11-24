@@ -266,8 +266,9 @@ pub fn notes(
                     }
                 },
                 body: message.body.clone(),
+                relayed: message.kind == Kind::Relayed,
                 asked: match (message.kind, message.delivered) {
-                    (Kind::Message, _) => None,
+                    (Kind::Message | Kind::Relayed, _) => None,
                     (_, false) => Some(RequestOutcome::Waiting),
                     (Kind::Request, true) => Some(RequestOutcome::TakenUp),
                     (Kind::Declined, true) => Some(RequestOutcome::Told),
@@ -283,6 +284,11 @@ pub async fn requesters_at(root: &Path, record: SessionId) -> Vec<Requester> {
     with_store(root, move |store| store.requesters(record))
         .await
         .unwrap_or_default()
+}
+
+/// What sessions propose to pass on as the user's words, oldest first.
+pub async fn relays_at(root: &Path) -> Result<Vec<adroit_model::Relay>> {
+    with_store(root, |store| store.relays_waiting()).await
 }
 
 /// [`notes`] read from the record at `root`.
@@ -379,6 +385,27 @@ mod tests {
                 Some(RequestOutcome::Told)
             ]
         );
+    }
+
+    #[test]
+    fn the_user_s_words_are_listed_as_theirs_on_both_ends() {
+        let (shown, api) = (session("fix"), session("api"));
+        let words = crate::testing::message(shown.id, api.id)
+            .kind(Kind::Relayed)
+            .build();
+        let all = [shown.clone(), api.clone()];
+        for (record, outgoing, other) in [(shown.id, true, "api"), (api.id, false, "fix")] {
+            let listed = notes(record, &all, std::slice::from_ref(&words));
+            assert_eq!(
+                (
+                    listed[0].relayed,
+                    listed[0].outgoing,
+                    listed[0].other.as_str()
+                ),
+                (true, outgoing, other)
+            );
+            assert_eq!(listed[0].asked, None);
+        }
     }
 
     #[test]

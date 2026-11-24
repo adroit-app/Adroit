@@ -152,6 +152,12 @@ pub fn answers(keymap: &Keymap) -> (Option<String>, Option<String>) {
     )
 }
 
+/// The keys that decline the words a question is about.
+pub fn decline(keymap: &Keymap) -> Option<String> {
+    let question = [Context::Confirm, Context::Overlay];
+    keymap.keys_in(&question, &Action::RelayDecline)
+}
+
 /// The keys the buttons of a question about a name pasted that is taken
 /// show besides its no: those that rename, and overwrite.
 pub fn pasting_answers(keymap: &Keymap) -> (Option<String>, Option<String>) {

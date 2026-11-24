@@ -202,6 +202,11 @@ opened it asks; whether it takes up what another asks is yours to say, under
 Requests in its details. See
 [requests between sessions](docs/spec/opening-sessions.md#requests-between-sessions).
 
+To tell several sessions the same, tell one of them to: it proposes what to say
+and to whom, and once you approve it in the window, the words reach each as
+your own. See
+[your words, passed on](docs/spec/opening-sessions.md#your-words-passed-on).
+
 To return to a conversation an agent kept, press `Mod+o` (`O` in the tree).
 The list includes conversations from the logins your profiles use; choosing one
 resumes it in that same login. See [sessions](docs/spec/sessions.md) and

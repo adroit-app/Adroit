@@ -27,6 +27,15 @@ pub enum Request {
     Typed {
         #[serde(with = "crate::wire::wide_keys")]
         inputs: BTreeMap<u128, u64>,
+        /// How many milliseconds ago the user sent what they wrote to each
+        /// session they did since the window last said so: how long ago, as
+        /// its clock may not be the host's.
+        #[serde(
+            default,
+            skip_serializing_if = "BTreeMap::is_empty",
+            with = "crate::wire::wide_keys"
+        )]
+        entered: BTreeMap<u128, u64>,
     },
     /// The window started `terminal`, which the next list holds too.
     TerminalOpened {
@@ -63,6 +72,14 @@ pub enum Request {
         from: adroit_model::SessionCode,
         taken_up: bool,
     },
+    /// The user approved the words proposed as `id`: pass them on, as the
+    /// user's own, to the sessions with the codes `to`.
+    ApproveRelay {
+        id: adroit_model::MessageId,
+        to: Vec<adroit_model::SessionCode>,
+    },
+    /// The user passes on nothing of what is proposed as `id`.
+    DeclineRelay { id: adroit_model::MessageId },
     /// The screen of the session `session`, whose prompt goes to `agent`,
     /// was drawn anew in the window's console.
     Redrawn { session: String, agent: Agent },

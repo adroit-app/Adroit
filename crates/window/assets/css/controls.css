@@ -4,6 +4,10 @@
 .dialog-title { color: var(--text); font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .dialog-title .icon { color: var(--text-2); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dialog.relay-dialog { width: 640px; max-height: calc(100% - 48px); }
+.relay-words { flex: 0 1 auto; min-height: 60px; max-height: 45vh; overflow: auto; padding: 8px 12px; border-left: 3px solid var(--wait); background: var(--panel); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.relay-to { flex: 0 1 auto; min-height: 24px; max-height: 20vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.relay-to label { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .sidebar-tool { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
   background: transparent; color: var(--text-2); font-size: 15px; line-height: 1; cursor: default; }
 .sidebar-tool:hover { background: var(--select); color: var(--text); }

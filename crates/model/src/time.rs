@@ -52,9 +52,43 @@ pub fn parse_utc(text: &str) -> Option<u64> {
     u64::try_from(seconds).ok().map(|s| s * 1000)
 }
 
+/// `ms` milliseconds since the Unix epoch, as [`parse_utc`] reads it.
+pub fn utc(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (days, clock) = ((seconds / 86_400) as i64, seconds % 86_400);
+    // The civil date, as Howard Hinnant's algorithm counts it from days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        clock / 3600,
+        clock / 60 % 60,
+        clock % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_time_is_written_as_it_is_read() {
+        for text in [
+            "1970-01-01T00:00:00Z",
+            "2024-02-29T12:00:00Z",
+            "2026-11-13T16:00:21Z",
+            "2026-12-31T23:59:59Z",
+        ] {
+            assert_eq!(utc(parse_utc(text).unwrap()), text);
+        }
+    }
 
     #[test]
     fn a_utc_time_reads_as_milliseconds_since_the_epoch() {

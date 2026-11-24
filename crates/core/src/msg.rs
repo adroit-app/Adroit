@@ -110,6 +110,9 @@ pub enum Msg {
     Typed {
         environment: EnvironmentId,
         inputs: BTreeMap<u128, u64>,
+        /// How many milliseconds ago they sent what they wrote to each they
+        /// did since the window last said so.
+        entered: BTreeMap<u128, u64>,
     },
     /// The window started this terminal in `environment`.
     TerminalOpened {
@@ -524,6 +527,13 @@ pub enum Msg {
     /// Put the banner offering what the terminal host took away until more
     /// is taken.
     InterruptedLater,
+    /// Read the words the banner says a session proposes to pass on.
+    RelayReview,
+    /// Put the banner saying words are proposed away until more are.
+    RelayLater,
+    /// Pass the words read on to the session with this code too, or no
+    /// longer.
+    RelayToggle(adroit_model::SessionCode),
     /// What came of bringing back what the terminal host of the environment
     /// took with it.
     BroughtBack {

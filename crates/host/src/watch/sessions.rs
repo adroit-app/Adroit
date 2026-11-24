@@ -38,11 +38,14 @@ pub(super) async fn watch(mut watched: Watched) {
                 // Listed all the same when the store cannot be read: what
                 // waits is only offered.
                 let interrupted = crate::restore::waiting(&daemon).await.unwrap_or_default();
-                Ok((read, interrupted))
+                let relays = crate::delegation::app::relays_at(&crate::delegation::app::root())
+                    .await
+                    .unwrap_or_default();
+                Ok((read, interrupted, relays))
             })
         };
         match read.await {
-            Ok((read, interrupted)) => {
+            Ok((read, interrupted, relays)) => {
                 let Read {
                     sessions,
                     terminals,
@@ -70,6 +73,7 @@ pub(super) async fn watch(mut watched: Watched) {
                         sessions: sessions.clone(),
                         terminals: terminals.clone(),
                         interrupted: interrupted.clone(),
+                        relays: relays.clone(),
                     }),
                 };
                 watched.record([TreeChange::Failing {

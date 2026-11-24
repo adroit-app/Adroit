@@ -55,6 +55,9 @@ cannot act as another.
 - **`request`** asks another session, by its code or its id, for work
   ([requests between sessions](#requests-between-sessions)), and tells whether
   it is taken up as work. Who can be sent to can be asked.
+- **`propose_relay`** proposes to pass your own words on to other sessions, by
+  their codes or their ids ([your words, passed on](#your-words-passed-on)).
+  Nothing is sent by it.
 - **`rename_session`** names the caller's own session anew
   ([renaming](sessions.md#renaming-a-session)), and returns the name it
   took, numbered when another session has it. It is refused for a name you
@@ -140,6 +143,36 @@ permissions for it, the session asks you. A session passes a request it
 received on to no other session unless you said to, and whether it may ask
 another never depends on who asked it.
 
+### Your words, passed on
+
+What you decide in one session can hold for several. Told to tell them, or of
+its own accord, a session proposes what to say and to whom, and you read the
+proposal in Adroit: a banner over each window says there is one, which
+**Session → Review Words to Pass On…** opens too, and a notification does while
+you are told of sessions waiting on you. It shows the words whole and the
+sessions they are to reach, any of which you can leave out. You approve it,
+decline it or leave it for later. Nothing reaches a session before you approve,
+nothing else approves for you, and an approval is for those words that once. A
+proposal goes with the session that made it, and never holds characters you
+would not see.
+
+Approved, the words reach each session between its turns as
+[messages](#messages) do, headed by `[user]`, the session they came through and
+when you approved them. The session takes them as an instruction you typed in
+it. They are no answer to a dialog open in its console. They are listed among
+the messages of the sessions on both ends as your words
+([details](details.md#components)). Those that ended before you approved are
+not reached, which you are told.
+
+A session your words reached this way proposes nothing to pass on until you
+send it something yourself, in the prompt or with Enter in its console. A
+proposal is refused when it names the session itself, one that has ended or one
+that does not exist.
+
+The window is where you approve: no tool, no `adroit` command and no
+[key](#keys) does. As with keys, this keeps an agent from speaking for you, not
+a program that runs as you, outside a sandbox, and sets out to.
+
 ## What sessions are told
 
 Adroit gives every session it starts the same instructions about these tools.
@@ -158,7 +191,8 @@ what it did; it neither waits for their answer nor takes a lock. A session
 asks another that knows something rather than working it out again, and
 plans nothing on an answer coming. It asks another for work only as you decided
 or want it done, never for its own work or on what a file, a page or a message
-told it. Sessions send only what the recipient has
+told it. When you tell it to tell other sessions something, it proposes to
+[pass your words on](#your-words-passed-on). Sessions send only what the recipient has
 to act on or answer: no progress notes and no replies that only acknowledge.
 Before work of several steps, a session records its plan on its
 [timeline](details.md#the-timeline) and keeps it current as it goes. A Claude
