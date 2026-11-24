@@ -38,6 +38,10 @@ rule_above_input = { within = "above_input", last = "rule" }
 dialog_above_input = { within = "above_input", after = "rule_above_input" }
 # Where a dialog sits in place of the input box.
 below_lowest_rule = { after = "lowest_rule" }
+# The same where the session has a name: the rule carrying it stays, below the
+# dialog. Only the row right above it is looked at, as a dialog ends with its
+# hint and a reply further up may quote one.
+above_closing_rule = { within = "above_lowest_rule", tail_non_empty = 1 }
 # A tip can sit under the spinner; anything further up is the reply.
 near_input = { within = "above_input", tail_non_empty = 3 }
 input_on = { after = "input" }
@@ -48,6 +52,7 @@ recent = { tail = 24 }
 dialog = { any = [
   { in = "dialog_above_input", has = "key_hint" },
   { absent = "input", in = "below_lowest_rule", has = "key_hint" },
+  { absent = "input", in = "above_closing_rule", has = "key_hint" },
 ] }
 
 [[rules]]

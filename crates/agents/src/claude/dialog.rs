@@ -10,6 +10,7 @@ use crate::Judgement;
 /// that takes keys: one drawn below a rule across the screen, with a hint of
 /// its keys such as "Esc to cancel". It takes the place of the input box, a
 /// prompt between two such rules, or sits right above it while Claude works.
+/// In a session with a name, the rule carrying it stays below the dialog.
 pub fn dialog_open<S: AsRef<str>>(lines: &[S]) -> bool {
     crate::rules::dialog_open(Agent::Claude, lines)
 }
@@ -96,13 +97,27 @@ mod tests {
     // `dev-channels-confirmed` right after confirming it, with the lines only
     // that recording's environment showed taken out. `background-work` is the
     // last rows of a session on 2.1.323 whose turn ended with two shells
-    // still running, its commands written shorter.
+    // still running, its commands written shorter. `copy-named` was recorded
+    // from 2.1.330 at 120 columns, started with `--name fix`.
 
     #[test]
     fn the_pickers_and_settings_slash_commands_open_are_dialogs() {
         for name in ["model", "config", "permissions", "mcp", "theme"] {
             assert!(dialog_open(&recorded(name)), "{name}");
         }
+    }
+
+    #[test]
+    fn a_picker_closed_by_a_rule_carrying_the_session_s_name_is_a_dialog() {
+        assert!(dialog_open(&recorded("copy-named")));
+    }
+
+    #[test]
+    fn a_reply_quoting_a_key_hint_further_above_the_closing_rule_is_no_dialog() {
+        let rule = "─".repeat(80);
+        let named = format!("{} fix ─", "─".repeat(80));
+        let lines = ["  Esc to cancel", "  more text", &rule, "  Loading", &named];
+        assert!(!dialog_open(&lines));
     }
 
     #[test]
@@ -269,6 +284,7 @@ mod tests {
             ("permissions", None, "claude.dialog_open"),
             ("mcp", None, "claude.dialog_open"),
             ("theme", None, "claude.dialog_open"),
+            ("copy-named", None, "claude.dialog_open"),
             ("dev-channels", None, "claude.dialog_open"),
         ] {
             let judged = judge_state(&recorded(name));
