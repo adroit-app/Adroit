@@ -38,7 +38,7 @@ pub(crate) fn UnfocusedBody(
             },
             match &shows {
                 Tab::Draft { worktree, .. } => rsx! {
-                    DraftHead { worktree: worktree.clone() }
+                    DraftHead { environment: shows.environment().clone(), worktree: worktree.clone() }
                 },
                 _ if has => rsx! {
                     ConsoleScreen { tab: shows.clone(), frame, cell_width, focused: false }

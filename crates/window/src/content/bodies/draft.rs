@@ -24,11 +24,25 @@ use crate::logins::Login;
 
 /// A draft in a window that is not focused: what it is and where.
 #[component]
-pub(crate) fn DraftHead(worktree: PathBuf) -> Element {
+pub(crate) fn DraftHead(environment: EnvironmentId, worktree: PathBuf) -> Element {
+    let app = use_context::<AppCtx>();
+    let name = app.hosts.read().name(&environment);
     rsx! {
         EmptyState { icon: Icon::MessagePlus, title: "New session",
             div { class: "console-empty-path", "{short(&worktree)}" }
+            div { class: "launch-form-where", title: "{name}", "{name}" }
         }
+    }
+}
+
+/// The row of a new session's form naming the environment it starts in.
+#[component]
+fn StartsInEnvironment(environment: EnvironmentId) -> Element {
+    let app = use_context::<AppCtx>();
+    let name = app.hosts.read().name(&environment);
+    rsx! {
+        div { class: "launch-form-label", "Environment" }
+        div { class: "launch-form-where", title: "{name}", "{name}" }
     }
 }
 
@@ -55,6 +69,7 @@ pub(crate) fn DraftForm(
                 div { class: "console-empty-path", "{short(&worktree)}" }
             }
             div { class: "launch-form",
+                StartsInEnvironment { environment: environment.clone() }
                 ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
@@ -110,6 +125,7 @@ pub(crate) fn NothingOpen(
                 div { class: "console-empty-hint", "Pick the directory it works in: a workspace, a Claude Code project, a ghq repository, or any folder." }
             }
             div { class: "launch-form",
+                StartsInEnvironment { environment: environment.clone() }
                 div { class: "launch-form-label", "Starts in" }
                 div { class: "launch-form-where", "A scratch session" }
                 ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }
