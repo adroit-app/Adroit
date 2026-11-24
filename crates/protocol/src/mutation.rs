@@ -56,6 +56,8 @@ impl Request {
             | Self::Rename { .. }
             | Self::HandBackName { .. }
             | Self::TakeRequests { .. }
+            | Self::ApproveRelay { .. }
+            | Self::DeclineRelay { .. }
             | Self::Release { .. }
             | Self::EndTerminal { .. }
             | Self::KeepWorkspace { .. }

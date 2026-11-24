@@ -58,6 +58,8 @@ pub enum Command {
     Send(Send),
     /// Ask another session for work.
     Ask(Send),
+    /// Propose to pass the user's own words on to other sessions.
+    ProposeRelay(ProposeRelay),
     Sessions(Sessions),
     Models,
     /// Name the caller's own session anew.
@@ -90,7 +92,12 @@ impl Command {
     pub fn acts(&self) -> bool {
         matches!(
             self,
-            Self::StartSession(_) | Self::Send(_) | Self::Ask(_) | Self::Rename(_) | Self::Close
+            Self::StartSession(_)
+                | Self::Send(_)
+                | Self::Ask(_)
+                | Self::ProposeRelay(_)
+                | Self::Rename(_)
+                | Self::Close
         )
     }
 }
@@ -135,6 +142,16 @@ pub struct Start {
 pub struct Send {
     /// The recipient's code, or its id, as `sessions` lists them.
     pub to: String,
+    pub body: String,
+}
+
+/// Propose to pass the user's own words on to other sessions.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProposeRelay {
+    /// The recipients' codes, or their ids, as `sessions` lists them.
+    pub to: Vec<String>,
+    /// What the user wants said, written to stand on its own for a session that knows nothing of this conversation.
     pub body: String,
 }
 
@@ -240,6 +257,15 @@ pub struct Asked {
     pub taken_up: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// The answer to [`Command::ProposeRelay`]: what is proposed, and to whom,
+/// which the user is yet to decide of.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Proposed {
+    pub proposed: MessageId,
+    pub to: Vec<adroit_model::RelayTo>,
+    pub note: String,
 }
 
 /// The answer to [`Command::Next`]: a message to hand the caller's agent.

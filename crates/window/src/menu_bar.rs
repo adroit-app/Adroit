@@ -82,6 +82,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::WorkspaceAdd),
                 Run(Action::SessionResume),
                 Run(Action::SessionBringBack),
+                Run(Action::RelayReview),
                 Separator,
                 Run(Action::PromptSend),
                 Run(Action::PromptImages),

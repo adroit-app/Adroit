@@ -223,7 +223,11 @@ async fn submit_prompt(
         return Err("a prompt attachment is missing on the work machine".into());
     }
     match type_prompt(id, &composed.typing).await {
-        Ok(()) => Ok(Answer::Done),
+        Ok(()) => {
+            // No pane of a window's took it as input.
+            let _ = crate::jobs::wrote([(id, 0)].into()).await;
+            Ok(Answer::Done)
+        }
         Err(text) => Ok(Answer::Unconfirmed { text }),
     }
 }

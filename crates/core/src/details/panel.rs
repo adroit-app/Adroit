@@ -2168,6 +2168,7 @@ pub(crate) mod tests {
             other: "leader".into(),
             body: "Look around".into(),
             asked: None,
+            relayed: false,
             sent_ms: 0,
         };
         let opened = scenario()

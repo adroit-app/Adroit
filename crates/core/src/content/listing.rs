@@ -289,8 +289,10 @@ fn listed_in(state: &mut ViewState, environment: &EnvironmentId) -> Vec<Effect> 
     }
     // Told only of what changed since the window first read the sessions,
     // and only when the settings ask for it.
+    let newly = newly_waiting(&was, next);
+    let proposed = crate::overlay::proposed_anew(state, environment);
     if seen && state.config.settings.notify_waiting {
-        let waiting = newly_waiting(&was, next);
+        let waiting: Vec<_> = newly.into_iter().chain(proposed).collect();
         if !waiting.is_empty() {
             effects.push(Effect::NotifyWaiting(waiting));
         }

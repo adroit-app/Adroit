@@ -2466,6 +2466,7 @@ mod tests {
             other: "tests".into(),
             body: "Done.".into(),
             asked: None,
+            relayed: false,
             sent_ms: 0,
         }];
         let a = [

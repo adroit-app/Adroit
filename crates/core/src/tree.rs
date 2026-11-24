@@ -202,6 +202,11 @@ pub fn interrupted(work: Option<&WorkSnapshot>) -> &[adroit_model::Interrupted] 
     facts(work).interrupted()
 }
 
+/// What sessions propose to pass on as the user's words, as last listed.
+pub fn relays(work: Option<&WorkSnapshot>) -> &[adroit_model::Relay] {
+    facts(work).relays()
+}
+
 /// The repository at `root` as last read of GitHub, if it is on GitHub.
 pub fn github<'a>(work: Option<&'a WorkSnapshot>, root: &Path) -> Option<&'a Repository> {
     facts(work).github.get(root)

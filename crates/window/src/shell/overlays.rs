@@ -3,6 +3,7 @@
 //! daemon. They only draw: the view state holds them.
 
 use adroit_core::msg::Msg;
+use adroit_core::overlay::confirm::Ask;
 use adroit_core::overlay::context_menu::{Reach, Target};
 use adroit_core::overlay::{self, MenuEntry, hints};
 use dioxus::prelude::*;
@@ -150,15 +151,32 @@ pub(crate) fn ConfirmDialog() -> Element {
     let renames = ask.renames();
     let (rename, overwrite) = hints::pasting_answers(&app.chrome.read().keymap);
     let yes = if renames { overwrite.or(yes) } else { yes };
+    let relay = match &ask {
+        Ask::Relay { relay, .. } => Some((relay.clone(), ask.relay_to())),
+        _ => None,
+    };
+    let decline = hints::decline(&app.chrome.read().keymap);
+    let kind = if relay.is_some() { "relay-dialog" } else { "" };
     rsx! {
-        Dialog { icon, title, onclose: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
+        Dialog { kind, icon, title, onclose: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
             div { "{body}" }
+            if let Some((relay, chosen)) = relay.clone() {
+                RelayWords { relay, chosen }
+            }
             div { class: "dialog-actions",
                 Button { onclick: move |_| app.dispatch(Msg::ConfirmAnswer(false)),
                     if let Some(keys) = no {
                         Keys { keys }
                     }
-                    if renames { "Skip" } else { "Cancel" }
+                    if renames { "Skip" } else if relay.is_some() { "Later" } else { "Cancel" }
+                }
+                if relay.is_some() {
+                    Button { onclick: move |_| app.perform(adroit_core::actions::Action::RelayDecline, None),
+                        if let Some(keys) = decline {
+                            Keys { keys }
+                        }
+                        "Decline"
+                    }
                 }
                 if renames {
                     Button { onclick: move |_| app.perform(adroit_core::actions::Action::PasteRename, None),
@@ -168,7 +186,7 @@ pub(crate) fn ConfirmDialog() -> Element {
                         "Rename"
                     }
                 }
-                Button { kind: if ask.destroys() { "danger" } else { "primary" },
+                Button { kind: if ask.destroys() { "danger" } else { "primary" }, disabled: !ask.answerable(),
                     onclick: move |_| app.dispatch(Msg::ConfirmAnswer(true)),
                     if let Some(keys) = yes {
                         Keys { keys }
@@ -178,6 +196,77 @@ pub(crate) fn ConfirmDialog() -> Element {
             }
         }
     }
+}
+
+/// The words a session proposes to pass on, whole, and the sessions they are
+/// to reach, each to leave out or put back.
+#[component]
+fn RelayWords(relay: adroit_model::Relay, chosen: Vec<adroit_model::SessionCode>) -> Element {
+    let app = use_context::<AppCtx>();
+    rsx! {
+        div { class: "relay-words", "{relay.body}" }
+        div { class: "relay-to",
+            if relay.to.is_empty() {
+                "Every session they were to reach has ended."
+            }
+            for to in relay.to {
+                label { key: "{to.code}",
+                    input {
+                        r#type: "checkbox",
+                        checked: chosen.contains(&to.code),
+                        onchange: {
+                            let code = to.code.clone();
+                            move |_| app.dispatch(Msg::RelayToggle(code.clone()))
+                        },
+                    }
+                    "{to.name} ({to.code})"
+                }
+            }
+        }
+    }
+}
+
+/// The banner saying a session proposes to pass words on as the user's.
+#[component]
+pub(crate) fn RelayBanner() -> Element {
+    let app = use_context::<AppCtx>();
+    let shown = {
+        let hosts = app.hosts.read();
+        let overlays = app.overlays.read();
+        let proposed = overlay::relay::relay_banner(&hosts, &overlays.relays);
+        proposed
+            .first()
+            .map(|(_, relay)| relay_title(relay, proposed.len() - 1))
+    };
+    let Some(title) = shown else {
+        return rsx! {};
+    };
+    rsx! {
+        div { class: "daemon-banner",
+            IconView { icon: Icon::MessageUp }
+            span { class: "daemon-banner-title", "{title}" }
+            span { class: "daemon-banner-note", "Nothing is sent until you approve it." }
+            Spacer {}
+            Button { onclick: move |_| app.dispatch(Msg::RelayLater), "Later" }
+            Button { kind: "primary", onclick: move |_| app.dispatch(Msg::RelayReview), "Review…" }
+        }
+    }
+}
+
+/// What the banner says of `relay`, with `more` proposed besides.
+fn relay_title(relay: &adroit_model::Relay, more: usize) -> String {
+    let to = match relay.to.as_slice() {
+        [one] => one.name.clone(),
+        to => format!("{} sessions", to.len()),
+    };
+    let more = match more {
+        0 => String::new(),
+        more => format!(" (and {more} more)"),
+    };
+    format!(
+        "{} proposes to pass your words on to {to}{more}",
+        relay.from_name
+    )
 }
 
 /// The banner offering to restart a daemon this window cannot work with,
@@ -309,6 +398,30 @@ mod tests {
         assert!(
             style.contains("max(calc(4px - 700px), min(0px, calc(100vh - 700px - 100% - 4px)))"),
             "{style}"
+        );
+    }
+
+    #[test]
+    fn the_banner_names_who_proposes_to_pass_words_on_and_to_how_many() {
+        let to = |name: &str| adroit_model::RelayTo {
+            code: "r4pj".parse().unwrap(),
+            name: name.into(),
+        };
+        let relay = |to| adroit_model::Relay {
+            id: adroit_model::MessageId::new(),
+            from: "k7f3".parse().unwrap(),
+            from_name: "lead".into(),
+            to,
+            body: "use tabs".into(),
+            proposed_ms: 1,
+        };
+        assert_eq!(
+            relay_title(&relay(vec![to("api")]), 0),
+            "lead proposes to pass your words on to api"
+        );
+        assert_eq!(
+            relay_title(&relay(vec![to("api"), to("web")]), 1),
+            "lead proposes to pass your words on to 2 sessions (and 1 more)"
         );
     }
 

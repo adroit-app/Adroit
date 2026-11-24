@@ -106,6 +106,8 @@ pub enum Kind {
     /// Work it was asked for by a session it does not take work up from, and
     /// was told as a message.
     Declined,
+    /// The user's own words, which they approved to be passed on.
+    Relayed,
 }
 
 impl Kind {
@@ -114,11 +116,12 @@ impl Kind {
             Self::Message => "message",
             Self::Request => "request",
             Self::Declined => "declined",
+            Self::Relayed => "relayed",
         }
     }
 
     fn from_key(key: &str) -> Option<Self> {
-        [Self::Message, Self::Request, Self::Declined]
+        [Self::Message, Self::Request, Self::Declined, Self::Relayed]
             .into_iter()
             .find(|known| known.key() == key)
     }

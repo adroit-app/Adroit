@@ -11,7 +11,9 @@ use super::effects::use_effects;
 use super::footer::Footer;
 use super::header::Header;
 use super::local::use_local;
-use super::overlays::{ConfirmDialog, ContextMenu, DaemonBanner, InterruptedBanner, KeysHelp};
+use super::overlays::{
+    ConfirmDialog, ContextMenu, DaemonBanner, InterruptedBanner, KeysHelp, RelayBanner,
+};
 use super::socket::use_window_socket;
 use super::ui::{Ui, use_ui};
 use crate::bridge::{AppCtx, use_app};
@@ -70,6 +72,7 @@ fn App() -> Element {
             Body {}
             DaemonBanner {}
             InterruptedBanner {}
+            RelayBanner {}
             Footer {}
             Picker {}
             ContextMenu {}

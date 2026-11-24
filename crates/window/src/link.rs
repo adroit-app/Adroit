@@ -292,7 +292,13 @@ impl Shown {
     fn note(&mut self, request: &Request) {
         match request {
             Request::Watch(_) => self.watch = Some(request.clone()),
-            Request::Typed { .. } => self.typed = Some(request.clone()),
+            // What was sent when is no longer as long ago when said again.
+            Request::Typed { inputs, .. } => {
+                self.typed = Some(Request::Typed {
+                    inputs: inputs.clone(),
+                    entered: Default::default(),
+                })
+            }
             Request::Call { .. } => self.call = Some(request.clone()),
             _ => {}
         }

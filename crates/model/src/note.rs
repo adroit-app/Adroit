@@ -37,6 +37,10 @@ pub struct Note {
     /// What became of the work it asked for; none for a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<RequestOutcome>,
+    /// Whether it is the user's own words, which they approved to be passed
+    /// on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relayed: bool,
     pub sent_ms: u64,
 }
 
@@ -49,12 +53,17 @@ impl Note {
     /// Who it went between, `now_ms` telling how long ago.
     pub fn tag(&self, now_ms: u64) -> String {
         let what = match self.asked {
+            _ if self.relayed => "your words ",
             None => "",
             Some(RequestOutcome::Waiting) => "request ",
             Some(RequestOutcome::TakenUp) => "work ",
             Some(RequestOutcome::Told) => "information ",
         };
-        let way = if self.outgoing { "to" } else { "from" };
+        let way = match (self.outgoing, self.relayed) {
+            (true, _) => "to",
+            (false, false) => "from",
+            (false, true) => "through",
+        };
         format!(
             "{what}{way} {} · {}",
             self.other,
@@ -76,6 +85,7 @@ mod tests {
                 other: "lead".into(),
                 body: String::new(),
                 asked,
+                relayed: false,
                 sent_ms: 0,
             }
             .tag(0)
@@ -88,5 +98,23 @@ mod tests {
         ] {
             assert!(tag(asked).starts_with(begins), "{}", tag(asked));
         }
+    }
+
+    #[test]
+    fn the_user_s_words_are_tagged_as_theirs_with_the_session_they_went_through() {
+        let tag = |outgoing| {
+            Note {
+                id: "n".into(),
+                outgoing,
+                other: "lead".into(),
+                body: String::new(),
+                asked: None,
+                relayed: true,
+                sent_ms: 0,
+            }
+            .tag(0)
+        };
+        assert!(tag(false).starts_with("your words through lead"));
+        assert!(tag(true).starts_with("your words to lead"));
     }
 }

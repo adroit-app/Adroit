@@ -280,3 +280,4 @@
 "n" = "overlay.close"
 "f" = "paste.overwrite"
 "r" = "paste.rename"
+"d" = "relay.decline"

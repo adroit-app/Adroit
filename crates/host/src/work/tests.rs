@@ -234,12 +234,14 @@ fn the_lister_counts_the_latest_typing_any_window_saw_and_forgets_a_window_gone(
         A,
         Request::Typed {
             inputs: BTreeMap::from([(7, 1_000), (8, 5_000)]),
+            entered: BTreeMap::new(),
         },
     );
     host.handle(
         B,
         Request::Typed {
             inputs: BTreeMap::from([(7, 3_000)]),
+            entered: BTreeMap::new(),
         },
     );
     assert_eq!(*inputs.borrow(), BTreeMap::from([(7, 3_000), (8, 5_000)]));
@@ -775,7 +777,8 @@ fn the_lister_is_told_when_to_list_again_and_what_was_typed() {
     let typed = BTreeMap::from([(7, 1_000)]);
     assert!(
         host.on(Request::Typed {
-            inputs: typed.clone()
+            inputs: typed.clone(),
+            entered: BTreeMap::new(),
         })
         .is_empty()
     );

@@ -148,15 +148,25 @@ pub(crate) fn tell_live(app: AppCtx, hub: &Hub) {
 /// sessions are live here, as their panes exit.
 pub(crate) async fn tell_live_on(app: AppCtx, hub: Hub) {
     let mut typed: BTreeMap<EnvironmentId, BTreeMap<u128, u64>> = BTreeMap::new();
+    let mut entered: BTreeMap<u128, u64> = BTreeMap::new();
     let mut told_live = None;
     loop {
         let mut inputs: BTreeMap<EnvironmentId, BTreeMap<u128, u64>> = BTreeMap::new();
+        let mut sent: BTreeMap<EnvironmentId, BTreeMap<u128, u64>> = BTreeMap::new();
         for (tab, pane) in hub.panes.borrow().iter() {
             if let (Tab::Session(environment, _), Some(at)) = (tab, pane.last_input_ms()) {
                 inputs
                     .entry(environment.clone())
                     .or_default()
                     .insert(pane.id(), at);
+                if let Some(at) = pane.last_enter_ms()
+                    && entered.insert(pane.id(), at) != Some(at)
+                {
+                    let ago = adroit_model::time::now_ms().saturating_sub(at);
+                    sent.entry(environment.clone())
+                        .or_default()
+                        .insert(pane.id(), ago);
+                }
             }
         }
         // An environment whose sessions all went is told so, with none.
@@ -168,6 +178,7 @@ pub(crate) async fn tell_live_on(app: AppCtx, hub: Hub) {
                 app.dispatch(Msg::Typed {
                     environment: environment.clone(),
                     inputs: now,
+                    entered: sent.remove(&environment).unwrap_or_default(),
                 });
             }
         }

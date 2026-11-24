@@ -75,7 +75,8 @@ window or such a row is described.
   first, each with who sent it to whom; opening one shows it whole. So are the
   requests a program outside Adroit made of it, under the name it gave itself
   ([requests](opening-sessions.md#requests)). A request says whether it was
-  taken up as work or told as information. A message
+  taken up as work or told as information, and
+  [your words](opening-sessions.md#your-words-passed-on) that they are yours. A message
   stays listed after the sessions on both ends have ended.
 - **requests** — the sessions that may ask it for work or have asked it
   ([requests between sessions](opening-sessions.md#requests-between-sessions)):

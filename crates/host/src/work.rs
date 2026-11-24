@@ -314,6 +314,8 @@ impl Host {
             | Request::Rename { .. }
             | Request::HandBackName { .. }
             | Request::TakeRequests { .. }
+            | Request::ApproveRelay { .. }
+            | Request::DeclineRelay { .. }
             | Request::Release { .. }
             | Request::EndTerminal { .. }
             | Request::KeepWorkspace { .. }
@@ -345,7 +347,14 @@ impl Host {
                 let composed = PromptChange::Composed { composed };
                 self.record_for(window, [composed]).into_iter().collect()
             }
-            Request::Typed { inputs } => {
+            Request::Typed { inputs, entered } => {
+                if !entered.is_empty() {
+                    let entered = Request::Typed {
+                        inputs: BTreeMap::new(),
+                        entered,
+                    };
+                    let _ = self.jobs.send((window, entered));
+                }
                 self.shown(window).inputs = inputs;
                 self.publish_inputs();
                 Vec::new()

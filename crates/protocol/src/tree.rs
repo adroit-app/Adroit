@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use adroit_model::files::Entry;
 use adroit_model::github::{self, Listing};
 use adroit_model::repository::Marks;
-use adroit_model::{Interrupted, Session, TerminalSession, Tree};
+use adroit_model::{Interrupted, Relay, Session, TerminalSession, Tree};
 use serde::{Deserialize, Serialize};
 
 /// What the tree shows that the host keeps read while it is shown. The
@@ -56,6 +56,8 @@ pub struct Listed {
     pub tree: Tree,
     /// What the terminal host took with it, waiting to be brought back.
     pub interrupted: Vec<Interrupted>,
+    /// What sessions propose to pass on as the user's words, oldest first.
+    pub relays: Vec<Relay>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,6 +68,8 @@ struct WireListed {
     tree: Tree,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     interrupted: Vec<Interrupted>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    relays: Vec<Relay>,
 }
 
 impl From<Listed> for WireListed {
@@ -75,6 +79,7 @@ impl From<Listed> for WireListed {
             terminals: listed.terminals,
             tree: listed.tree,
             interrupted: listed.interrupted,
+            relays: listed.relays,
         }
     }
 }
@@ -86,6 +91,7 @@ impl From<WireListed> for Listed {
             sessions: wire.sessions,
             terminals: wire.terminals,
             interrupted: wire.interrupted,
+            relays: wire.relays,
         }
     }
 }
@@ -172,6 +178,11 @@ impl TreeWork {
     /// What the terminal host took with it, as last listed.
     pub fn interrupted(&self) -> &[Interrupted] {
         self.listed.as_ref().map_or(&[], |l| &l.interrupted)
+    }
+
+    /// What sessions propose to pass on as the user's words, as last listed.
+    pub fn relays(&self) -> &[Relay] {
+        self.listed.as_ref().map_or(&[], |l| &l.relays)
     }
 }
 

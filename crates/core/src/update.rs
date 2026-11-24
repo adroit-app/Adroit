@@ -61,9 +61,10 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::Typed {
             environment,
             inputs,
+            entered,
         } => vec![Effect::Host {
             environment,
-            request: Request::Typed { inputs },
+            request: Request::Typed { inputs, entered },
         }],
         Msg::TerminalOpened {
             environment,
@@ -333,6 +334,9 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
         Msg::BringBackAll => overlay::bring_back_all(state, false),
         Msg::LetGoAll => overlay::bring_back_all(state, true),
         Msg::InterruptedLater => overlay::interrupted_later(state),
+        Msg::RelayReview => overlay::review_relay(state),
+        Msg::RelayLater => overlay::relay_later(state),
+        Msg::RelayToggle(code) => overlay::toggle_relay(state, &code),
         Msg::BroughtBack { outcomes, .. } => overlay::brought_back(state, &outcomes),
     }
 }
