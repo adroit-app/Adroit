@@ -1,0 +1,27 @@
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   ~/ghq/github.com/adroit-app/Adroit/.claude/worktrees/fix-copy-dialog
+
+
+❯ Reply with one short sentence and a json code block of 3 lines. Use no tools.
+
+⏺ 準備はできています。
+
+  {"status": "ready",
+   "tools_used": 0,
+   "reply_language": "ja"}
+
+✻ Brewed for 5s · done 11:32 PM
+
+❯ /copy
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Copy response
+
+  ❯ Full response         86 chars · 7 lines
+    {"status": "ready",   json · 3 lines
+    Always copy full response
+    Skip this picker in the future (revert via /config)
+
+  ↑/↓ to navigate · w to write to file · Enter to copy · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fix ─
