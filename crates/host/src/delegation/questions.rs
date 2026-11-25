@@ -73,8 +73,22 @@ pub enum Decision {
     },
 }
 
-/// A decision on its way to the agent, and what is told once it is there.
-pub(crate) type Decided = (Decision, oneshot::Sender<()>);
+/// The tool a question whether to trust a folder is told as asked through: it
+/// is asked through none, as Claude Code asks it before it runs any.
+pub(crate) const TRUST: &str = "TrustFolder";
+
+/// A decision on its way to the agent, and what is told once it is there, or
+/// why it is not.
+pub(crate) type Decided = (Decision, oneshot::Sender<Result<(), String>>);
+
+/// What became of a decision.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Taken {
+    Yes,
+    /// The question is not asked any more.
+    NotAsked,
+    Failed(String),
+}
 
 /// How long an agent's hook is given to take a decision.
 const TAKES: Duration = Duration::from_secs(5);
@@ -163,19 +177,23 @@ pub(crate) fn named(session: SessionId, id: MessageId) -> Option<Question> {
     one(session, id).map(|held| held.question.clone())
 }
 
-/// Decides the question `session` asks by `id`; whether the agent's hook took
-/// the decision, which it does not once the user answered.
-pub(crate) async fn answer(session: SessionId, id: MessageId, decision: Decision) -> bool {
+/// Decides the question `session` asks by `id`; whether the agent took the
+/// decision, which it does not once the user answered.
+pub(crate) async fn answer(session: SessionId, id: MessageId, decision: Decision) -> Taken {
     let decide = one(session, id)
         .and_then(|held| held.decide.lock().unwrap_or_else(|e| e.into_inner()).take());
     let Some(decide) = decide else {
-        return false;
+        return Taken::NotAsked;
     };
     let (took, taken) = oneshot::channel();
     if decide.send((decision, took)).is_err() {
-        return false;
+        return Taken::NotAsked;
     }
-    matches!(tokio::time::timeout(TAKES, taken).await, Ok(Ok(())))
+    match tokio::time::timeout(TAKES, taken).await {
+        Ok(Ok(Ok(()))) => Taken::Yes,
+        Ok(Ok(Err(why))) => Taken::Failed(why),
+        Ok(Err(_)) | Err(_) => Taken::NotAsked,
+    }
 }
 
 #[cfg(test)]
@@ -215,14 +233,18 @@ mod tests {
         let session = SessionId::new();
         let (waits, decided) = hold(session, asking("Bash"), 1).unwrap();
         let id = of(session).unwrap().id;
-        assert!(!answer(session, MessageId::new(), ALLOW).await);
-        assert!(!answer(SessionId::new(), id, ALLOW).await);
+        assert_eq!(
+            answer(session, MessageId::new(), ALLOW).await,
+            Taken::NotAsked
+        );
+        assert_eq!(answer(SessionId::new(), id, ALLOW).await, Taken::NotAsked);
         let took = tokio::spawn(answer(session, id, ALLOW));
         let (decision, taken) = decided.await.unwrap();
         assert_eq!(decision, ALLOW);
-        taken.send(()).unwrap();
-        assert!(took.await.unwrap());
-        assert!(!answer(session, id, ALLOW).await, "decided already");
+        taken.send(Ok(())).unwrap();
+        assert_eq!(took.await.unwrap(), Taken::Yes);
+        let again = answer(session, id, ALLOW).await;
+        assert_eq!(again, Taken::NotAsked, "decided already");
         drop(waits);
     }
 
@@ -233,9 +255,9 @@ mod tests {
         let id = of(session).unwrap().id;
         let took = tokio::spawn(answer(session, id, ALLOW));
         drop(decided.await.unwrap());
-        assert!(!took.await.unwrap());
+        assert_eq!(took.await.unwrap(), Taken::NotAsked);
         drop(waits);
-        assert!(!answer(session, id, ALLOW).await);
+        assert_eq!(answer(session, id, ALLOW).await, Taken::NotAsked);
     }
 
     #[tokio::test]
@@ -244,7 +266,7 @@ mod tests {
         let first = asking("Bash");
         let _one = hold(session, first.clone(), 1).unwrap();
         let _two = hold(session, first.clone(), 2).unwrap();
-        assert!(!answer(session, first.id, ALLOW).await);
+        assert_eq!(answer(session, first.id, ALLOW).await, Taken::NotAsked);
     }
 
     #[test]

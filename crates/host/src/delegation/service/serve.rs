@@ -88,7 +88,7 @@ async fn reply(
             .await?;
             // The hook hangs up once it has read the decision.
             let _ = read.fill_buf().await;
-            let _ = taken.send(());
+            let _ = taken.send(Ok(()));
             return Ok(());
         }
         Ok(request) if request.version == VERSION => dispatch(&context, request).await,

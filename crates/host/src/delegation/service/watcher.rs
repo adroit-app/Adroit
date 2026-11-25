@@ -55,6 +55,8 @@ struct Watcher {
     lookups: tokio::task::JoinSet<(SessionId, String, Option<String>)>,
     looking: HashSet<SessionId>,
     resolved: HashMap<SessionId, (String, String)>,
+    /// What sessions that start ask of trusting their folder.
+    trust: HashMap<SessionId, super::trust::Held>,
 }
 
 impl Watcher {
@@ -77,6 +79,7 @@ impl Watcher {
             .map_err(|_| Error::storage("the terminal daemon did not answer"))?
             .map_err(Error::storage)?;
         let now = context.daemon.generation();
+        let mut starts = HashSet::new();
         let mut interrupted = self.terminals(context, &native, now.as_deref()).await?;
         let records = context.call(|store| store.sessions()).await?;
         let all = records.clone();
@@ -112,6 +115,13 @@ impl Watcher {
                     .visible(terminal)
                     .await
                     .map_err(Error::storage)?;
+                starts.insert(record.id);
+                let held = self.trust.remove(&record.id);
+                if let Some(held) =
+                    super::trust::follow(held, &context.daemon, &record, native, &screen)
+                {
+                    self.trust.insert(record.id, held);
+                }
                 self.starting(context, &record, native, &screen).await?;
             }
             if record.agent == Agent::Codex {
@@ -125,6 +135,8 @@ impl Watcher {
                 Self::learn_tagged_conversation(context, &mut record, native).await?;
             }
         }
+        self.trust
+            .retain(|id, held| starts.contains(id) || held.answering());
         let restore = context
             .settings()
             .map_or(RestoreSessions::Ask, |settings| settings.restore_sessions);

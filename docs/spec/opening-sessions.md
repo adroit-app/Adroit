@@ -213,7 +213,8 @@ Adroit watches each session it starts until its agent is ready. When the
 agent waits on a dialog — trust, permissions, a model change, or any dialog
 Adroit cannot name — the session shows it as waiting on you; so it does when
 it neither becomes ready nor shows a dialog for long enough to count as
-stalled. Adroit never answers trust or permission questions for the user.
+stalled. Adroit never answers trust or permission questions of its own
+accord; a program with a [key](#keys) can.
 
 Claude Code warns at every launch that Adroit's channel is a development
 channel. Adroit confirms that warning, once a launch and only when it names
@@ -385,9 +386,11 @@ what is their own beside it:
   waits: its `kind` is `permission` to use a tool, `question` for one of
   Claude's own or `plan` to go on with a plan, and `input` is what it would
   give the `tool`, whole, or the beginning of its text where `truncated`. Its
-  id is its own for as long as it is asked. It is null while nothing is asked,
-  and for what is not told: what a subagent asks, trust and other dialogs, a
-  session started before Adroit told of questions, and other agents.
+  id is its own for as long as it is asked. Whether to trust the folder a
+  session starts in is a `permission` too, with `TrustFolder` as its `tool`
+  ([below](#trusting-a-folder)). It is null while nothing is asked, and for
+  what is not told: what a subagent asks, other dialogs, a session started
+  before Adroit told of questions, and other agents.
 - `wait` adds `timed_out`.
 - `send --json` prints the request and the session it went to:
 
@@ -397,6 +400,33 @@ what is their own beside it:
 
 The conversation is read from what the agent itself keeps, so a session whose
 agent has not told its conversation yet has no turns.
+
+### Trusting a folder
+
+Claude Code asks whether to trust a folder before a session first works in it.
+The question's `input` tells what it is asked of and what the answer covers:
+
+```json
+{"folder":"/Users/me/notes","repository":null,
+ "scope":"Claude Code keeps this trust for later sessions too; it covers this folder and every folder below it, and no folder above.",
+ "dialog":"Accessing workspace:\n…"}
+```
+
+- `folder` is the folder, and `repository` the git directory of the repository
+  it belongs to, null outside one.
+- `scope` says in words how far the trust reaches and for how long. Claude Code
+  keeps it for later sessions, of the folder and those below it, and in a git
+  repository of the whole repository and its worktrees. It reaches no folder
+  above those, and for the home folder it lasts for the session.
+- `dialog` is all that Claude Code shows of it, such as the hooks and the
+  permissions the folder's own settings bring.
+
+`--allow` trusts the folder. `--deny` does not, and Claude Code then leaves,
+which ends the session; a reason is told to no one. The answer is typed in the
+session's console, and only while that shows the question as it was told: shown
+otherwise, nothing is chosen and it exits with 4. A question worded otherwise
+than Adroit knows it, or in a console too short to show it whole, is answered in
+Adroit.
 
 ### What changed
 
@@ -477,13 +507,16 @@ commands exit with 5, and run in a session Adroit started they are refused.
   told; so is a plan, which the agent then goes on with in the mode you would
   approve its edits in yourself. A question takes a `--reply` for each it asks
   at once, in order, one of its choices or words of its own. The dialog stays
-  in the session's console meanwhile, and the first answer counts.
+  in the session's console meanwhile, and the first answer counts. Whether to
+  trust a folder is answered [otherwise](#trusting-a-folder), and is the one
+  answer that outlasts the question.
 - **`interrupt`** interrupts the turn a session runs, and is refused while the
   session waits on you or runs none.
 - **`end`** ends a session as ending it from Adroit does.
 
 What cannot be answered so is answered in Adroit: what `question` does not tell,
-and anything that outlasts the one answer, such as allowing a tool from then on.
+and anything else that outlasts the one answer, such as allowing a tool from
+then on.
 What a program did is listed among the session's messages, under the name of its
 key.
 

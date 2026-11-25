@@ -14,7 +14,7 @@ launch, and every session Adroit starts carries that channel.
 
 A session's readiness is kept apart from its process. The agent's adapter reads
 its screen, and any dialog, named or not, counts as waiting on the user. Adroit
-answers no dialog for the user, with one exception it makes unless turned off:
+answers no dialog of its own accord, with one exception it makes unless turned off:
 the warning that names Adroit's own channel and nothing else.
 
 ## Alternatives considered
