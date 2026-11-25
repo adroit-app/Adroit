@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Found, Standing, cut, find, keys};
 use crate::delegation::app;
-use crate::delegation::questions::{self, Decision, Kind, Question};
+use crate::delegation::questions::{self, Decision, Kind, Question, TRUST, Taken};
 
 /// The exit status when the question named is not asked any more.
 const NOT_ASKED: i32 = 4;
@@ -113,6 +113,8 @@ fn told(question: &Question, given: &Given) -> String {
     let what = match given {
         Given::Allow => "Allowed".to_string(),
         Given::Deny { reason: None } => "Denied".into(),
+        // Claude Code leaves, and is told no reason.
+        Given::Deny { .. } if question.tool == TRUST => "Denied".into(),
         Given::Deny {
             reason: Some(reason),
         } => format!("Denied, saying \"{reason}\","),
@@ -173,11 +175,22 @@ async fn answer(
     }
     let question = questions::named(session, id).ok_or_else(gone)?;
     let decision = decide(&question, given)?;
-    if !questions::answer(session, id, decision).await {
-        return Err(gone());
+    match questions::answer(session, id, decision).await {
+        Taken::Yes => {}
+        Taken::NotAsked => return Err(gone()),
+        Taken::Failed(why) => {
+            let tried = outcome("", &format!("answer {}", question.tool), &Err(why.clone()));
+            record(session, by, tried).await?;
+            return Err(Refused::new(why, 1));
+        }
     }
     let what = told(&question, given);
     record(session, by, what.clone()).await?;
+    // It was seen to go, and what a session that starts asks next is no sign
+    // that it was not.
+    if question.tool == TRUST {
+        return Ok(what);
+    }
     let deadline = tokio::time::Instant::now() + TAKES;
     loop {
         let standing = find(asked).await?.standing;
@@ -428,6 +441,19 @@ mod tests {
         let told = |acted| outcome("Ended the session", "end the session", &acted);
         assert_eq!(told(Ok(())), "Ended the session");
         assert_eq!(told(Err("gone".into())), "Tried to end the session: gone");
+    }
+
+    #[test]
+    fn a_folder_not_trusted_is_told_without_a_reason_no_one_was_given() {
+        let mut asked = question(Kind::Permission, json!({"folder": "/f"}));
+        asked.tool = TRUST.into();
+        let given = Given::Deny {
+            reason: Some("no".into()),
+        };
+        assert_eq!(
+            told(&asked, &given),
+            r#"Denied TrustFolder: {"folder":"/f"}"#
+        );
     }
 
     #[test]

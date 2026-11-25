@@ -16,8 +16,11 @@ in Adroit's own window, and only while the user lets programs do so, which is of
 until they do. The key reaches Adroit where no other program reads it, is given
 to no session, and is kept only as what tells it from another. An answer names
 the question it answers and goes to the agent through the agent's own way of
-being answered, which leaves its dialog to the user; it holds for that once. No
-answer is typed.
+being answered, which leaves its dialog to the user; it holds for that once.
+None is typed but to whether a folder is trusted, which an agent asks before it
+offers any such way: its keys are typed only while the screen shows the very
+question the program was told. That answer lasts as the agent makes it last, and
+the question says for how long and how far.
 
 ## Alternatives considered
 
@@ -28,14 +31,22 @@ answer is typed.
 - Tell sessions from other programs by their environment. An agent drops what it
   is told by.
 - Give keys by a command. An agent could give itself one.
-- Type answers into the terminal. A key can reach another dialog than the one
-  the user was shown.
+- Type every answer into the terminal. A key can reach another dialog than the
+  one the user was shown.
+- Leave trusting a folder to the window. A session an assistant starts in a new
+  folder waits there before it has begun.
+- Undo the trust as the session ends. Adroit would write another program's
+  settings while that program does.
 
 ## Consequences
 
 - A key keeps out an agent that runs a command, not a program outside a sandbox
   that sets out to get past it.
-- Only what an agent takes an answer to through such a way can be answered; the
-  rest waits for the user in Adroit.
+- Only whether to trust a folder, and what an agent takes an answer to through
+  such a way, can be answered; the rest waits for the user in Adroit.
+- A dialog that replaces the trust question between the look at the screen and
+  the key can take that key.
+- A trust question worded otherwise is left to the user until Adroit recognises
+  it again.
 - A turn is interrupted by the agent's own key for it, typed only where nothing
   waits on the user, as no agent offers another way.

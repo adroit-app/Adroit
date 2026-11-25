@@ -20,6 +20,7 @@ mod commands;
 mod fixtures;
 mod models;
 mod serve;
+mod trust;
 mod watcher;
 
 pub use serve::envelope;

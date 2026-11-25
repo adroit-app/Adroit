@@ -60,6 +60,73 @@ pub fn development_channels<S: AsRef<str>>(lines: &[S]) -> Option<Vec<String>> {
     (!channels.is_empty()).then_some(channels)
 }
 
+/// What Claude Code asks as it starts in a folder the user has not trusted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustAsked {
+    /// The folder it names, without the blanks its rows are wrapped at.
+    pub folder: String,
+    /// All it says of the folder and what trusting it does, a line a row.
+    pub text: String,
+    /// Whether its option to trust the folder is selected.
+    pub trusting: bool,
+    /// Whether that option is drawn under the one to leave.
+    pub trust_below: bool,
+}
+
+impl TrustAsked {
+    /// Whether `other` asks the same, however wrapped and whichever of its
+    /// options is selected.
+    pub fn same(&self, other: &TrustAsked) -> bool {
+        blankless(&self.text) == blankless(&other.text) && self.trust_below == other.trust_below
+    }
+}
+
+/// `text` without its blanks, which is the same however wide it was wrapped.
+pub fn blankless(text: &str) -> String {
+    text.split_whitespace().collect()
+}
+
+/// Claude Code's question whether to trust the folder it starts in, while the
+/// whole of it is on the screen and takes the keys; `None` for any other
+/// screen. It is recognised by its exact wording, so one worded otherwise, or
+/// cut off by a short window, is not taken for it.
+pub fn trust_asked<S: AsRef<str>>(lines: &[S]) -> Option<TrustAsked> {
+    const TRUST: &str = "Yes, I trust this folder";
+    const LEAVE: &str = "No, exit";
+    let first = lines.iter().position(|line| rule(line.as_ref()))?;
+    let shown: Vec<&str> = lines[first + 1..]
+        .iter()
+        .map(|line| line.as_ref().trim())
+        .collect();
+    let from = shown.iter().position(|line| !line.is_empty())?;
+    let to = shown.iter().rposition(|line| !line.is_empty())?;
+    let shown = &shown[from..=to];
+    let [body @ .., upper, lower, "", keys] = shown else {
+        return None;
+    };
+    if body.first() != Some(&"Accessing workspace:") || *keys != "Enter to confirm · Esc to cancel"
+    {
+        return None;
+    }
+    let (trusting, trust_below) = match (*upper, *lower) {
+        ("❯ No, exit", TRUST) => (false, true),
+        (LEAVE, "❯ Yes, I trust this folder") => (true, true),
+        ("❯ Yes, I trust this folder", LEAVE) => (true, false),
+        (TRUST, "❯ No, exit") => (false, false),
+        _ => return None,
+    };
+    let asks = body
+        .iter()
+        .position(|line| line.starts_with("Quick safety check:"))?;
+    let folder: String = body[1..asks].iter().map(|row| blankless(row)).collect();
+    (!folder.is_empty()).then(|| TrustAsked {
+        folder,
+        text: body.join("\n").trim().to_owned(),
+        trusting,
+        trust_below,
+    })
+}
+
 /// The shortest rule taken for one across the screen; a dialog's own boxes
 /// are indented and cornered, so they never pass.
 const RULE_MIN: usize = 20;
@@ -376,6 +443,88 @@ mod tests {
         for name in ["model", "model-while-working", "dev-channels"] {
             assert_eq!(state_of(&recorded(name)), None, "{name}");
         }
+    }
+
+    /// The screen `name` with its other option selected.
+    fn selected(name: &str) -> Vec<String> {
+        recorded(name)
+            .into_iter()
+            .map(|line| match line.trim() {
+                "❯ No, exit" => "   No, exit".into(),
+                "Yes, I trust this folder" => " ❯ Yes, I trust this folder".into(),
+                _ => line,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_question_whether_to_trust_a_folder_tells_its_folder_and_all_it_warns_of() {
+        let asked = trust_asked(&recorded("trust")).unwrap();
+        assert_eq!(asked.folder, "/Users/me/.local/share/famulen/notebook");
+        assert!(!asked.trusting && asked.trust_below);
+        let warned = trust_asked(&recorded("trust-with-settings")).unwrap();
+        assert!(warned.text.contains("Bash(ls:*)"));
+        assert!(warned.text.contains("configures hooks"));
+        assert!(!asked.same(&warned));
+    }
+
+    #[test]
+    fn the_same_question_is_told_however_wrapped_and_whichever_option_is_selected() {
+        let asked = trust_asked(&recorded("trust")).unwrap();
+        let moved = trust_asked(&selected("trust")).unwrap();
+        assert!(moved.trusting && asked.same(&moved));
+        let wrapped: Vec<String> = recorded("trust")
+            .into_iter()
+            .flat_map(|line| match line.split_once("famu") {
+                Some((left, right)) => vec![format!("{left}famu"), format!(" {right}")],
+                None => vec![line],
+            })
+            .collect();
+        let wrapped = trust_asked(&wrapped).unwrap();
+        assert_eq!(wrapped.folder, asked.folder);
+        assert!(wrapped.same(&asked));
+    }
+
+    #[test]
+    fn a_screen_that_shows_the_trust_question_otherwise_or_in_part_is_not_taken_for_it() {
+        let whole = recorded("trust");
+        let without = |text: &str| -> Vec<String> {
+            whole
+                .iter()
+                .filter(|l| !l.contains(text))
+                .cloned()
+                .collect()
+        };
+        for text in [
+            "Accessing",
+            "No, exit",
+            "Yes, I",
+            "Enter to",
+            "────",
+            "safety",
+            "/Users",
+        ] {
+            assert_eq!(trust_asked(&without(text)), None, "{text}");
+        }
+        let neither: Vec<String> = whole.iter().map(|l| l.replace('❯', " ")).collect();
+        assert_eq!(trust_asked(&neither), None);
+        let mut after = whole.clone();
+        after.push(" $ ".into());
+        assert_eq!(trust_asked(&after), None);
+        for name in ["dev-channels", "input", "permissions", "pi-trust"] {
+            assert_eq!(trust_asked(&recorded(name)), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_trust_question_drawn_again_inside_what_the_folder_shows_hides_none_of_it() {
+        let mut lines = recorded("trust-with-settings");
+        let at = lines.iter().position(|l| l.contains("Bash(ls")).unwrap();
+        lines.splice(
+            at + 1..at + 1,
+            ["─".repeat(120), " Accessing workspace:".into()],
+        );
+        assert!(trust_asked(&lines).unwrap().text.contains("Bash(ls:*)"));
     }
 
     #[test]

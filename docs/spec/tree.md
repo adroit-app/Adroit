@@ -332,7 +332,7 @@ work carries on there.
 
 Claude Code asks whether to trust a folder before a session first works in
 it: the first scratch session shows the question in its console until it is
-answered there, and none asks again.
+answered, and none asks again.
 
 ## File trees
 
