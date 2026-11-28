@@ -11,7 +11,8 @@ closed, if that still runs.
 A session runs Claude Code, Codex CLI, Pi or OpenCode in its own terminal interface. Each
 session is given its profile, and with it its agent and login
 ([settings](settings.md#profiles)), while it is still a
-draft, before its first prompt is sent. The empty window and drafts offer
+draft, before its first prompt is sent. The empty window and drafts name the
+environment their session starts in. They offer
 the profile alone, which decides the agent: every profile, and Adroit's own
 for an agent that has none, so every agent can be started. Each is named by
 its agent and its name, as a running session's details name it, with a mark

@@ -127,6 +127,12 @@ impl Hosts {
         }
     }
 
+    /// What the environment of what `tab` shows is called, the window's own
+    /// with nothing open: where a session started from it runs.
+    pub fn name_of(&self, tab: Option<&Tab>) -> String {
+        self.name(self.environment_of(tab))
+    }
+
     /// The window shows `environment`, called `name`. A host it had not
     /// heard from is greeted; the window's own was greeted when it opened.
     pub(crate) fn add(&mut self, environment: EnvironmentId, name: String) -> Vec<Effect> {
