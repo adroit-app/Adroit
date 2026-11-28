@@ -227,6 +227,11 @@ pub struct Store {
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let created = private_database(path)?;
+        // SQLite answers a change of journal mode that another connection
+        // holds up with "database is locked" at once, without waiting as
+        // busy_timeout has it wait for a write: so those setting a database
+        // up go one at a time.
+        let _setting_up = setting_up(path)?;
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
@@ -1401,6 +1406,22 @@ fn fill_codes(connection: &mut Connection) -> Result<()> {
     Ok(())
 }
 
+/// The lock on the file beside the database at `path`, held while this
+/// process sets the database up.
+fn setting_up(path: &Path) -> Result<std::fs::File> {
+    let mut lock = path.as_os_str().to_owned();
+    lock.push(".lock");
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(lock)
+        .map_err(Error::storage)?;
+    file.lock().map_err(Error::storage)?;
+    Ok(file)
+}
+
 /// Creates the database privately, returning whether it was created now.
 fn private_database(path: &Path) -> Result<bool> {
     let parent = path
@@ -1459,6 +1480,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("delegation/state.sqlite3")).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn a_new_database_opened_by_several_at_once_is_created_once() {
+        for _ in 0..20 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("delegation/state.sqlite3");
+            let barrier = std::sync::Barrier::new(8);
+            std::thread::scope(|scope| {
+                let opened: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            barrier.wait();
+                            Store::open(&path).map(drop)
+                        })
+                    })
+                    .collect();
+                for open in opened {
+                    open.join().unwrap().unwrap();
+                }
+            });
+        }
     }
 
     fn new(parent: Option<SessionId>, name: &str) -> NewSession {
