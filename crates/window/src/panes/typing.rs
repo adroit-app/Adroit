@@ -325,6 +325,7 @@ impl Ui {
                 hands_back,
             }
             .goes();
+            crate::keys::trace(|| format!("Tab: empty={empty} hands_back={hands_back} {goes:?}"));
             let (TabGoes::Session | TabGoes::SessionThenBack, Some(p)) = (&goes, pane) else {
                 // Neovim's own key: the prompt's mapping asked for this, and
                 // must not be asked again.

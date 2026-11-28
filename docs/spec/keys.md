@@ -78,7 +78,9 @@ folder, and to its standard error, whether or not keys are traced.
 
 With `$ADROIT_DEBUG_KEYS` set to anything but empty, the window writes to its
 standard error, line by line, each key it receives, where focus moves and
-where each key goes.
+where each key goes. It also writes where Tab went when it takes a
+suggestion, and, when a session is not asked to hand back its input, what
+kept it from being asked.
 
 ## Where the file is
 

@@ -568,7 +568,11 @@ impl AppCtx {
     pub(crate) fn dispatch(&self, msg: Msg) {
         let mut view = self.view;
         let from_host = matches!(msg, Msg::Host { .. });
+        let asks_input = matches!(msg, Msg::AskInput);
         let mut effects = step(&mut view.write(), msg);
+        if asks_input && let Some(kept) = adroit_core::console::input_kept(&view.read()) {
+            crate::keys::trace(|| format!("the session is not asked for its input: {kept}"));
+        }
         if from_host {
             crate::client_settings::apply(&mut view.write().config.settings);
             let zoom = view.read().config.settings.zoom;
