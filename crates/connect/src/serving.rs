@@ -137,6 +137,14 @@ impl ThisComputer {
         Ok(notes)
     }
 
+    /// Starts the gateway's service again, as [`restart`] does, and waits for
+    /// the new gateway to answer.
+    pub async fn restart(&self) -> Result<Serving, String> {
+        let since = self.said();
+        restart().await?;
+        self.answering(since, STARTING).await
+    }
+
     /// How much the gateway's service has said so far.
     fn said(&self) -> u64 {
         std::fs::metadata(&self.log).map_or(0, |log| log.len())
@@ -331,6 +339,14 @@ pub async fn enable(advertise: bool) -> Result<Vec<String>, String> {
         .filter(|line| !line.starts_with("Started "))
         .map(str::to_string)
         .collect())
+}
+
+/// Starts the served instance's gateway service again, with the program and
+/// options it was enabled with; the hosts it started keep running.
+pub async fn restart() -> Result<(), String> {
+    adroit(&["remote", "restart", "--instance", SERVED_INSTANCE])
+        .await
+        .map(drop)
 }
 
 /// Stops the served instance's services and removes them.

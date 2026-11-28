@@ -61,6 +61,7 @@ pub fn sections() -> Vec<Section> {
                 Run(Action::SettingsOpen),
                 Run(Action::EnvironmentAdd),
                 Run(Action::DaemonRestart),
+                Run(Action::GatewayRestart),
                 Separator,
                 Sys(System::Services),
                 Separator,

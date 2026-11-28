@@ -265,7 +265,7 @@ pub fn cli(operation: RemoteCommand) -> i32 {
     }
     if matches!(
         operation,
-        RemoteCommand::Enable { .. } | RemoteCommand::Disable
+        RemoteCommand::Enable { .. } | RemoteCommand::Disable | RemoteCommand::Restart
     ) {
         return crate::service::cli(operation);
     }

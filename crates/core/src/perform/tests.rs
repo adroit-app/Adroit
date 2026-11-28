@@ -587,6 +587,29 @@ fn the_daemon_restart_is_asked_for_the_environment_of_the_selected_row_or_else_o
 }
 
 #[test]
+fn the_gateway_restart_is_asked_for_this_computer_whatever_environment_is_shown() {
+    use crate::overlay::confirm::Ask;
+    use crate::testing::{shows_there, there};
+
+    for (area, row) in [
+        (Area::Console, None),
+        (Area::Sidebar, Some(Item::Environment(there()))),
+    ] {
+        let run = shows_there(showing(Area::Sidebar), [session("b")])
+            .send(Msg::ShowSession(there(), "b".into()))
+            .send(Msg::TreeSelect(row.clone()))
+            .send(Msg::Focus(area))
+            .send(perform(Action::GatewayRestart, None, Probe::default()));
+        assert_eq!(
+            run.state().overlays.confirm,
+            Some(Ask::RestartGateway),
+            "{area:?} {row:?}"
+        );
+        assert!(run.last_effects().is_empty(), "{area:?} {row:?}");
+    }
+}
+
+#[test]
 fn an_environment_no_longer_kept_takes_its_daemon_s_banner_away() {
     use crate::testing::{shows_there, there};
 

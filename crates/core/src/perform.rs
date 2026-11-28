@@ -495,6 +495,7 @@ pub(crate) fn perform(
                 Msg::Confirm(Box::new(Ask::RestartDaemon(environment))),
             )
         }
+        Action::GatewayRestart => step(state, Msg::Confirm(Box::new(Ask::RestartGateway))),
         Action::WindowClose => vec![Effect::CloseWindow],
         Action::WindowOpen => vec![Effect::OpenWindow],
         Action::EnvironmentRemove => match cur.as_ref().filter(|_| on_list) {

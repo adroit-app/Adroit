@@ -61,6 +61,8 @@ pub enum RemoteCommand {
         advertise: bool,
     },
     Disable,
+    /// Start the gateway service again where it was enabled.
+    Restart,
 }
 
 fn remote(args: &[String]) -> Option<Command> {
@@ -80,6 +82,7 @@ fn remote(args: &[String]) -> Option<Command> {
             advertise: true,
         },
         "disable" => RemoteCommand::Disable,
+        "restart" => RemoteCommand::Restart,
         "revoke" => {
             let (prefix, after) = rest.split_first()?;
             rest = after;
@@ -281,7 +284,7 @@ impl Command {
     }
 }
 
-pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] [--force] | host [stop | restart] [--force] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable> [--instance <name>]]";
+pub const USAGE: &str = "usage: adroit [[--instance <name>] [--new-window] | --version | connect [--check | discover | pair <address> [--name <name>]] | terminal … | mcp … | editor … | session … | daemon [stop | restart] [--force] | host [stop | restart] [--force] | remote <daemon|host|info|gateway [--listen <address>] [--no-advertise]|pair|devices|revoke <fingerprint>|enable [--listen <address>] [--no-advertise]|disable|restart> [--instance <name>]]";
 
 /// The command `args` ask for; `None` for one adroit does not know, which
 /// must not open a window: a program that ran an older adroit's subcommand
@@ -761,6 +764,11 @@ mod tests {
             asked(&["remote", "disable", "--listen", "10.0.0.2:1"]),
             None
         );
+        assert_eq!(
+            asked(&["remote", "restart"]),
+            remote(RemoteCommand::Restart)
+        );
+        assert_eq!(asked(&["remote", "restart", "--no-advertise"]), None);
         assert_eq!(
             asked(&[
                 "remote",

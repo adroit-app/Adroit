@@ -332,6 +332,48 @@ pub fn enable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result
     Ok(notes)
 }
 
+/// Stops the enabled services and starts them again from the definitions
+/// written when they were enabled, so they run the program installed there
+/// now with the options they were given then.
+pub fn restart(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result<()> {
+    let units = units(plan, platform);
+    if let Some(missing) = units.iter().find(|unit| !unit.file.exists()) {
+        return Err(std::io::Error::other(format!(
+            "the {} of instance {} is not enabled; run adroit remote enable",
+            missing.role.describe(),
+            plan.instance
+        )));
+    }
+    match platform {
+        Platform::Launchd => {
+            for unit in &units {
+                let target = format!("gui/{}/{}", uid(), unit.name);
+                // launchd holds no agent it was told to boot out, or one left
+                // unloaded at login; kickstart cannot start those.
+                if run
+                    .run("launchctl", &["kickstart".into(), "-k".into(), target])
+                    .is_err()
+                {
+                    run.run(
+                        "launchctl",
+                        &[
+                            "bootstrap".into(),
+                            format!("gui/{}", uid()),
+                            unit.file.display().to_string(),
+                        ],
+                    )?;
+                }
+            }
+        }
+        Platform::Systemd => {
+            let mut restarting = vec!["--user".into(), "restart".into()];
+            restarting.extend(units.iter().map(|unit| unit.name.clone()));
+            run.run("systemctl", &restarting)?;
+        }
+    }
+    Ok(())
+}
+
 /// Stops the services, and any an earlier release left, and removes them.
 pub fn disable(plan: &Plan, platform: Platform, run: &dyn Run) -> std::io::Result<()> {
     let mut units = units(plan, platform);
@@ -371,7 +413,8 @@ fn stop(units: &[Unit], platform: Platform, run: &dyn Run) -> std::io::Result<()
     Ok(())
 }
 
-/// Runs `adroit remote enable` or `disable` for the settled instance.
+/// Runs `adroit remote enable`, `disable` or `restart` for the settled
+/// instance.
 pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
     use crate::cli::RemoteCommand;
     let done = (|| -> std::io::Result<()> {
@@ -402,6 +445,12 @@ pub fn cli(operation: crate::cli::RemoteCommand) -> i32 {
                 }
                 for unit in units(&plan, platform) {
                     println!("Started {} as {}", unit.role.describe(), unit.name);
+                }
+            }
+            RemoteCommand::Restart => {
+                restart(&plan, platform, &System)?;
+                for unit in units(&plan, platform) {
+                    println!("Restarted {} as {}", unit.role.describe(), unit.name);
                 }
             }
             _ => {
@@ -664,6 +713,82 @@ mod tests {
             restarted,
             ["systemctl --user restart adroit-ai-gateway.service"]
         );
+    }
+
+    #[test]
+    fn restarting_on_macos_kills_and_starts_the_running_gateway_as_it_was_enabled() {
+        let home = tempfile::tempdir().unwrap();
+        let mut plan = plan(home.path());
+        enable(&plan, Platform::Launchd, &Recorded::new("yes")).unwrap();
+        let written = std::fs::read_to_string(&units(&plan, Platform::Launchd)[0].file).unwrap();
+        // What a restart is asked with is not what the gateway restarts with.
+        plan.advertise = false;
+        let run = Recorded::new("yes");
+        restart(&plan, Platform::Launchd, &run).unwrap();
+        let calls = run.calls();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(
+            calls[0].starts_with("launchctl kickstart -k gui/"),
+            "{calls:?}"
+        );
+        assert!(calls[0].ends_with("/app.adroit.ai.gateway"), "{calls:?}");
+        assert_eq!(
+            std::fs::read_to_string(&units(&plan, Platform::Launchd)[0].file).unwrap(),
+            written
+        );
+    }
+
+    #[test]
+    fn restarting_on_macos_loads_a_gateway_launchd_does_not_hold() {
+        struct Unloaded(Recorded);
+        impl Run for Unloaded {
+            fn run(&self, program: &str, args: &[String]) -> std::io::Result<String> {
+                let said = self.0.run(program, args);
+                match args.first().map(String::as_str) {
+                    Some("kickstart") => Err(std::io::Error::other("Could not find service")),
+                    _ => said,
+                }
+            }
+        }
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        enable(&plan, Platform::Launchd, &Recorded::new("yes")).unwrap();
+        let run = Unloaded(Recorded::new("yes"));
+        restart(&plan, Platform::Launchd, &run).unwrap();
+        let calls = run.0.calls();
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(
+            calls[1].starts_with("launchctl bootstrap gui/"),
+            "{calls:?}"
+        );
+        assert!(
+            calls[1].ends_with("app.adroit.ai.gateway.plist"),
+            "{calls:?}"
+        );
+    }
+
+    #[test]
+    fn restarting_on_linux_restarts_the_gateway_unit() {
+        let home = tempfile::tempdir().unwrap();
+        let plan = plan(home.path());
+        enable(&plan, Platform::Systemd, &Recorded::new("yes")).unwrap();
+        let run = Recorded::new("yes");
+        restart(&plan, Platform::Systemd, &run).unwrap();
+        assert_eq!(
+            run.calls(),
+            ["systemctl --user restart adroit-ai-gateway.service"]
+        );
+    }
+
+    #[test]
+    fn restarting_what_is_not_enabled_is_refused_without_starting_anything() {
+        let home = tempfile::tempdir().unwrap();
+        for platform in [Platform::Launchd, Platform::Systemd] {
+            let run = Recorded::new("yes");
+            let error = restart(&plan(home.path()), platform, &run).unwrap_err();
+            assert!(error.to_string().contains("not enabled"), "{error}");
+            assert!(run.calls().is_empty(), "{:?}", run.calls());
+        }
     }
 
     #[test]

@@ -25,6 +25,9 @@ Enabling also stops and removes the separate host services an earlier release
 registered, which ends the sessions those held. On Linux it runs without a
 login only when the user has enabled lingering, which `adroit remote enable`
 reports rather than changes. `adroit remote disable` stops and removes it.
+`adroit remote restart` starts the enabled gateway again with the options it
+was enabled with, running the program installed there now, and leaves the
+hosts and their sessions running; it refuses where no gateway is enabled.
 On macOS, enable it with the `adroit` inside Adroit.app and allow Adroit to
 find devices on the local network when macOS asks. macOS keeps a bare
 executable started by launchd off the local network: its gateway can still be
@@ -145,7 +148,10 @@ whether the gateway announces itself, allows pairing, takes the code for each
 request, and lists and revokes the paired clients. Turning it on is done once
 the gateway answers; when the gateway does not start, the window says what it
 reported. Turning it off stops only the gateway: the work paired clients
-started there keeps running as the machine's own. Every window manages the same gateway, that of the default
+started there keeps running as the machine's own. While it serves, Accept
+connections and Restart Gateway (`gateway.restart`, after the user confirms)
+restart the gateway as `adroit remote restart` does, done once the new one
+answers. Every window manages the same gateway, that of the default
 instance, since a machine serves one gateway on its port. A machine can pair
 with its own gateway like with any other.
 

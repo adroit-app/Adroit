@@ -130,6 +130,7 @@ changes them ([keys](../keys.md)).
 | `prompt.history_next` |  | put the prompt sent after the one shown in the prompt, as `prompt.history_prev` does | `console`: `ArrowDown`, `Ctrl+n` |
 | `settings.open` | Settings… | open the Settings window, on the environment of the row selected in the tree or else of the tab shown | `global`: `Mod+,` |
 | `daemon.restart` | Restart Session Daemon… | restart the sessions' daemon after asking, ending every session it holds ([details](../sessions.md#the-hosts)) |  |
+| `gateway.restart` | Restart Gateway… | restart the gateway serving this computer to paired ones after asking, so it announces itself again on the network as it is now; the sessions running here keep running ([details](../remote-execution.md#paired-work-machines)) |  |
 | `keys.help` | Keyboard Shortcuts | show every binding in force, area by area, the areas the keys are in first, each with what its action does and whether it repeats; `Escape`, `q` or the key that showed it closes it, and no other key acts behind it | `global`: `F1`<br>`prompt`: `F1` |
 | `zoom.in` | Zoom In | draw the window a step larger | `global`: `Mod+=`, `Mod+Plus` |
 | `zoom.out` | Zoom Out | draw the window a step smaller | `global`: `Mod+-` |
