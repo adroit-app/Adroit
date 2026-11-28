@@ -520,6 +520,16 @@ pub enum Msg {
     },
     /// The banner was put away.
     BannerClose,
+    /// The work host of the environment failed with `text`, saying it is
+    /// older than the state it serves.
+    WorkHostOutdated {
+        environment: EnvironmentId,
+        text: String,
+    },
+    /// Put away the banner of the work host older than its state.
+    OutdatedLater,
+    /// Restart the work host the banner says is older than its state.
+    OutdatedRestart,
     /// Bring back everything the banner offers.
     BringBackAll,
     /// Let go of everything the banner offers.

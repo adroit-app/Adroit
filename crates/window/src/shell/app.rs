@@ -12,7 +12,8 @@ use super::footer::Footer;
 use super::header::Header;
 use super::local::use_local;
 use super::overlays::{
-    ConfirmDialog, ContextMenu, DaemonBanner, InterruptedBanner, KeysHelp, RelayBanner,
+    ConfirmDialog, ContextMenu, DaemonBanner, InterruptedBanner, KeysHelp, OutdatedBanner,
+    RelayBanner,
 };
 use super::socket::use_window_socket;
 use super::ui::{Ui, use_ui};
@@ -71,6 +72,7 @@ fn App() -> Element {
             Header { ontoggle: move |side| app.dispatch(Msg::PanelToggle(side)) }
             Body {}
             DaemonBanner {}
+            OutdatedBanner {}
             InterruptedBanner {}
             RelayBanner {}
             Footer {}

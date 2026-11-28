@@ -1441,12 +1441,7 @@ fn schema(connection: &Connection) -> Result<i64> {
 }
 
 fn newer(schema: i64) -> Error {
-    Error::new(
-        Code::Unsupported,
-        format!(
-            "a newer adroit has written this database (schema {schema}); restart the work host from the installed application"
-        ),
-    )
+    Error::new(Code::Unsupported, adroit_protocol::newer_state(schema))
 }
 
 impl From<rusqlite::Error> for Error {

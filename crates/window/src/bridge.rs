@@ -728,7 +728,8 @@ impl AppCtx {
 
     /// Ask the host `ask`, and what came of it.
     pub(crate) fn ask(&self, ask: Ask) -> impl std::future::Future<Output = Answer> + use<> {
-        self.own_link().ask(ask)
+        let link = self.own_link();
+        self.watched(self.environment(), &link, link.ask(ask))
     }
 
     /// Ask `environment`'s host `ask`, and what came of it.
@@ -737,7 +738,8 @@ impl AppCtx {
         environment: &EnvironmentId,
         ask: Ask,
     ) -> impl std::future::Future<Output = Answer> + use<> {
-        self.link_of(environment).ask(ask)
+        let link = self.link_of(environment);
+        self.watched(environment.clone(), &link, link.ask(ask))
     }
 
     /// Tell `environment`'s host what the view state does not hold.
@@ -751,7 +753,47 @@ impl AppCtx {
         ask: Ask,
         prompt: adroit_connect::journal::PromptContext,
     ) -> impl std::future::Future<Output = Answer> + use<> {
-        self.link_of(environment).ask_with_prompt(ask, Some(prompt))
+        let link = self.link_of(environment);
+        self.watched(
+            environment.clone(),
+            &link,
+            link.ask_with_prompt(ask, Some(prompt)),
+        )
+    }
+
+    /// `answer`, from `environment`'s work host through `link`, having
+    /// raised the banner offering to restart that work host when it failed for
+    /// being older than the state it serves, while `link` is still the one to
+    /// that environment.
+    fn watched<F: std::future::Future<Output = Answer>>(
+        &self,
+        environment: EnvironmentId,
+        link: &Rc<Link>,
+        answer: F,
+    ) -> impl std::future::Future<Output = Answer> + use<F> {
+        let app = *self;
+        let link = Rc::downgrade(link);
+        async move {
+            let answer = answer.await;
+            // A link replaced by one to another machine may still answer,
+            // and the banner would restart the work host of the one now.
+            let current = link.upgrade().is_some_and(|link| {
+                app.links
+                    .peek()
+                    .get(&environment)
+                    .is_some_and(|linked| Rc::ptr_eq(linked, &link))
+            });
+            if current
+                && let Answer::Failed { text } = &answer
+                && adroit_protocol::says_newer_state(text)
+            {
+                app.dispatch(Msg::WorkHostOutdated {
+                    environment,
+                    text: text.clone(),
+                });
+            }
+            answer
+        }
     }
 
     /// Hand the effects whose state still lives in `App` to `run`: the

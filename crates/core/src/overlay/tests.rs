@@ -745,3 +745,89 @@ fn what_did_not_come_back_is_said_with_why() {
         Some("probe did not come back: /gone is not there any more")
     );
 }
+
+fn outdated_banner(run: &Scenario) -> Option<(EnvironmentId, String)> {
+    run.state()
+        .overlays
+        .banner
+        .outdated()
+        .map(|(environment, text)| (environment.clone(), text.to_string()))
+}
+
+/// A window that shows the environments `here` and `there`.
+fn shown_here_and_there() -> Scenario {
+    Scenario::new()
+        .event_from(here(), listing([session("a")]))
+        .event_from(there(), listing([session("b")]))
+}
+
+fn outdated(environment: EnvironmentId, text: &str) -> Msg {
+    Msg::WorkHostOutdated {
+        environment,
+        text: text.into(),
+    }
+}
+
+#[test]
+fn a_work_host_older_than_its_state_gets_a_banner_that_restarts_it() {
+    let run = shown_here_and_there().send(outdated(there(), "a newer adroit wrote it"));
+    assert_eq!(
+        outdated_banner(&run),
+        Some((there(), "a newer adroit wrote it".into()))
+    );
+    let run = run.send(Msg::OutdatedRestart);
+    assert_eq!(run.last_effects(), [Effect::RestartWorkHost(there())]);
+    assert_eq!(outdated_banner(&run), None);
+}
+
+#[test]
+fn the_banner_of_a_work_host_older_than_its_state_goes_until_it_fails_so_again() {
+    let run = shown_here_and_there()
+        .send(outdated(there(), "first"))
+        .send(Msg::OutdatedLater);
+    assert_eq!(outdated_banner(&run), None);
+    assert_eq!(run.last_effects(), []);
+    let run = run.send(outdated(there(), "again"));
+    assert_eq!(outdated_banner(&run), Some((there(), "again".into())));
+}
+
+#[test]
+fn putting_one_work_host_s_banner_away_leaves_another_s() {
+    let run = shown_here_and_there()
+        .send(outdated(there(), "there"))
+        .send(outdated(here(), "here"));
+    let first = outdated_banner(&run).map(|(environment, _)| environment);
+    let run = run.send(Msg::OutdatedLater);
+    let second = outdated_banner(&run).map(|(environment, _)| environment);
+    assert!(second.is_some());
+    assert_ne!(first, second);
+}
+
+#[test]
+fn a_work_host_older_than_its_state_raises_no_banner_once_the_window_stops_showing_it() {
+    let run = Scenario::new().send(outdated(there(), "late"));
+    assert_eq!(outdated_banner(&run), None);
+}
+
+#[test]
+fn a_work_host_that_greets_the_window_again_takes_its_banner_away() {
+    let run = shown_here_and_there()
+        .send(outdated(there(), "old"))
+        .event_from(
+            there(),
+            adroit_protocol::Event::Welcome {
+                version: adroit_protocol::SPOKEN[0],
+            },
+        );
+    assert_eq!(outdated_banner(&run), None);
+}
+
+#[test]
+fn a_work_host_that_tells_of_failing_for_newer_state_raises_the_banner_too() {
+    let text = adroit_protocol::newer_state(11);
+    let run = shown_here_and_there().event_from(
+        there(),
+        adroit_protocol::Event::Told(adroit_protocol::Told::Failure { text: text.clone() }),
+    );
+    assert_eq!(outdated_banner(&run), Some((there(), text)));
+}

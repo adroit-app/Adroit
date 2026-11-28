@@ -179,6 +179,9 @@ Restart work host on the heading of a work machine's environment
 (`environment.restart_host`) has its gateway restart the work host, also when
 that host answers nothing or does not run. It ends no session, and the window
 connects again. The window says so when the gateway cannot or is too old to.
+A work host that fails because a newer Adroit has written the state it serves
+raises a banner naming its environment, which offers this restart and copies
+the failure.
 
 Update Adroit there… on the same heading (`environment.update`), after asking,
 has the gateway update Adroit on its machine through the Homebrew that

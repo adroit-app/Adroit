@@ -10,3 +10,4 @@
 .daemon-banner > .icon { color: var(--wait); flex: none; }
 .daemon-banner-title { color: var(--wait); font-weight: 600; white-space: nowrap; flex: none; }
 .daemon-banner-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.footer > .facts-copy, .daemon-banner > .facts-copy { position: static; transform: none; display: inline-flex; flex: none; }

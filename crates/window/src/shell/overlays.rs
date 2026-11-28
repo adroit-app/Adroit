@@ -1,6 +1,6 @@
 //! What is drawn over the window: the keys help, a menu opened on a row, a
-//! tab or a link, a question to answer, and the banner about the sessions'
-//! daemon. They only draw: the view state holds them.
+//! tab or a link, a question to answer, and the banners about the sessions'
+//! daemon and a work host older than its state. They only draw: the view state holds them.
 
 use adroit_core::msg::Msg;
 use adroit_core::overlay::confirm::Ask;
@@ -9,7 +9,7 @@ use adroit_core::overlay::{self, MenuEntry, hints};
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::{Button, Dialog, Keys, Spacer};
+use crate::components::{Button, CopyValue, Dialog, Keys, Spacer};
 use crate::icons::{Icon, IconView};
 use crate::keymap::Context;
 use crate::keys_help;
@@ -301,6 +301,50 @@ pub(crate) fn DaemonBanner() -> Element {
             Button { kind: "danger",
                 onclick: move |_| app.dispatch(Msg::Confirm(Box::new(adroit_core::overlay::confirm::Ask::RestartDaemon(environment.clone())))),
                 "Restart…"
+            }
+        }
+    }
+}
+
+/// The banner offering to restart a work host older than the state it
+/// serves, naming its environment when that is not the window's own; one on
+/// this computer is restarted by opening Adroit again.
+#[component]
+pub(crate) fn OutdatedBanner() -> Element {
+    let app = use_context::<AppCtx>();
+    let shown = app
+        .overlays
+        .read()
+        .banner
+        .outdated()
+        .map(|(environment, text)| (environment.clone(), text.to_string()));
+    let Some((environment, text)) = shown else {
+        return rsx! {};
+    };
+    let remote = app.remote_status_of(&environment).is_some();
+    let title = if environment == app.environment() {
+        "The work host is older than the state it serves".to_string()
+    } else {
+        format!(
+            "The work host of {} is older than the state it serves",
+            app.environment_name(&environment)
+        )
+    };
+    let note = if remote {
+        "A newer Adroit there has upgraded it. Restarting the work host ends no session."
+    } else {
+        "A newer Adroit has upgraded it. Quit Adroit and open the installed application again; no session ends."
+    };
+    rsx! {
+        div { class: "daemon-banner",
+            IconView { icon: Icon::ServerBolt }
+            span { class: "daemon-banner-title", "{title}" }
+            span { class: "daemon-banner-note", title: "{text}", "{note}" }
+            CopyValue { text: text.clone() }
+            Spacer {}
+            Button { onclick: move |_| app.dispatch(Msg::OutdatedLater), "Later" }
+            if remote {
+                Button { kind: "primary", onclick: move |_| app.dispatch(Msg::OutdatedRestart), "Restart Work Host" }
             }
         }
     }

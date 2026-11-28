@@ -120,7 +120,7 @@ impl Ui {
                     Answer::DraftConsumed { .. } => {}
                     answer => {
                         return Err(format!(
-                            "The sent draft is retained until cleanup is confirmed: {answer:?}"
+                            "The sent draft is retained until cleanup is confirmed: {answer}"
                         ));
                     }
                 }
