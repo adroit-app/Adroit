@@ -283,6 +283,32 @@ fn asks_to_stop(line: &[u8]) -> bool {
         .is_ok_and(|value| value.get("op").and_then(|op| op.as_str()) == Some("stop"))
 }
 
+/// What looks for a paired work machine that cannot be reached where it was.
+type Find = dyn Fn() -> Pin<Box<dyn Future<Output = Option<Remote>> + Send>> + Send + Sync;
+
+/// `channel` of the work machine `current` reaches, or, when it cannot be
+/// reached there, of where `find` finds it, which `current` then is.
+async fn reached(
+    current: &Mutex<Remote>,
+    find: Option<&Find>,
+    channel: Channel,
+) -> Option<tokio_rustls::client::TlsStream<TcpStream>> {
+    let remote = current.lock().unwrap().clone();
+    match (remote.open(channel).await, find) {
+        (Ok(far), _) => Some(far),
+        // The machine refused this client: it is there, and looking
+        // elsewhere would not change its mind.
+        (Err(Error::NotPaired), _) => None,
+        // Another machine, or none, may answer where it was.
+        (Err(_), Some(find)) => {
+            let found = find().await?;
+            *current.lock().unwrap() = found.clone();
+            found.open(channel).await.ok()
+        }
+        _ => None,
+    }
+}
+
 /// A paired work machine, reached at `address`.
 #[derive(Clone, Debug)]
 pub struct Remote {
@@ -354,6 +380,32 @@ impl Remote {
     /// Listens at `work` and `terminal` and carries every connection made
     /// there to the work machine's host of the same kind.
     pub fn forward(&self, work: &Path, terminal: &Path) -> Result<Forwarding, Error> {
+        self.forwarded(work, terminal, None)
+    }
+
+    /// [`Self::forward`], where a connection that cannot reach the work
+    /// machine where it was has `find` look for it, and goes on to where it
+    /// was found, as do the connections after it. A machine found is still
+    /// known by its key alone.
+    pub fn forward_finding<F>(
+        &self,
+        work: &Path,
+        terminal: &Path,
+        find: F,
+    ) -> Result<Forwarding, Error>
+    where
+        F: Fn() -> Pin<Box<dyn Future<Output = Option<Remote>> + Send>> + Send + Sync + 'static,
+    {
+        self.forwarded(work, terminal, Some(Arc::new(find)))
+    }
+
+    fn forwarded(
+        &self,
+        work: &Path,
+        terminal: &Path,
+        find: Option<Arc<Find>>,
+    ) -> Result<Forwarding, Error> {
+        let current = Arc::new(Mutex::new(self.clone()));
         let mut forwarding = Forwarding {
             tasks: Vec::new(),
             sockets: Vec::new(),
@@ -368,12 +420,12 @@ impl Remote {
             }
             let listener = adroit_sys::local::Listener::bind(path)?;
             forwarding.sockets.push(path.to_path_buf());
-            let remote = self.clone();
+            let (current, find) = (current.clone(), find.clone());
             forwarding.tasks.push(tokio::spawn(async move {
                 while let Ok(mut local) = listener.accept().await {
-                    let remote = remote.clone();
+                    let (current, find) = (current.clone(), find.clone());
                     tokio::spawn(async move {
-                        if let Ok(mut far) = remote.open(channel).await {
+                        if let Some(mut far) = reached(&current, find.as_deref(), channel).await {
                             let _ = tokio::io::copy_bidirectional(&mut local, &mut far).await;
                         }
                     });
@@ -664,6 +716,35 @@ mod tests {
         let stranger = Identity::generate().unwrap();
         let remote = Remote::new(stranger, setup.server.fingerprint(), &setup.address);
         assert!(remote.restart_work().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_forwarded_socket_finds_a_work_machine_that_moved_and_none_where_it_is_not_found() {
+        let setup = setup().await;
+        let (client, found) = paired(&setup);
+        // Nothing listens on the discard port of loopback.
+        let moved = Remote::new(client, setup.server.fingerprint(), "127.0.0.1:9");
+        let (_dir, work, terminal) = sockets();
+        let _forwarding = moved
+            .forward_finding(&work, &terminal, {
+                let found = found.clone();
+                move || {
+                    let found = found.clone();
+                    Box::pin(async move { Some(found) })
+                }
+            })
+            .unwrap();
+        let stream = adroit_sys::local::connect(&work).await.unwrap();
+        let mut read = BufReader::new(stream);
+        assert_eq!(next_line(&mut read).await.unwrap(), "{\"hello\":1}\n");
+
+        let (_dir, work, terminal) = sockets();
+        let _lost = moved
+            .forward_finding(&work, &terminal, || Box::pin(async { None }))
+            .unwrap();
+        let stream = adroit_sys::local::connect(&work).await.unwrap();
+        let mut read = BufReader::new(stream);
+        assert_eq!(next_line(&mut read).await, None);
     }
 
     #[tokio::test]

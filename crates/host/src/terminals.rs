@@ -207,6 +207,14 @@ pub fn waits_for(args: &[String]) -> Option<Duration> {
     }
 }
 
+/// The paths `adroit terminal <args>` names, as they were given.
+pub(crate) fn paths(args: &[String]) -> Vec<std::path::PathBuf> {
+    match parse(args) {
+        Some((Operation::Start { dir, .. }, _)) => dir.into_iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Operation {
     List,

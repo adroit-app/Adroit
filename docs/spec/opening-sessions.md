@@ -401,6 +401,29 @@ what is their own beside it:
 The conversation is read from what the agent itself keeps, so a session whose
 agent has not told its conversation yet has no turns.
 
+### In another environment
+
+`--environment` ahead of a `session` or `terminal` command runs it in the
+[environment](environments.md) it names, by its ID or by a name no other
+environment in use shares, rather than in the one the instance works in. What
+any window shows stays as it is.
+
+```console
+$ adroit --environment "Work machine" session list --json
+```
+
+An environment on a paired work machine is reached through its gateway, and
+the command runs there: a path it names is the work machine's, given whole,
+and one relative to the folder the command was typed in is refused. A key that
+answers, interrupts or ends a session is one given for that environment. Run
+in a session Adroit started, the command does not act as that session.
+
+When the work machine cannot be reached, nothing is done and the command exits
+with 1. When the connection is lost once a command that changes something,
+such as `start`, `send` or `end`, was sent, it exits with 6: it may have been
+carried out, and it is not sent again, so a program looks with `list` or
+`show` before it asks again.
+
 ### Trusting a folder
 
 Claude Code asks whether to trust a folder before a session first works in it.

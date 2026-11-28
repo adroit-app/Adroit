@@ -179,6 +179,26 @@ pub fn set_aside(var: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
     }
 }
 
+/// The environment `args` name with `--environment` ahead of a session or
+/// terminal command, and the words of that command; why not, when they
+/// name one otherwise.
+pub fn environment_named(args: &[String]) -> Result<(Option<String>, &[String]), String> {
+    const MISUSED: &str =
+        "--environment <name|id> names, once, the environment of a session or terminal command";
+    let (name, rest) = match args {
+        [flag, name, rest @ ..] if flag == "--environment" => (name.clone(), rest),
+        [flag, rest @ ..] if flag.starts_with("--environment=") => {
+            (flag["--environment=".len()..].to_string(), rest)
+        }
+        [flag, ..] if flag == "--environment" => return Err(MISUSED.into()),
+        _ => return Ok((None, args)),
+    };
+    match rest.first().map(String::as_str) {
+        Some("session" | "terminal") if !name.is_empty() => Ok((Some(name), rest)),
+        _ => Err(MISUSED.into()),
+    }
+}
+
 /// Whether a caller whose session names `caller` as its terminal host's
 /// socket runs in the terminal host listening at `terminal`.
 pub fn lives_in(caller: Option<&std::ffi::OsStr>, terminal: &std::path::Path) -> bool {
@@ -587,6 +607,46 @@ mod tests {
                 Some(dir.path().join("link/daemon.sock").as_os_str()),
                 &real.join("daemon.sock")
             ));
+        }
+    }
+
+    #[test]
+    fn an_environment_is_named_ahead_of_a_session_or_terminal_command_alone() {
+        let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let named = |args: &[&str]| {
+            let args = words(args);
+            environment_named(&args).map(|(name, rest)| (name, rest.to_vec()))
+        };
+        assert_eq!(
+            named(&["--environment", "work", "session", "list"]),
+            Ok((Some("work".into()), words(&["session", "list"])))
+        );
+        assert_eq!(
+            named(&["--environment=work", "terminal", "list"]),
+            Ok((Some("work".into()), words(&["terminal", "list"])))
+        );
+        assert_eq!(
+            named(&["session", "send", "r4pj", "--", "--environment", "x"]),
+            Ok((
+                None,
+                words(&["session", "send", "r4pj", "--", "--environment", "x"])
+            ))
+        );
+        for misused in [
+            &["--environment"][..],
+            &["--environment", "work"],
+            &["--environment="],
+            &["--environment", "work", "daemon"],
+            &[
+                "--environment",
+                "work",
+                "--environment",
+                "home",
+                "session",
+                "list",
+            ],
+        ] {
+            assert!(named(misused).is_err(), "{misused:?}");
         }
     }
 

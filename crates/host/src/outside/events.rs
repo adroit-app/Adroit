@@ -250,10 +250,12 @@ pub(super) fn watch(mut since: Option<i64>) -> i32 {
             ask.extend(["--since", from]);
         }
         let ask = ask.into_iter().map(String::from).collect();
-        let told = crate::work_host::ran(ask, None).and_then(|ran| match ran.code {
-            0 => serde_json::from_str::<Told>(&ran.stdout).map_err(|e| e.to_string()),
-            _ => Err(ran.stderr),
-        });
+        let told = crate::work_host::ran(ask, None)
+            .map_err(|unanswered| unanswered.text().to_string())
+            .and_then(|ran| match ran.code {
+                0 => serde_json::from_str::<Told>(&ran.stdout).map_err(|e| e.to_string()),
+                _ => Err(ran.stderr),
+            });
         match told {
             Ok(told) => {
                 away = false;

@@ -239,6 +239,157 @@ fn the_cli_pairs_a_client_by_the_code_it_shows_and_saves_an_environment() {
     assert!(devices.contains("laptop"), "{devices}");
 }
 
+/// The environment `name` of the work machine at `address` known by
+/// `server`, saved where a client's commands find it, with this client's key
+/// paired with that machine.
+fn paired_environment(
+    hosts: &Hosts,
+    name: &str,
+    address: &str,
+    server: &str,
+) -> adroit_connect::environments::Environment {
+    use adroit_connect::environments::{Catalog, Environment};
+    let key = hosts.0.path().join("state/adroit/net/client.key");
+    let client = adroit_net::Identity::load_or_create(&key).unwrap();
+    adroit_net::Enroll::enroll(
+        &adroit_net::PeerFile::open(
+            hosts
+                .0
+                .path()
+                .join("state/adroit/instances/headless-test/remote/peers.json"),
+        )
+        .unwrap(),
+        client.fingerprint(),
+        "laptop",
+    )
+    .unwrap();
+    let environment = Environment::new(
+        name,
+        adroit_connect::Target::Native {
+            address: address.into(),
+            server: server.into(),
+        },
+    );
+    let path = hosts.0.path().join("config/adroit/environments.toml");
+    let mut catalog = Catalog::load(&path).unwrap();
+    let revision = catalog.revision;
+    catalog.environments.push(environment.clone());
+    catalog.save(&path, revision).unwrap();
+    environment
+}
+
+/// Have the work machine serve `environment`, as a window that opens it does.
+fn opened_as_a_window_does(hosts: &Hosts, environment: &adroit_connect::environments::Environment) {
+    let key = hosts.0.path().join("state/adroit/net/client.key");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let remote = adroit_connect::Remote::with_key(&environment.target, &key).unwrap();
+        let _tunnel = remote.connect(None).await.unwrap();
+        adroit_protocol::client::Connection::open_in(
+            &remote.work_socket(),
+            environment.scope.as_deref(),
+        )
+        .await
+        .unwrap();
+    });
+}
+
+/// `adroit --environment <environment> <args>` as a client runs it.
+fn in_environment(hosts: &Hosts, environment: &str, args: &[&str]) -> std::process::Output {
+    isolated(hosts.0.path())
+        .args(["--environment", environment])
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_client_s_commands_drive_an_environment_of_a_paired_work_machine_through_its_gateway() {
+    let hosts = Hosts::new();
+    let gateway = gatewayed(&hosts, false);
+    let work = paired_environment(&hosts, "Work machine", &gateway.address, &gateway.server);
+    let said = |output: &std::process::Output| {
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    let unopened = in_environment(&hosts, "Work machine", &["session", "list", "--json"]);
+    assert_eq!(unopened.status.code(), Some(1), "{}", said(&unopened));
+    opened_as_a_window_does(&hosts, &work);
+
+    let listed = in_environment(&hosts, "Work machine", &["session", "list", "--json"]);
+    assert!(listed.status.success(), "{}", said(&listed));
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(listed, serde_json::json!([]));
+
+    let dir = hosts.0.path().join("work");
+    std::fs::create_dir_all(&dir).unwrap();
+    let started = in_environment(
+        &hosts,
+        &work.id,
+        &[
+            "terminal",
+            "start",
+            "--program",
+            "command",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--background",
+            "--json",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf remote-alive; read line",
+        ],
+    );
+    assert!(started.status.success(), "{}", said(&started));
+    let started: serde_json::Value = serde_json::from_slice(&started.stdout).unwrap();
+    let id = started["resource_id"].as_str().unwrap();
+    let terminals = in_environment(&hosts, &work.id, &["terminal", "list", "--json"]);
+    assert!(terminals.status.success(), "{}", said(&terminals));
+    assert!(said(&terminals).contains(id), "{}", said(&terminals));
+
+    let relative = in_environment(
+        &hosts,
+        &work.id,
+        &["terminal", "start", "--program", "shell", "--dir", "work"],
+    );
+    assert_eq!(relative.status.code(), Some(2), "{}", said(&relative));
+    assert!(said(&relative).contains("whole"), "{}", said(&relative));
+    let relative = in_environment(
+        &hosts,
+        &work.id,
+        &["session", "start", "--dir", "work", "--", "hello"],
+    );
+    assert_eq!(relative.status.code(), Some(2), "{}", said(&relative));
+    assert!(said(&relative).contains("whole"), "{}", said(&relative));
+
+    let unknown = in_environment(&hosts, "Nowhere", &["session", "list"]);
+    assert_eq!(unknown.status.code(), Some(1), "{}", said(&unknown));
+    assert!(said(&unknown).contains("Nowhere"), "{}", said(&unknown));
+    let misused = isolated(hosts.0.path())
+        .args(["--environment", &work.id, "daemon"])
+        .output()
+        .unwrap();
+    assert_eq!(misused.status.code(), Some(2), "{}", said(&misused));
+
+    drop(gateway);
+    let away = in_environment(&hosts, &work.id, &["session", "list"]);
+    assert_eq!(away.status.code(), Some(1), "{}", said(&away));
+    assert!(
+        said(&away).contains("cannot reach the work machine"),
+        "{}",
+        said(&away)
+    );
+}
+
 /// Whether the gateway listening at the loopback `address` answers there but
 /// at none of the other addresses it is announced at.
 async fn answers_only_on_loopback(

@@ -40,6 +40,13 @@ fn main() {
             }
         }
     }
+    let (environment, args) = match adroit_host::cli::environment_named(&args) {
+        Ok((environment, rest)) => (environment, rest.to_vec()),
+        Err(text) => {
+            eprintln!("adroit: {text}");
+            std::process::exit(2);
+        }
+    };
     let asked = command(&args);
     // Ahead of settling the instance: the agent's program is handed the
     // environment exactly as its login leaves it.
@@ -65,6 +72,13 @@ fn main() {
         std::process::exit(2);
     }
     let window_asked = cfg!(feature = "desktop") && matches!(asked, Some(Command::Window { .. }));
+    let remote = match environment.as_deref().map(route_to).transpose() {
+        Ok(remote) => remote.flatten(),
+        Err(text) => {
+            eprintln!("adroit: {text}");
+            std::process::exit(1);
+        }
+    };
     if window_asked {
         // The window routes each environment it shows itself, so it starts
         // its hosts with their routing named; one inherited from a session
@@ -80,7 +94,8 @@ fn main() {
             // SAFETY: environment routing is settled before any runtime creates threads.
             unsafe { std::env::remove_var(name) };
         }
-    } else if !work_route
+    } else if environment.is_none()
+        && !work_route
         && std::env::var_os("ADROIT_ENVIRONMENT").is_none()
         && asked.as_ref().is_some_and(Command::routed)
     {
@@ -120,6 +135,7 @@ fn main() {
         }
     }
     if !adroit_host::remote::active()
+        && environment.is_none()
         && std::env::var_os("ADROIT_ENVIRONMENT").is_none()
         && !work_route
         && matches!(
@@ -218,9 +234,21 @@ fn main() {
             }
             return;
         }
-        Some(Command::Session(rest)) => std::process::exit(adroit_host::session_cli(&rest)),
+        Some(Command::Session(rest)) => {
+            let code = adroit_host::session_cli(&rest);
+            remote
+                .iter()
+                .for_each(adroit_connect::Remote::remove_sockets);
+            std::process::exit(code)
+        }
         Some(Command::Mcp(rest)) => std::process::exit(adroit_host::delegation::bridge::cli(&rest)),
-        Some(Command::Terminal(rest)) => std::process::exit(adroit_host::terminal_cli(&rest)),
+        Some(Command::Terminal(rest)) => {
+            let code = adroit_host::terminal_cli(&rest);
+            remote
+                .iter()
+                .for_each(adroit_connect::Remote::remove_sockets);
+            std::process::exit(code)
+        }
         Some(Command::Editor(rest)) => std::process::exit(editor(&rest)),
         Some(Command::Daemon(asked)) => std::process::exit(adroit_host::daemon_cli(asked)),
         Some(Command::Host(asked)) => std::process::exit(adroit_host::host_cli(asked)),
@@ -231,6 +259,52 @@ fn main() {
         Some(Command::InOwnLogin(_)) => unreachable!("run before the instance is settled"),
     }
     window(new);
+}
+
+/// Route the command to the environment `name` names, in place of the one
+/// the instance is bound to: through its work machine's gateway, kept open
+/// from here on, when it is on one. A session the command runs in is not
+/// its opener then, as that session's environment is another.
+fn route_to(name: &str) -> Result<Option<adroit_connect::Remote>, String> {
+    use adroit_connect::environments::Catalog;
+    use adroit_host::delegation::launch::{ROOT_ENV, TOKEN_ENV};
+    let catalog = Catalog::load(&Catalog::path())?;
+    let binding = catalog.named(name)?.bind(&adroit_host::paths::instance())?;
+    // SAFETY: no other thread exists yet.
+    unsafe {
+        for name in adroit_host::cli::ROUTING
+            .into_iter()
+            .chain([ROOT_ENV, TOKEN_ENV])
+        {
+            std::env::remove_var(name);
+        }
+        if let Some(scope) = &binding.scope {
+            std::env::set_var("ADROIT_ENVIRONMENT", scope);
+        }
+    }
+    if binding.target == adroit_connect::Target::Local {
+        let work = binding.work_instance.as_deref().unwrap_or("default");
+        let service = adroit_host::paths::instance_dir(&adroit_host::paths::state_dir(), work);
+        // SAFETY: no other thread exists yet.
+        unsafe {
+            std::env::set_var("ADROIT_WORK_INSTANCE", work);
+            std::env::set_var("ADROIT_HOST", service.join("host/host.sock"));
+            std::env::set_var("ADROIT_DAEMON", service.join("felis/daemon.sock"));
+        }
+        return Ok(None);
+    }
+    let remote = adroit_connect::Remote::new(&binding.target)?;
+    // SAFETY: no other thread exists yet; connecting below starts one.
+    unsafe {
+        std::env::set_var("ADROIT_HOST", remote.work_socket());
+        std::env::set_var("ADROIT_DAEMON", remote.terminal().socket());
+    }
+    if let Err(error) = remote.connect_for_process() {
+        remote.remove_sockets();
+        return Err(error);
+    }
+    adroit_host::work_host::through_gateway();
+    Ok(Some(remote))
 }
 
 #[cfg(feature = "desktop")]
