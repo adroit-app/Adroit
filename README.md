@@ -258,8 +258,9 @@ Use `j`/`k` and `gg`/`G` to move. `Enter`, `o` or `l` opens a row, returning to 
 window already showing it or opening a new tab. `s`, `v` and `t` open it in a split below, a split beside or
 a new tab. Directories and headings fold and unfold; `h` goes back out.
 
-Files open in Neovim or a viewer for their kind. `x` closes what a row shows
-without ending its session or shell. `n`, `$` and `e` start a session, shell
+Files open in Neovim or a viewer for their kind, and `x` opens them in the
+app the system gives them, as in fern. `q` closes what a row shows without
+ending its session or shell. `n`, `$` and `e` start a session, shell
 or Neovim in the selected directory.
 
 A Neovim run in Adroit, opened from the tree or started in a shell, keeps the

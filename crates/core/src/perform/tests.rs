@@ -1101,3 +1101,54 @@ fn a_new_session_on_a_pull_request_asks_for_a_worktree_at_its_head_first() {
         images: Vec::new(),
     }));
 }
+
+#[test]
+fn revealing_a_file_worktree_or_workspace_of_the_tree_shows_it_in_the_file_manager() {
+    for item in [
+        Item::File {
+            environment: here(),
+            worktree: "/r".into(),
+            path: "/r/a/notes.md".into(),
+            dir: false,
+        },
+        Item::Worktree(here(), "/r".into()),
+        Item::Workspace(here(), "/r".into()),
+    ] {
+        let run = showing(Area::Sidebar)
+            .send(Msg::TreeSelect(Some(item.clone())))
+            .send(perform(Action::CursorReveal, None, Probe::default()));
+        let path = match &item {
+            Item::File { path, .. } => path.display().to_string(),
+            _ => "/r".into(),
+        };
+        assert_eq!(
+            run.last_effects(),
+            [Effect::Reveal {
+                environment: here(),
+                path,
+            }],
+            "{item:?}"
+        );
+    }
+}
+
+#[test]
+fn revealing_a_session_s_row_does_nothing() {
+    let run = showing(Area::Sidebar)
+        .send(Msg::TreeSelect(Some(Item::Terminal(here(), 7))))
+        .send(perform(Action::CursorReveal, None, Probe::default()));
+    assert_eq!(run.last_effects(), []);
+}
+
+#[test]
+fn browsing_a_file_of_the_tree_does_nothing_as_it_is_not_on_github() {
+    let run = showing(Area::Sidebar)
+        .send(Msg::TreeSelect(Some(Item::File {
+            environment: here(),
+            worktree: "/r".into(),
+            path: "/r/a/notes.pdf".into(),
+            dir: false,
+        })))
+        .send(perform(Action::CursorBrowse, None, Probe::default()));
+    assert_eq!(run.last_effects(), []);
+}

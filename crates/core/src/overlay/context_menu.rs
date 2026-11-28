@@ -66,6 +66,8 @@ pub fn entries(
     // the row, so they are named here rather than in the table.
     let copy_path = (Action::CursorCopy, "Copy path");
     let copy_name = (Action::CursorCopy, "Copy name");
+    let reveal = offer(Action::CursorReveal);
+    let system = [offer(Action::FileSystem), reveal.clone()];
     let fold = (Action::CursorGo, "Fold or unfold");
     let close = offer(Action::CursorClose);
     let makes = [Action::FileNew, Action::DirectoryNew].map(offer);
@@ -94,6 +96,7 @@ pub fn entries(
         Target::Row(Item::File { dir: false, .. }) => opens
             .into_iter()
             .chain([copy_path])
+            .chain(system)
             .chain(here)
             .chain(makes)
             .chain(shifts)
@@ -101,17 +104,18 @@ pub fn entries(
             .collect(),
         Target::Row(Item::Worktree(_, _)) => opens
             .into_iter()
-            .chain([copy_path])
+            .chain([copy_path, reveal])
             .chain(here)
             .chain([offer(Action::WorktreeClose)])
             .collect(),
-        Target::Row(Item::Workspace(_, _)) => [fold, copy_path]
+        Target::Row(Item::Workspace(_, _)) => [fold, copy_path, reveal]
             .into_iter()
             .chain(here)
             .chain([offer(Action::WorkspaceRemove)])
             .collect(),
         Target::Row(Item::File { dir: true, .. }) => [fold, copy_path]
             .into_iter()
+            .chain(system)
             .chain(here)
             .chain(makes)
             .chain(shifts)

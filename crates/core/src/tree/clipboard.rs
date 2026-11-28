@@ -272,6 +272,21 @@ pub(crate) fn trash(state: &mut ViewState, row: &Item) -> Vec<Effect> {
     Vec::new()
 }
 
+/// What is marked, or else the file or directory `row` is, each opened in
+/// the app the system opens it with; the marks stay, as nothing moved.
+pub(crate) fn open_with_system(state: &ViewState, row: &Item) -> Vec<Effect> {
+    let Some((environment, paths)) = targets(state, row) else {
+        return Vec::new();
+    };
+    paths
+        .into_iter()
+        .map(|path| Effect::Open {
+            environment: environment.clone(),
+            target: path.display().to_string(),
+        })
+        .collect()
+}
+
 /// `paths` as the status line says them: the name of the one, or a count.
 fn named(paths: &[PathBuf]) -> String {
     match paths {

@@ -76,6 +76,7 @@ icons! {
     Dots => "dots",
     CursorText => "cursor-text",
     Equal => "equal",
+    ExternalLink => "external-link",
     Eye => "eye",
     File => "file",
     FileDiff => "file-diff",

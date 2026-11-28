@@ -1599,3 +1599,42 @@ fn finishing_a_move_keeps_what_was_copied_since() {
         });
     assert_eq!(held_paths(&run), Some(vec![PathBuf::from("/r/src")]));
 }
+
+#[test]
+fn opening_with_the_system_opens_the_file_or_directory_selected() {
+    for (path, dir) in [("/r/src/main.rs", false), ("/r/src", true)] {
+        let run = on_row(src_file(path, dir)).send(perform(Action::FileSystem));
+        assert_eq!(
+            run.last_effects(),
+            [Effect::Open {
+                environment: here(),
+                target: path.into(),
+            }],
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn opening_with_the_system_opens_every_file_marked_and_keeps_the_marks() {
+    let run = mark(mark(with_marks(), "/r/src/a.rs"), "/r/src/b.rs")
+        .send(Msg::TreeSelect(Some(src_file("/r/src", true))))
+        .send(perform(Action::FileSystem));
+    assert_eq!(
+        run.last_effects(),
+        ["/r/src/a.rs", "/r/src/b.rs"].map(|path| Effect::Open {
+            environment: here(),
+            target: path.into(),
+        })
+    );
+    assert_eq!(run.state().tree.marks.len(), 2);
+}
+
+#[test]
+fn off_the_files_nothing_is_opened_with_the_system() {
+    let files = Item::Heading(here(), "/r".into(), Heading::Files);
+    for row in [Item::Session(here(), "a".into()), files] {
+        let run = on_row(row.clone()).send(perform(Action::FileSystem));
+        assert_eq!(run.last_effects(), [], "{row:?}");
+    }
+}
