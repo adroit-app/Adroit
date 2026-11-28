@@ -15,6 +15,8 @@ pub enum Ask {
     KillProcess(EnvironmentId, Session, Process),
     /// Restart the terminal host of the environment.
     RestartDaemon(EnvironmentId),
+    /// Restart the gateway that serves this computer to paired ones.
+    RestartGateway,
     /// Remove the environment, by this name, from the environments kept.
     RemoveEnvironment(EnvironmentId, String),
     /// Update the Adroit of the environment's work machine, by its name.
@@ -100,6 +102,12 @@ impl Ask {
                 "Restart the sessions' daemon?".into(),
                 "Every session it holds ends: agents and shells, with what they scrolled back. Afterwards you can bring them back: agents resume their conversations, and shells open again where they ran.".into(),
                 "Restart daemon",
+            ),
+            Self::RestartGateway => (
+                Icon::ServerBolt,
+                "Restart the gateway?".into(),
+                "Paired computers lose their connection to this one until it is back, and it announces itself on the network again. The sessions and agents running here keep running.".into(),
+                "Restart gateway",
             ),
             Self::UpdateMachine(_, name) => (
                 Icon::SquareArrowUp,
@@ -199,6 +207,7 @@ impl Ask {
                 !terminals.is_empty()
             }
             Self::Stop(..)
+            | Self::RestartGateway
             | Self::RemoveEnvironment(..)
             | Self::UpdateMachine(..)
             | Self::MoveEntries { .. }
@@ -249,6 +258,15 @@ mod tests {
     fn restarting_the_daemon_is_asked_as_a_loss_as_killing_a_process_is() {
         assert!(Ask::RestartDaemon(EnvironmentId::default()).destroys());
         assert!(!Ask::Stop(EnvironmentId::default(), Session::default()).destroys());
+    }
+
+    #[test]
+    fn restarting_the_gateway_keeps_the_sessions_and_is_not_asked_as_a_loss() {
+        let (_, title, body, action) = Ask::RestartGateway.dialog();
+        assert_eq!(title, "Restart the gateway?");
+        assert!(body.contains("keep running"), "{body}");
+        assert_eq!(action, "Restart gateway");
+        assert!(!Ask::RestartGateway.destroys());
     }
 
     #[test]

@@ -352,6 +352,7 @@ pub(crate) fn answer(state: &mut ViewState, yes: bool) -> Vec<Effect> {
             },
         }],
         Ask::RestartDaemon(environment) => vec![Effect::RestartDaemon(environment)],
+        Ask::RestartGateway => vec![Effect::RestartGateway],
         Ask::UpdateMachine(environment, _) => vec![Effect::UpdateMachine(environment)],
         Ask::RemoveEnvironment(environment, _) => vec![Effect::ArchiveEnvironment(environment)],
         Ask::RemoveWorkspace {

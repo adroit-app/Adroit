@@ -160,6 +160,24 @@ pub(crate) fn ServingPane() -> Element {
                     },
                 }
             }
+            if on {
+                SettingRow { label: "Restart the gateway", hint: "Paired computers lose their connection until it is back. It announces itself on the network as it is now, and the sessions running here keep running.",
+                    Button { disabled: busy(), onclick: {
+                        let here = here.clone();
+                        move |_| {
+                            busy.set(true); error.set(None); notice.set(None);
+                            let here = here.clone();
+                            spawn(async move {
+                                match here.restart().await {
+                                    Ok(_) => notice.set(Some("Restarted the gateway.".into())),
+                                    Err(why) => error.set(Some(why)),
+                                }
+                                busy.set(false);
+                            });
+                        }
+                    }, if busy() { "Restarting…" } else { "Restart" } }
+                }
+            }
         }
         if on {
             SettingGroup { title: "Pair a computer",

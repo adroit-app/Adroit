@@ -513,6 +513,22 @@ impl AppCtx {
         });
     }
 
+    /// Start the gateway serving this computer again, telling once it
+    /// answers or what it said instead.
+    fn restart_gateway(&self) {
+        let app = *self;
+        spawn(async move {
+            app.notice("Restarting the gateway".into());
+            match adroit_connect::serving::ThisComputer::current()
+                .restart()
+                .await
+            {
+                Ok(_) => app.notice("Restarted the gateway".into()),
+                Err(text) => app.status(Some(format!("cannot restart the gateway: {text}"))),
+            }
+        });
+    }
+
     pub(crate) fn retry_remote(&self, environment: &EnvironmentId) {
         self.link_of(environment).retry_remote();
     }
@@ -1011,6 +1027,7 @@ impl AppCtx {
             Effect::RetryEnvironment(environment) => self.retry_remote(&environment),
             Effect::UpdateMachine(environment) => self.update_machine(environment),
             Effect::RestartWorkHost(environment) => self.restart_work_host(environment),
+            Effect::RestartGateway => self.restart_gateway(),
             Effect::PairAgain(environment) => match crate::connection::work_machine(&environment) {
                 Some(machine) => {
                     self.pair_again(machine.address, self.environment_name(&environment))

@@ -212,6 +212,12 @@ fn a_question_is_answered_by_its_keys_and_holds_every_other() {
             Some(Effect::RestartDaemon(here())),
             false,
         ),
+        (
+            Ask::RestartGateway,
+            "y",
+            Some(Effect::RestartGateway),
+            false,
+        ),
         (stop.clone(), "n", None, false),
         (stop.clone(), "Escape", None, false),
         (stop.clone(), "q", None, false),
