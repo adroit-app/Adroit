@@ -61,6 +61,24 @@ pub fn valid_address(address: &str) -> bool {
         .is_some_and(|(host, port)| plain_host(host) && port.parse::<u16>().is_ok_and(|p| p > 0))
 }
 
+/// `address` with the gateway's default port when it names a host or IP
+/// address alone; anything else is returned as it is, for
+/// [`valid_address`] to judge.
+pub fn with_default_port(address: &str) -> String {
+    let port = adroit_net::DEFAULT_PORT;
+    let bracketed = address
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .is_some_and(|inner| inner.parse::<std::net::Ipv6Addr>().is_ok());
+    if bracketed || plain_host(address) {
+        format!("{address}:{port}")
+    } else if address.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{address}]:{port}")
+    } else {
+        address.to_string()
+    }
+}
+
 pub fn diagnose(path: &Path) -> Result<String, String> {
     let target = Target::load(path)?;
     let runtime = tokio::runtime::Builder::new_current_thread()

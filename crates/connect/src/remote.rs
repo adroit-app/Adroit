@@ -83,22 +83,24 @@ pub enum PairingStep {
     Mismatched,
 }
 
-/// Asks the work machine at `address` to pair under `name`, telling `step`
-/// how far it has come, and returns the target that reaches it once the
-/// operator typed the code shown.
+/// Asks the work machine at `address`, at the gateway's default port when it
+/// names none, to pair under `name`, telling `step` how far it has come, and
+/// returns the target that reaches it once the operator typed the code shown.
 pub async fn pair_with(
     address: &str,
     name: Option<&str>,
     step: impl FnMut(PairingStep),
 ) -> Result<Target, String> {
-    if !crate::valid_address(address) {
+    let address = crate::with_default_port(address);
+    if !crate::valid_address(&address) {
         return Err(
-            "give the work machine's address with its port, such as work-box.local:47130".into(),
+            "give the work machine's host name or IP address, such as work-box.local or work-box.local:47130"
+                .into(),
         );
     }
     let identity = adroit_net::Identity::load_or_create(client_key()).map_err(|e| e.to_string())?;
     let name = name.map_or_else(adroit_net::host_name, str::to_string);
-    pair_as(&identity, address, &name, step).await
+    pair_as(&identity, &address, &name, step).await
 }
 
 async fn pair_as(

@@ -14,6 +14,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
+/// The port a gateway listens on, and a client reaches, unless told otherwise.
+pub const DEFAULT_PORT: u16 = 47130;
 /// How long a caller has to finish its handshake and name its channel.
 const HANDSHAKE: Duration = Duration::from_secs(10);
 /// How long a client waits for a work machine to accept its connection.

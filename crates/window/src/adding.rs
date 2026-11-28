@@ -70,13 +70,13 @@ fn heard(catalog: &Catalog, heard: &Heard) -> Next {
 /// Where the work machine at the `address` typed leads, as [`heard`] does
 /// for one known by that address.
 fn typed(catalog: &Catalog, address: &str) -> Next {
-    let address = address.trim();
+    let address = adroit_connect::with_default_port(address.trim());
     machine(
         catalog,
         of_machine(catalog, |kept, _| kept == address),
         Step::Pair {
-            address: address.into(),
-            name: machine_name(address),
+            name: machine_name(&address),
+            address,
         },
     )
 }
@@ -528,7 +528,7 @@ fn Where(adding: Adding) -> Element {
                 class: "adding-input",
                 contained: true,
                 aria_label: "Work machine address",
-                placeholder: "work-box.local:47130",
+                placeholder: "work-box.local",
                 value: address(),
                 oninput: move |text| address.set(text),
                 onenter: move |()| pair_typed(),
@@ -902,6 +902,23 @@ mod tests {
         ));
         assert_eq!(
             typed(&catalog, "gpu.example.com:47130"),
+            Next::Step(Step::Pair {
+                address: "gpu.example.com:47130".into(),
+                name: "gpu.example.com".into()
+            })
+        );
+    }
+
+    #[test]
+    fn an_address_typed_without_a_port_is_paired_at_the_gateways_default_port() {
+        let listed = kept("aa", "Box", "box.local:47130", false);
+        let catalog = catalog([listed.clone()]);
+        assert!(matches!(
+            typed(&catalog, " box.local "),
+            Next::Step(Step::Join { .. })
+        ));
+        assert_eq!(
+            typed(&catalog, "gpu.example.com"),
             Next::Step(Step::Pair {
                 address: "gpu.example.com:47130".into(),
                 name: "gpu.example.com".into()
