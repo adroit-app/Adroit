@@ -22,6 +22,9 @@ pub struct Banner {
     /// By the environment, what the terminal host took with it that the
     /// banner was put away on.
     later: BTreeMap<EnvironmentId, BTreeSet<String>>,
+    /// By the environment, the failure saying its work host is older than
+    /// the state it serves.
+    outdated: BTreeMap<EnvironmentId, String>,
 }
 
 impl Banner {
@@ -32,6 +35,15 @@ impl Banner {
             .iter()
             .find(|(environment, _)| !self.closed.contains(*environment))
             .map(|(environment, note)| (environment, note.as_str()))
+    }
+
+    /// The environment whose work host is older than the state it serves,
+    /// and the failure that said so.
+    pub fn outdated(&self) -> Option<(&EnvironmentId, &str)> {
+        self.outdated
+            .iter()
+            .next()
+            .map(|(environment, text)| (environment, text.as_str()))
     }
 }
 
@@ -65,6 +77,7 @@ pub(crate) fn forget_daemon(state: &mut ViewState, environment: &EnvironmentId) 
     let banner = &mut state.overlays.banner;
     banner.notes.remove(environment);
     banner.closed.remove(environment);
+    banner.outdated.remove(environment);
 }
 
 /// The environment whose terminal host took what the banner offers to
@@ -148,4 +161,43 @@ pub(crate) fn close_banner(state: &mut ViewState) -> Vec<Effect> {
         banner.closed.insert(environment);
     }
     Vec::new()
+}
+
+/// `environment`'s work host failed with `text`, saying it is older than
+/// the state it serves; nothing is raised for an environment the window no
+/// longer shows, whose restart would reach another's work host.
+pub(crate) fn work_host_outdated(
+    state: &mut ViewState,
+    environment: EnvironmentId,
+    text: String,
+) -> Vec<Effect> {
+    if state.hosts.each().any(|(shown, _)| *shown == environment) {
+        state.overlays.banner.outdated.insert(environment, text);
+    }
+    Vec::new()
+}
+
+/// `environment`'s work host greeted the window again, perhaps as another
+/// that serves its state: what the banner said of the one before is put away,
+/// to be raised again if this one fails so too.
+pub(crate) fn work_host_greeted(state: &mut ViewState, environment: &EnvironmentId) {
+    state.overlays.banner.outdated.remove(environment);
+}
+
+/// Put away the banner of the work host older than its state, restarting
+/// that work host when `restart`.
+pub(crate) fn outdated_answered(state: &mut ViewState, restart: bool) -> Vec<Effect> {
+    let banner = &mut state.overlays.banner;
+    let Some(environment) = banner
+        .outdated()
+        .map(|(environment, _)| environment.clone())
+    else {
+        return Vec::new();
+    };
+    banner.outdated.remove(&environment);
+    if restart {
+        vec![Effect::RestartWorkHost(environment)]
+    } else {
+        Vec::new()
+    }
 }

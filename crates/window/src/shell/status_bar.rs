@@ -4,10 +4,10 @@
 use dioxus::prelude::*;
 
 use crate::bridge::AppCtx;
-use crate::components::Spacer;
+use crate::components::{CopyValue, Spacer};
 
 /// The bar with the mode chip, worded `mode` and styled by `class`, over the
-/// status line the chrome holds; `children` are the keys it lists, at its
+/// status line the chrome holds, with a button that copies it; `children` are the keys it lists, at its
 /// end. `dialog` while the session in the console shows a dialog of its own.
 #[component]
 pub(crate) fn StatusBar(
@@ -23,6 +23,7 @@ pub(crate) fn StatusBar(
             span { class: "mode-chip {class}", title: "{mode_tip(&mode, dialog)}", "{mode}" }
             if let Some(msg) = line {
                 span { class: "footer-status", title: "{msg}", "{msg}" }
+                CopyValue { text: msg.clone() }
             }
             Spacer {}
             {children}

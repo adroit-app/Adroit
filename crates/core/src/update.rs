@@ -331,6 +331,11 @@ pub fn update(state: &mut ViewState, msg: Msg) -> Vec<Effect> {
             overlay::daemon_restarted(state, environment, note)
         }
         Msg::BannerClose => overlay::close_banner(state),
+        Msg::WorkHostOutdated { environment, text } => {
+            overlay::work_host_outdated(state, environment, text)
+        }
+        Msg::OutdatedLater => overlay::outdated_answered(state, false),
+        Msg::OutdatedRestart => overlay::outdated_answered(state, true),
         Msg::BringBackAll => overlay::bring_back_all(state, false),
         Msg::LetGoAll => overlay::bring_back_all(state, true),
         Msg::InterruptedLater => overlay::interrupted_later(state),

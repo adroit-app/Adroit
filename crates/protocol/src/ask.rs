@@ -350,6 +350,17 @@ pub enum Answer {
     },
 }
 
+/// A failure as the user reads it; any other answer, where a failure was
+/// looked for, as it is held.
+impl std::fmt::Display for Answer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Answer::Failed { text } => f.write_str(text),
+            other => write!(f, "{other:?}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +397,14 @@ mod tests {
         assert!(!run(&["terminal", "screen", "--terminal", "x"]).waits());
         assert!(!run(&["wait"]).waits());
         assert!(!run(&[]).waits());
+    }
+
+    #[test]
+    fn a_failure_reads_as_what_it_says() {
+        let failed = Answer::Failed {
+            text: "cannot start".into(),
+        };
+        assert_eq!(failed.to_string(), "cannot start");
+        assert_eq!(Answer::Done.to_string(), "Done");
     }
 }

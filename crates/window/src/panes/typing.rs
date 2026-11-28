@@ -252,7 +252,7 @@ impl Ui {
                 if sent {
                     app.dispatch(Msg::PromptWent(true));
                 } else {
-                    app.status(Some(format!("The prompt is retained: {answer:?}")));
+                    app.status(Some(format!("The prompt is retained: {answer}")));
                     app.dispatch(Msg::PromptRetained);
                 }
                 return;

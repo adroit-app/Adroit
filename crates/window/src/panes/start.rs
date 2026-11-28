@@ -152,7 +152,7 @@ impl Ui {
                     return;
                 }
                 answer => {
-                    app.status(Some(format!("cannot start {base}: {answer:?}")));
+                    app.status(Some(format!("cannot start {base}: {answer}")));
                     app.dispatch(Msg::TerminalFailed { opening });
                     return;
                 }
@@ -209,7 +209,7 @@ impl Ui {
                     return;
                 }
                 answer => {
-                    app.status(Some(format!("cannot open the login terminal: {answer:?}")));
+                    app.status(Some(format!("cannot open the login terminal: {answer}")));
                     return;
                 }
             };
@@ -259,7 +259,7 @@ impl Ui {
                     return;
                 }
                 answer => {
-                    app.status(Some(cannot(format!("{answer:?}"))));
+                    app.status(Some(cannot(answer.to_string())));
                     return;
                 }
             };
@@ -389,7 +389,7 @@ impl Ui {
                         {
                             app.status(Some(text));
                         }
-                        app.status(Some(format!("The draft is retained: {answer:?}")));
+                        app.status(Some(format!("The draft is retained: {answer}")));
                         app.dispatch(Msg::PromptRetained);
                     }
                 }

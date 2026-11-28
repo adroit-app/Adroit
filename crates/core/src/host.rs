@@ -256,18 +256,24 @@ pub(crate) fn told(state: &mut ViewState, environment: EnvironmentId, event: Eve
             status_line::notice(status, named(&state.hosts, text))
         }
         Event::Told(Told::Failure { text }) => {
+            if adroit_protocol::says_newer_state(&text) {
+                crate::overlay::work_host_outdated(state, environment.clone(), text.clone());
+            }
             let host = state.hosts.each.entry(environment.clone()).or_default();
             if host.failed.as_ref() == Some(&text) {
                 return Vec::new();
             }
             host.failed = Some(text.clone());
-            status_line::set(status, Some(named(&state.hosts, text)))
+            status_line::set(&mut state.chrome.status, Some(named(&state.hosts, text)))
         }
         Event::Type { session, typing } => vec![Effect::TypeInto {
             tab: Tab::Session(environment, session),
             typing,
         }],
         event => {
+            if matches!(event, Event::Welcome { .. }) {
+                crate::overlay::work_host_greeted(state, &environment);
+            }
             let before = listed_ids(&state.hosts, &environment);
             let is_patch = matches!(event, Event::Patch(_));
             // A host is known from the first word it says, whether or not the
