@@ -433,25 +433,69 @@ pub(crate) fn prompt_entered(state: &mut ViewState) -> Vec<Effect> {
 /// never calls it, so the request would lapse. One at work is left to it:
 /// its input is asked for once it stops.
 pub(crate) fn ask_input(state: &ViewState) -> Vec<Effect> {
-    let Some(tab @ Tab::Session(environment, id)) = state.content.active() else {
-        return Vec::new();
-    };
-    let console = &state.console;
-    let hands_back = state
-        .hosts
-        .session(environment, id)
-        .is_some_and(|(_, s)| s.adroit_editor);
-    if waits(state)
-        || works(state)
-        || console.direct
-        || !console.stale.contains(tab)
-        || !console.prompt_runs
-        || !console.answers
-        || !hands_back
-    {
-        return Vec::new();
+    match (state.content.active(), input_kept(state)) {
+        (Some(tab), None) => vec![Effect::AskInput(tab.clone())],
+        _ => Vec::new(),
     }
-    vec![Effect::AskInput(tab.clone())]
+}
+
+/// What keeps the session shown from being asked for its input now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputKept {
+    NoSession,
+    Dialog,
+    TakesEveryKey,
+    Working,
+    PassingKeys,
+    NothingTyped,
+    NoNeovim,
+    NoEditorAnswers,
+    OwnEditor,
+}
+
+impl std::fmt::Display for InputKept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            InputKept::NoSession => "no session is shown",
+            InputKept::Dialog => "its screen shows a dialog",
+            InputKept::TakesEveryKey => "it waits on an answer",
+            InputKept::Working => "it is at work",
+            InputKept::PassingKeys => "every key is passed to it",
+            InputKept::NothingTyped => "nothing may have been typed into it",
+            InputKept::NoNeovim => "the prompt's Neovim is not running",
+            InputKept::NoEditorAnswers => "this window does not answer adroit editor",
+            InputKept::OwnEditor => "its editor is not adroit editor",
+        })
+    }
+}
+
+/// Why the session shown is not asked for its input, none when it is.
+pub fn input_kept(state: &ViewState) -> Option<InputKept> {
+    let Some(tab @ Tab::Session(environment, id)) = state.content.active() else {
+        return Some(InputKept::NoSession);
+    };
+    let session = state.hosts.session(environment, id).map(|(_, s)| s);
+    let console = &state.console;
+    let kept = if console.dialog {
+        InputKept::Dialog
+    } else if session.is_some_and(|s| s.state.takes_every_key()) {
+        InputKept::TakesEveryKey
+    } else if works(state) {
+        InputKept::Working
+    } else if console.direct {
+        InputKept::PassingKeys
+    } else if !console.stale.contains(tab) {
+        InputKept::NothingTyped
+    } else if !console.prompt_runs {
+        InputKept::NoNeovim
+    } else if !console.answers {
+        InputKept::NoEditorAnswers
+    } else if !session.is_some_and(|s| s.adroit_editor) {
+        InputKept::OwnEditor
+    } else {
+        return None;
+    };
+    Some(kept)
 }
 
 /// The session in `tab` was asked for its input.

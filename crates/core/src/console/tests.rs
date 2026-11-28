@@ -317,6 +317,58 @@ fn coming_into_the_prompt_asks_the_session_for_its_input_once() {
 }
 
 #[test]
+fn what_keeps_a_session_from_being_asked_for_its_input_is_named() {
+    let listed_with = |a: SessionBuilder| Msg::Host {
+        environment: here(),
+        event: patch(2).listed(listing([a, session("b")])).into(),
+    };
+    let cases: Vec<(Vec<Msg>, Option<InputKept>)> = vec![
+        (vec![], None),
+        (vec![Msg::PromptRuns(false)], Some(InputKept::NoNeovim)),
+        (vec![Msg::ConsolePassEveryKey], Some(InputKept::PassingKeys)),
+        (
+            vec![Msg::Host {
+                environment: here(),
+                event: dialog(2, "a", true),
+            }],
+            Some(InputKept::Dialog),
+        ),
+        (
+            vec![listed_with(session("a").waiting(Wait::Input))],
+            Some(InputKept::TakesEveryKey),
+        ),
+        (
+            vec![listed_with(session("a").working())],
+            Some(InputKept::Working),
+        ),
+        (
+            vec![Msg::InputAsked(tab("a"))],
+            Some(InputKept::NothingTyped),
+        ),
+    ];
+    for (msgs, kept) in cases {
+        let run = asking().send_all(msgs.clone());
+        assert_eq!(input_kept(run.state()), kept, "{msgs:?}");
+    }
+    let unanswered = window().send_all([Msg::PromptRuns(true), Msg::InputMayHold(tab("a"))]);
+    assert_eq!(
+        input_kept(unanswered.state()),
+        Some(InputKept::NoEditorAnswers)
+    );
+    let own_editor = asking().event(
+        patch(2).listed(
+            listed()
+                .session(session("a"))
+                .session(session("b").adroit_editor(true))
+                .terminal(shell(1, "/r/a")),
+        ),
+    );
+    assert_eq!(input_kept(own_editor.state()), Some(InputKept::OwnEditor));
+    let no_session = window().send(show(Tab::Terminal(here(), 1)));
+    assert_eq!(input_kept(no_session.state()), Some(InputKept::NoSession));
+}
+
+#[test]
 fn a_session_is_asked_for_its_input_only_when_it_can_hand_it_back() {
     let cases: Vec<(&str, Vec<Msg>)> = vec![
         ("no Neovim", vec![Msg::PromptRuns(false)]),
