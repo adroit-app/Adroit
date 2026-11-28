@@ -2,8 +2,8 @@
 //! network, and the private socket its operator manages it through.
 
 use adroit_net::{
-    Admin, AdminAnswer, Fingerprint, Gateway, GatewayFiles, Hosts, HostsNow, Identity,
-    PAIRING_PERIOD, Pairing, PeerFile, Waiting, ask_gateway,
+    Admin, AdminAnswer, DEFAULT_PORT, Fingerprint, Gateway, GatewayFiles, Hosts, HostsNow,
+    Identity, PAIRING_PERIOD, Pairing, PeerFile, Waiting, ask_gateway,
 };
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -13,8 +13,6 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
-/// The port a gateway listens on unless told otherwise.
-pub const DEFAULT_PORT: u16 = 47130;
 const MAX_ADMIN_LINE: u64 = 4096;
 
 /// A gateway serving its listeners and its admin socket.

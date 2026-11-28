@@ -86,6 +86,23 @@ fn a_paired_work_machine_is_kept_by_its_address_and_key() {
 }
 
 #[test]
+fn an_address_typed_without_a_port_reaches_the_gateways_default_port() {
+    for (typed, reached) in [
+        ("work-box.local", "work-box.local:47130"),
+        ("192.168.1.5", "192.168.1.5:47130"),
+        ("fe80::1", "[fe80::1]:47130"),
+        ("[fe80::1]", "[fe80::1]:47130"),
+        ("work-box.local:5000", "work-box.local:5000"),
+        ("192.168.1.5:5000", "192.168.1.5:5000"),
+        ("[fe80::1]:5000", "[fe80::1]:5000"),
+        ("", ""),
+        ("-oProxyCommand=x", "-oProxyCommand=x"),
+    ] {
+        assert_eq!(adroit_connect::with_default_port(typed), reached, "{typed}");
+    }
+}
+
+#[test]
 fn a_paired_work_machine_needs_a_port_and_a_whole_key_fingerprint() {
     for (address, server) in [
         ("work-box", "ab".repeat(32)),

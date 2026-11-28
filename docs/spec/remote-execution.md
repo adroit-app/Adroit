@@ -131,7 +131,9 @@ network, on every interface at port 47130 unless `--listen` names an address.
 It starts the hosts when none runs but never stops or replaces one, and it keeps serving across a
 replaced work host.
 
-To pair, run `adroit connect pair <address>` on the client. On the work
+To pair, run `adroit connect pair <address>` on the client; an address without
+a port reaches the gateway's default port, as does one typed when adding an
+environment. On the work
 machine, run `adroit remote pair` and type the code the client shows once its
 request appears. The client then has an environment for the work machine.
 On the client, adding an environment lists the work machines announced on the
