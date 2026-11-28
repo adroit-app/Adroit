@@ -354,11 +354,31 @@ impl Remote {
     }
 
     pub async fn connect(&self, expected: Option<&RemoteInfo>) -> Result<Tunnel, String> {
+        self.connected(expected, false).await
+    }
+
+    /// [`Self::connect`]; with `finding`, a connection that cannot reach the
+    /// work machine where it was found looks for it again, as a command that
+    /// keeps asking, such as a watch, has no window to reconnect it.
+    async fn connected(
+        &self,
+        expected: Option<&RemoteInfo>,
+        finding: bool,
+    ) -> Result<Tunnel, String> {
         let (net, discovery) = self.reach().await?;
         let info = admit(&discovery, expected)?;
-        let forwarding = net
-            .forward(&self.work_socket(), self.terminal().socket())
-            .map_err(|e| e.to_string())?;
+        let (work, terminal) = (self.work_socket(), self.terminal());
+        let forwarding = match finding {
+            true => {
+                let remote = self.clone();
+                net.forward_finding(&work, terminal.socket(), move || {
+                    let remote = remote.clone();
+                    Box::pin(async move { remote.reach().await.ok().map(|(net, _)| net) })
+                })
+            }
+            false => net.forward(&work, terminal.socket()),
+        }
+        .map_err(|e| e.to_string())?;
         greet(&info, &self.work_socket(), &self.terminal()).await?;
         Ok(Tunnel {
             remote: self.clone(),
@@ -366,6 +386,49 @@ impl Remote {
             reached: net.address().to_string(),
             _forwarding: forwarding,
         })
+    }
+
+    /// Connect, and keep the way to the hosts open on a thread of its own
+    /// for as long as the process runs, as a command that asks them through
+    /// [`Self::work_socket`] and ends does.
+    pub fn connect_for_process(&self) -> Result<(), String> {
+        let remote = self.clone();
+        let (told, heard) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("adroit-tunnel".into())
+            .spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        let _ = told.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                runtime.block_on(async move {
+                    match remote.connected(None, true).await {
+                        Ok(_tunnel) => {
+                            let _ = told.send(Ok(()));
+                            std::future::pending::<()>().await;
+                        }
+                        Err(error) => {
+                            let _ = told.send(Err(error));
+                        }
+                    }
+                });
+            })
+            .map_err(|e| e.to_string())?;
+        heard
+            .recv()
+            .map_err(|_| "the connection to the work machine ended".to_string())?
+    }
+
+    /// Take away the folder of forwarded sockets, as a process that ends
+    /// without dropping it leaves it behind.
+    pub fn remove_sockets(&self) {
+        let _ = std::fs::remove_dir_all(self.sockets.path());
     }
 
     /// The paired key at the saved address, or else wherever the local

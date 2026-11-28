@@ -64,8 +64,11 @@ fn read_private(path: &Path) -> std::io::Result<Vec<u8>> {
 }
 
 pub(crate) fn random() -> std::io::Result<String> {
+    use ring::rand::SecureRandom;
     let mut bytes = [0u8; 16];
-    File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    ring::rand::SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| std::io::Error::other("the system gave no random bytes"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -291,6 +294,14 @@ pub fn cli(operation: RemoteCommand) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_random_id_is_drawn_anew_on_every_system_as_hexadecimal() {
+        let (a, b) = (random().unwrap(), random().unwrap());
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()), "{a}");
+    }
 
     #[cfg(unix)]
     #[test]

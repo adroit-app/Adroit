@@ -260,6 +260,22 @@ pub(crate) async fn type_prompt(id: u128, steps: &[adroit_protocol::Typing]) -> 
 /// The command `adroit <args>` run as in `cwd` with `input` on its standard
 /// input: what it wrote, and its exit status.
 async fn run(args: &[String], cwd: &std::path::Path, input: Option<String>) -> Answer {
+    let remote = crate::remote::active();
+    let cwd = match remote {
+        true => match remote_cwd(args, &crate::paths::home()) {
+            Ok(cwd) => cwd,
+            Err(text) => {
+                return crate::command::Output {
+                    wrote: Err(text),
+                    code: 2,
+                    effects_possible: false,
+                }
+                .answer(remote);
+            }
+        },
+        false => cwd.to_path_buf(),
+    };
+    let cwd = cwd.as_path();
     let output = match args.split_first() {
         Some((command, rest)) if command == "session" => crate::start::run(rest, cwd, input).await,
         Some((command, rest)) if command == "terminal" => crate::terminals::run(rest, cwd).await,
@@ -269,7 +285,26 @@ async fn run(args: &[String], cwd: &std::path::Path, input: Option<String>) -> A
             effects_possible: false,
         },
     };
-    output.answer(crate::remote::active())
+    output.answer(remote)
+}
+
+/// Where the command `adroit <args>` a paired client runs works from: the
+/// folder the client ran it in is not on this machine, so the home, and a
+/// path it names relative to that folder is refused rather than read as
+/// another one here.
+fn remote_cwd(args: &[String], home: &std::path::Path) -> Result<PathBuf, String> {
+    let named = match args.split_first() {
+        Some((command, rest)) if command == "session" => crate::start::paths(rest),
+        Some((command, rest)) if command == "terminal" => crate::terminals::paths(rest),
+        _ => Vec::new(),
+    };
+    match named.into_iter().find(|path| path.is_relative()) {
+        Some(path) => Err(format!(
+            "{} is relative to a folder of another machine; name the work machine's path whole",
+            path.display()
+        )),
+        None => Ok(home.to_path_buf()),
+    }
 }
 
 /// The path of `place`, which has to be on this host's own machine: no
@@ -544,6 +579,48 @@ mod tests {
             here(away),
             Err("/w is on build-box, which cannot be reached".into())
         );
+    }
+
+    #[test]
+    fn a_command_a_paired_client_runs_works_from_the_home_and_names_no_path_relative_to_it() {
+        // Whole on the system the test runs on, which names a root its own way.
+        let root = std::env::temp_dir();
+        let home = root.join("me");
+        let home = home.as_path();
+        let (src, permissions) = (root.join("src"), root.join("p.json"));
+        let (src, permissions) = (src.to_str().unwrap(), permissions.to_str().unwrap());
+        let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        for whole in [
+            &["session", "list"][..],
+            &["session", "list", "--dir", src],
+            &["session", "show", "r4pj"],
+            &[
+                "session",
+                "start",
+                "--dir",
+                src,
+                "--permissions-file",
+                permissions,
+            ],
+            &["session", "start", "--", "go"],
+            &["terminal", "start", "--program", "shell", "--dir", src],
+            &["terminal", "list"],
+        ] {
+            assert_eq!(
+                remote_cwd(&args(whole), home),
+                Ok(home.to_path_buf()),
+                "{whole:?}"
+            );
+        }
+        for relative in [
+            &["session", "list", "--dir", "src"][..],
+            &["session", "start", "--dir", "src"],
+            &["session", "start", "--permissions-file", "p.json"],
+            &["terminal", "start", "--program", "shell", "--dir", "src"],
+        ] {
+            let refused = remote_cwd(&args(relative), home).unwrap_err();
+            assert!(refused.contains("whole"), "{relative:?}: {refused}");
+        }
     }
 
     #[tokio::test]

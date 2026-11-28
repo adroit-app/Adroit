@@ -201,6 +201,27 @@ impl Catalog {
         Ok(catalog)
     }
 
+    /// The environment `name` names: the one of that ID, or else the one
+    /// environment in use of that name. A name is no identity, so one that
+    /// several share names none of them.
+    pub fn named(&self, name: impl AsRef<str>) -> Result<&Environment, String> {
+        let name = name.as_ref();
+        if let Some(environment) = self.environments.iter().find(|e| e.id == name) {
+            return Ok(environment);
+        }
+        let mut named = self
+            .environments
+            .iter()
+            .filter(|e| !e.archived && e.name == name);
+        match (named.next(), named.next()) {
+            (Some(environment), None) => Ok(environment),
+            (Some(_), Some(_)) => Err(format!(
+                "several environments are named {name}; name one by its ID"
+            )),
+            (None, _) => Err(format!("no environment is named {name}")),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
             return Err("Unsupported environment catalog version".into());

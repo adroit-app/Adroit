@@ -250,6 +250,18 @@ fn asked(args: &[String]) -> Option<Asked> {
     }
 }
 
+/// The paths `adroit session <args>` names, as they were given.
+pub(crate) fn paths(args: &[String]) -> Vec<PathBuf> {
+    match asked(args) {
+        Some(asked) => asked
+            .dir
+            .into_iter()
+            .chain(asked.permissions_file)
+            .collect(),
+        None => crate::outside::paths(args),
+    }
+}
+
 /// Why `adroit session start` did not start a session.
 #[derive(Debug)]
 enum Failure {

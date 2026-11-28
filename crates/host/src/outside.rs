@@ -227,6 +227,14 @@ pub(crate) fn takes(args: &[String]) -> bool {
     )
 }
 
+/// The paths `adroit session <args>` names, as they were given.
+pub(crate) fn paths(args: &[String]) -> Vec<PathBuf> {
+    match parse(args) {
+        Some((Asked::List { dir, .. }, _)) => dir.into_iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// How long `adroit <args>` may wait for a session, when it is a wait.
 pub(crate) fn waits_for(args: &[String]) -> Option<Duration> {
     match args.split_first() {

@@ -102,8 +102,10 @@ unavailable for its files; those of an environment on this computer that the
 same window shows still open locally. A file of a work machine that a viewer
 would show opens in Neovim there when it is also text, such as an HTML page,
 and otherwise does not open. Image data
-pasted into the prompt is stored on the work machine. Native session,
-terminal and MCP commands run on the work machine; the client machine
+pasted into the prompt is stored on the work machine. Session and terminal
+commands reach a work machine's environment when it is named with
+[`--environment`](opening-sessions.md#in-another-environment); otherwise, as
+MCP commands always, they run on the work machine, and the client machine
 refuses them when a work machine is selected.
 
 ## Paired work machines

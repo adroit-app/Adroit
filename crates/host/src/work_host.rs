@@ -251,11 +251,33 @@ pub fn run_command(args: Vec<String>, input: Option<String>) -> i32 {
             }
             code
         }
-        Err(text) => {
-            eprintln!("adroit: {text}");
-            1
+        Err(unanswered) => {
+            let code = unanswered.code();
+            eprintln!("adroit: {}", unanswered.text());
+            code
         }
     }
+}
+
+/// The exit status of a command whose answer was lost after it was asked:
+/// it may have been carried out, so it is to be checked rather than asked
+/// again.
+pub const OUTCOME_UNKNOWN: i32 = 6;
+
+/// Commands from here on reach the work host through a work machine's
+/// gateway, as a paired client's do.
+static THROUGH_GATEWAY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Have the commands this process runs reach the work host through a work
+/// machine's gateway, whose socket `$ADROIT_HOST` names.
+pub fn through_gateway() {
+    THROUGH_GATEWAY.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the work host asked is a paired work machine's, which admits a
+/// change only by an ID it is kept by.
+fn paired() -> bool {
+    crate::remote::active() || THROUGH_GATEWAY.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// What a command the work host ran wrote, and its exit status.
@@ -265,12 +287,73 @@ pub(crate) struct Ran {
     pub code: i32,
 }
 
+/// Why a command came to no answer.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Unanswered {
+    /// It was not carried out, or failed.
+    Failed(String),
+    /// Its answer was lost once it was asked: it may have been carried out.
+    Unknown(String),
+}
+
+impl Unanswered {
+    pub(crate) fn code(&self) -> i32 {
+        match self {
+            Self::Failed(_) => 1,
+            Self::Unknown(_) => OUTCOME_UNKNOWN,
+        }
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        match self {
+            Self::Failed(text) | Self::Unknown(text) => text,
+        }
+    }
+}
+
+/// What a change the work machine was asked for came to, as far as it says.
+#[derive(Debug, PartialEq)]
+enum Settled {
+    Answered(Answer),
+    /// Still being carried out.
+    Pending,
+    Unanswered(Unanswered),
+}
+
+fn settled(status: adroit_protocol::MutationState) -> Settled {
+    use adroit_protocol::MutationState;
+    let unknown = |why: &str| {
+        Settled::Unanswered(Unanswered::Unknown(format!(
+            "{why}; whether the command was carried out is unknown, and it was not asked again"
+        )))
+    };
+    match status {
+        MutationState::Result { answer } => match *answer {
+            Answer::Unconfirmed { text } => unknown(&text),
+            answer => Settled::Answered(answer),
+        },
+        MutationState::Accepted => Settled::Pending,
+        MutationState::Unknown => unknown("the work machine no longer knows what came of it"),
+        MutationState::Retired => unknown("the work machine's hosts were replaced meanwhile"),
+        MutationState::Conflict => Settled::Unanswered(Unanswered::Failed(
+            "the work machine was asked another change by the same ID".into(),
+        )),
+        MutationState::Full => Settled::Unanswered(Unanswered::Failed(
+            "the work machine holds too many changes; try again later".into(),
+        )),
+        MutationState::Rejected { text } => Settled::Unanswered(Unanswered::Failed(text)),
+    }
+}
+
 /// `adroit <args>` as the work host ran it, started where none runs, with
 /// `input` on its standard input.
-pub(crate) fn ran(args: Vec<String>, input: Option<String>) -> std::result::Result<Ran, String> {
-    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+pub(crate) fn ran(
+    args: Vec<String>,
+    input: Option<String>,
+) -> std::result::Result<Ran, Unanswered> {
+    let cwd = std::env::current_dir().map_err(|e| Unanswered::Failed(e.to_string()))?;
     let answer = crate::cli::block_on(asked(&socket(), Ask::Run { args, cwd, input }))
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| Unanswered::Failed(e.to_string()))??;
     match answer {
         Answer::Ran {
             stdout,
@@ -281,16 +364,19 @@ pub(crate) fn ran(args: Vec<String>, input: Option<String>) -> std::result::Resu
             stderr,
             code,
         }),
-        Answer::Failed { text } => Err(text),
-        answer => Err(format!("the work host answered {answer:?}")),
+        Answer::Failed { text } => Err(Unanswered::Failed(text)),
+        Answer::Unconfirmed { text } => Err(Unanswered::Unknown(text)),
+        answer => Err(Unanswered::Failed(format!(
+            "the work host answered {answer:?}"
+        ))),
     }
 }
 
 /// What the work host at `socket`, started where none runs, answers `ask`.
 /// One of another build is asked all the same when it shares a version
 /// with this one: a command is not to replace the host a window works with.
-async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
-    if crate::remote::active() {
+async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, Unanswered> {
+    if paired() {
         let waits = match &ask {
             Ask::Run { args, .. } => {
                 crate::terminals::waits_for(args).or_else(|| crate::outside::waits_for(args))
@@ -298,87 +384,52 @@ async fn asked(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
             _ => None,
         };
         let limit = Duration::from_secs(30) + waits.unwrap_or_default();
+        let changes = ask.mutates();
         return tokio::time::timeout(limit, asked_inner(socket, ask))
             .await
-            .map_err(|_| {
-                "the remote command timed out; its outcome is unknown and it was not retried"
-                    .to_string()
-            })?;
+            .unwrap_or_else(|_| {
+                Err(match changes {
+                    true => Unanswered::Unknown(
+                        "the work machine did not answer in time; whether the command was carried out is unknown, and it was not asked again".into(),
+                    ),
+                    false => Unanswered::Failed("the work machine did not answer in time".into()),
+                })
+            });
     }
     asked_inner(socket, ask).await
 }
 
-async fn asked_inner(socket: &Path, ask: Ask) -> std::result::Result<Answer, String> {
+async fn asked_inner(socket: &Path, ask: Ask) -> std::result::Result<Answer, Unanswered> {
+    let failed = |text: String| Unanswered::Failed(text);
     match hello(socket).await {
-        None if crate::remote::active() => return Err(
-            "the remote work host is unavailable; its service must be started on the work machine"
-                .into(),
-        ),
+        None if paired() => {
+            return Err(failed(
+                "the work machine's work host cannot be reached; its connection was lost, or its service must be started on the work machine"
+                    .into(),
+            ));
+        }
         None => start(socket, &adroit_program(), &serve_args())
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| failed(e.to_string()))?,
         Some(Some(said)) if agree(SPOKEN, &said.speaks).is_some() => {}
-        Some(_) => return Err("the work host speaks no version this adroit does".into()),
+        Some(_) => {
+            return Err(failed(
+                "the work host speaks no version this adroit does".into(),
+            ));
+        }
     }
     let mut connection = Connection::open(socket)
         .await
-        .map_err(|e| format!("cannot reach the work host: {e}"))?;
+        .map_err(|e| failed(format!("cannot reach the work host: {e}")))?;
+    if !paired() {
+        return answer_to(&mut connection, ask).await.map_err(failed);
+    }
+    changed_through(&mut connection, ask).await
+}
+
+/// What the work host answers `ask` on `connection`.
+async fn answer_to(connection: &mut Connection, ask: Ask) -> std::result::Result<Answer, String> {
     let gone = |e: std::io::Error| format!("the work host went away: {e}");
-    let ask = if crate::remote::active() {
-        connection
-            .requests
-            .send(&Request::Hello {
-                versions: SPOKEN.to_vec(),
-            })
-            .await
-            .map_err(gone)?;
-        loop {
-            match connection.events.next().await.map_err(gone)? {
-                Some(Event::Welcome { .. }) => break,
-                Some(Event::Refused { .. }) | None => {
-                    return Err("the remote work host refused the protocol".into());
-                }
-                _ => {}
-            }
-        }
-        let request = Request::Ask {
-            asked: 1,
-            ask: Box::new(ask),
-        };
-        if request.mutates() {
-            let work = connection
-                .hello
-                .endpoint
-                .as_ref()
-                .ok_or("missing remote work identity")?;
-            let terminal = connection
-                .hello
-                .terminal
-                .as_ref()
-                .ok_or("missing remote terminal identity")?;
-            let stamp = adroit_protocol::MutationStamp {
-                instance: work.instance.clone(),
-                work: work.generation.clone(),
-                terminal: terminal.generation.clone(),
-                epoch: connection
-                    .hello
-                    .mutation_epoch
-                    .ok_or("missing remote mutation epoch")?,
-                id: crate::remote::random().map_err(|e| e.to_string())?,
-            };
-            Ask::Apply {
-                stamp,
-                request: Box::new(request),
-            }
-        } else {
-            let Request::Ask { ask, .. } = request else {
-                unreachable!()
-            };
-            *ask
-        }
-    } else {
-        ask
-    };
     connection
         .requests
         .send(&Request::Ask {
@@ -389,18 +440,142 @@ async fn asked_inner(socket: &Path, ask: Ask) -> std::result::Result<Answer, Str
         .map_err(gone)?;
     while let Some(event) = connection.events.next().await.map_err(gone)? {
         if let Event::Answer { asked: 1, answer } = event {
-            return match answer {
-                Answer::Mutation {
-                    status: adroit_protocol::MutationState::Result { answer },
-                } => Ok(*answer),
-                Answer::Mutation { status } => Err(format!(
-                    "remote command outcome is {status:?}; it was not retried"
-                )),
-                answer => Ok(answer),
-            };
+            return Ok(answer);
         }
     }
     Err("the work host went away before it answered".into())
+}
+
+/// Whether `answer` refuses what was asked as a change asked without an ID.
+fn taken_for_a_change(answer: &Answer) -> bool {
+    matches!(answer, Answer::Failed { text } if text == adroit_protocol::CHANGE_NEEDS_AN_ID)
+}
+
+/// How long to wait before asking again what came of a change still being
+/// carried out.
+const STILL_CARRIED_OUT: Duration = Duration::from_secs(1);
+
+/// What a paired work machine's work host answers `ask` on `connection`: a
+/// change is asked by an ID, so that one whose answer was lost is never
+/// made twice, and its outcome asked after while it is carried out.
+async fn changed_through(
+    connection: &mut Connection,
+    ask: Ask,
+) -> std::result::Result<Answer, Unanswered> {
+    let failed = |text: String| Unanswered::Failed(text);
+    let gone =
+        |e: std::io::Error| failed(format!("the connection to the work machine was lost: {e}"));
+    connection
+        .requests
+        .send(&Request::Hello {
+            versions: SPOKEN.to_vec(),
+        })
+        .await
+        .map_err(gone)?;
+    loop {
+        match connection.events.next().await.map_err(gone)? {
+            Some(Event::Welcome { .. }) => break,
+            Some(Event::Refused { .. }) | None => {
+                return Err(failed(
+                    "the work machine's work host refused the protocol".into(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    let reads = !ask.mutates();
+    let mut asked_before = 0;
+    if reads {
+        let answer = answer_to(connection, ask.clone()).await.map_err(|text| {
+            failed(format!(
+                "the connection to the work machine was lost: {text}"
+            ))
+        })?;
+        if !taken_for_a_change(&answer) {
+            return Ok(answer);
+        }
+        // A work host of an earlier build, which is asked again as it asks:
+        // a read is the same however often it is made.
+        asked_before = 1;
+    }
+    let missing = |what: &str| failed(format!("the work machine's work host gave no {what}"));
+    let work = connection
+        .hello
+        .endpoint
+        .as_ref()
+        .ok_or_else(|| missing("identity"))?;
+    let terminal = connection
+        .hello
+        .terminal
+        .as_ref()
+        .ok_or_else(|| missing("terminal host identity"))?;
+    let stamp = adroit_protocol::MutationStamp {
+        instance: work.instance.clone(),
+        work: work.generation.clone(),
+        terminal: terminal.generation.clone(),
+        epoch: connection
+            .hello
+            .mutation_epoch
+            .ok_or_else(|| missing("change epoch"))?,
+        id: crate::remote::random().map_err(|e| failed(e.to_string()))?,
+    };
+    let mut asking = Ask::Apply {
+        stamp: stamp.clone(),
+        request: Box::new(Request::Ask {
+            asked: 1,
+            ask: Box::new(ask),
+        }),
+    };
+    // Once a change is sent, an answer lost leaves it unknown.
+    let lost = |why: String| match reads {
+        true => failed(format!(
+            "the connection to the work machine was lost: {why}"
+        )),
+        false => Unanswered::Unknown(format!(
+            "the connection to the work machine was lost ({why}); whether the command was carried out is unknown, and it was not asked again"
+        )),
+    };
+    for asked in asked_before + 1.. {
+        connection
+            .requests
+            .send(&Request::Ask {
+                asked,
+                ask: Box::new(asking),
+            })
+            .await
+            .map_err(|e| lost(e.to_string()))?;
+        let status = loop {
+            match connection.events.next().await {
+                Ok(Some(Event::Answer {
+                    asked: answered,
+                    answer,
+                })) if answered == asked => break answer,
+                Ok(Some(_)) => {}
+                Ok(None) => return Err(lost("it closed".into())),
+                Err(e) => return Err(lost(e.to_string())),
+            }
+        };
+        let status = match status {
+            Answer::Mutation { status } => status,
+            Answer::Failed { text } => return Err(failed(text)),
+            answer => {
+                return Err(Unanswered::Unknown(format!(
+                    "the work machine answered {answer:?}; whether the command was carried out is unknown"
+                )));
+            }
+        };
+        match settled(status) {
+            Settled::Answered(answer) => return Ok(answer),
+            Settled::Unanswered(unanswered) => return Err(unanswered),
+            Settled::Pending => {
+                tokio::time::sleep(STILL_CARRIED_OUT).await;
+                asking = Ask::MutationStatus {
+                    stamp: stamp.clone(),
+                };
+            }
+        }
+    }
+    unreachable!("a change is asked after until it is settled")
 }
 
 /// This program, as the work host is started with.
@@ -540,6 +715,77 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     use super::*;
+
+    #[test]
+    fn a_change_the_work_machine_settled_answers_and_one_it_may_have_made_is_unknown() {
+        use adroit_protocol::MutationState;
+        let ran = Answer::Ran {
+            stdout: "started".into(),
+            stderr: String::new(),
+            code: 0,
+        };
+        assert_eq!(
+            settled(MutationState::Result {
+                answer: Box::new(ran.clone())
+            }),
+            Settled::Answered(ran)
+        );
+        assert_eq!(settled(MutationState::Accepted), Settled::Pending);
+        for unknown in [
+            MutationState::Unknown,
+            MutationState::Retired,
+            MutationState::Result {
+                answer: Box::new(Answer::Unconfirmed {
+                    text: "lost terminal reply".into(),
+                }),
+            },
+        ] {
+            assert!(
+                matches!(
+                    settled(unknown.clone()),
+                    Settled::Unanswered(Unanswered::Unknown(_))
+                ),
+                "{unknown:?}"
+            );
+        }
+        for failed in [
+            MutationState::Conflict,
+            MutationState::Full,
+            MutationState::Rejected {
+                text: "no such session".into(),
+            },
+        ] {
+            assert!(
+                matches!(
+                    settled(failed.clone()),
+                    Settled::Unanswered(Unanswered::Failed(_))
+                ),
+                "{failed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_a_work_host_of_an_earlier_build_took_for_a_change_is_told_apart() {
+        assert!(taken_for_a_change(&Answer::Failed {
+            text: adroit_protocol::CHANGE_NEEDS_AN_ID.into()
+        }));
+        assert!(!taken_for_a_change(&Answer::Failed {
+            text: "no such session".into()
+        }));
+        assert!(!taken_for_a_change(&Answer::Ran {
+            stdout: String::new(),
+            stderr: adroit_protocol::CHANGE_NEEDS_AN_ID.into(),
+            code: 1,
+        }));
+    }
+
+    #[test]
+    fn a_command_whose_outcome_is_unknown_exits_apart_from_one_that_failed() {
+        assert_eq!(Unanswered::Failed("refused".into()).code(), 1);
+        assert_eq!(Unanswered::Unknown("lost".into()).code(), OUTCOME_UNKNOWN);
+        assert_ne!(OUTCOME_UNKNOWN, 1);
+    }
 
     /// A folder for a socket, whose path has to be short.
     fn short_dir() -> tempfile::TempDir {

@@ -215,3 +215,32 @@ fn an_instance_bound_in_profile_toml_keeps_its_binding() {
         .unwrap();
     assert!(other.save(dir.path()).is_err());
 }
+
+#[test]
+fn a_command_names_an_environment_by_its_id_or_a_name_no_other_shares() {
+    let personal = Environment::new("Personal", Target::Local);
+    let first = Environment::new("Work", Target::Local);
+    let second = Environment::new("Work", Target::Local);
+    let mut old = Environment::new("Old", Target::Local);
+    old.archived = true;
+    let mut put_away = Environment::new("Personal", Target::Local);
+    put_away.archived = true;
+    let catalog = Catalog {
+        environments: vec![
+            personal.clone(),
+            first,
+            second.clone(),
+            old.clone(),
+            put_away,
+        ],
+        ..Catalog::default()
+    };
+    assert_eq!(catalog.named(&personal.id), Ok(&personal));
+    assert_eq!(catalog.named("Personal"), Ok(&personal));
+    assert_eq!(catalog.named(&second.id), Ok(&second));
+    let shared = catalog.named("Work").unwrap_err();
+    assert!(shared.contains("by its ID"), "{shared}");
+    assert!(catalog.named("Old").is_err());
+    assert_eq!(catalog.named(&old.id), Ok(&old));
+    assert!(catalog.named("Nowhere").is_err());
+}

@@ -356,8 +356,7 @@ impl Served {
                             let _ = out.send(encode(&Event::Answer {
                                 asked,
                                 answer: Answer::Failed {
-                                    text: "remote changes require an idempotent mutation request"
-                                        .into(),
+                                    text: adroit_protocol::CHANGE_NEEDS_AN_ID.into(),
                                 },
                             }));
                             continue;
@@ -383,7 +382,7 @@ impl Served {
                 request => {
                     if remote && request.mutates() {
                         let _ = out.send(encode(&Event::Told(adroit_protocol::Told::Failure {
-                            text: "remote changes require an idempotent mutation request".into(),
+                            text: adroit_protocol::CHANGE_NEEDS_AN_ID.into(),
                         })));
                         continue;
                     }
