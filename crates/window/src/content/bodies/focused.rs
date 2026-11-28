@@ -125,6 +125,7 @@ pub(crate) fn FocusedBody() -> Element {
         .and_then(|tab| content.drafts.options.get(tab).cloned())
         .unwrap_or_default();
     let next_options = content.drafts.next.clone().unwrap_or_default();
+    let starts_in = hosts.name_of(active_tab.as_ref());
     drop((content, hosts));
     let prompt_shown = shows_prompt(active_tab.as_ref());
     let composer_room = if prompt_shown {
@@ -163,6 +164,7 @@ pub(crate) fn FocusedBody() -> Element {
                 (Some(tab @ Tab::Draft { worktree, .. }), _) => rsx! {
                     DraftForm {
                         environment: tab.environment().clone(),
+                        starts_in: starts_in.clone(),
                         worktree: worktree.clone(),
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
@@ -193,6 +195,7 @@ pub(crate) fn FocusedBody() -> Element {
                 (None, _) => rsx! {
                     NothingOpen {
                         environment: app.environment(),
+                        starts_in: starts_in.clone(),
                         profile: current_profile.clone(),
                         profiles: offered.clone(),
                         options: next_options,

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 
 use super::{DraftHead, Starting};
+use crate::bridge::AppCtx;
 use crate::console::{ConsoleScreen, Hub};
 use crate::content::{Tab, WindowId};
 
@@ -21,6 +22,7 @@ pub(crate) fn UnfocusedBody(
     boxes: Signal<HashMap<WindowId, (f64, f64)>>,
 ) -> Element {
     let hub = use_context::<Hub>();
+    let app = use_context::<AppCtx>();
     let has = hub.panes.borrow().contains_key(&shows);
     let mut boxes = boxes;
     rsx! {
@@ -38,7 +40,7 @@ pub(crate) fn UnfocusedBody(
             },
             match &shows {
                 Tab::Draft { worktree, .. } => rsx! {
-                    DraftHead { environment: shows.environment().clone(), worktree: worktree.clone() }
+                    DraftHead { starts_in: app.hosts.read().name_of(Some(&shows)), worktree: worktree.clone() }
                 },
                 _ if has => rsx! {
                     ConsoleScreen { tab: shows.clone(), frame, cell_width, focused: false }

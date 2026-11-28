@@ -25,7 +25,7 @@ pub(crate) fn Header(ontoggle: EventHandler<Side>) -> Element {
         let work = hosts.work(&environment);
         (
             environment.clone(),
-            hosts.name(&environment),
+            hosts.name_of(showing.tab.as_ref()),
             tree::crumbs(&showing, work),
             view.waiting().len(),
             hosts

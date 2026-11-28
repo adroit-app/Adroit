@@ -22,35 +22,34 @@ use crate::icons::{Icon, IconView};
 use crate::keymap::{Context, Keymap};
 use crate::logins::Login;
 
-/// A draft in a window that is not focused: what it is and where.
+/// A draft in a window that is not focused: what it is, where, and the
+/// environment it starts in, called `starts_in`.
 #[component]
-pub(crate) fn DraftHead(environment: EnvironmentId, worktree: PathBuf) -> Element {
-    let app = use_context::<AppCtx>();
-    let name = app.hosts.read().name(&environment);
+pub(crate) fn DraftHead(starts_in: String, worktree: PathBuf) -> Element {
     rsx! {
         EmptyState { icon: Icon::MessagePlus, title: "New session",
             div { class: "console-empty-path", "{short(&worktree)}" }
-            div { class: "launch-form-where", title: "{name}", "{name}" }
+            div { class: "launch-form-where", title: "{starts_in}", "{starts_in}" }
         }
     }
 }
 
 /// The row of a new session's form naming the environment it starts in.
 #[component]
-fn StartsInEnvironment(environment: EnvironmentId) -> Element {
-    let app = use_context::<AppCtx>();
-    let name = app.hosts.read().name(&environment);
+fn StartsInEnvironment(name: String) -> Element {
     rsx! {
         div { class: "launch-form-label", "Environment" }
         div { class: "launch-form-where", title: "{name}", "{name}" }
     }
 }
 
-/// The focused window's draft, in `worktree` of `environment`: its profile,
-/// `profile` now, and the options chosen for it.
+/// The focused window's draft, in `worktree` of `environment`, which is
+/// called `starts_in`: its profile, `profile` now, and the options chosen
+/// for it.
 #[component]
 pub(crate) fn DraftForm(
     environment: EnvironmentId,
+    starts_in: String,
     worktree: PathBuf,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
@@ -69,7 +68,7 @@ pub(crate) fn DraftForm(
                 div { class: "console-empty-path", "{short(&worktree)}" }
             }
             div { class: "launch-form",
-                StartsInEnvironment { environment: environment.clone() }
+                StartsInEnvironment { name: starts_in }
                 ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }
                 DraftLaunchOptions { options, onchange: onoptions }
             }
@@ -85,10 +84,11 @@ pub(crate) fn DraftForm(
 
 /// The window with nothing open: the button that picks where a session
 /// starts, the profile and options a scratch session starts with in
-/// `environment`, and the tree's keys.
+/// `environment`, which is called `starts_in`, and the tree's keys.
 #[component]
 pub(crate) fn NothingOpen(
     environment: EnvironmentId,
+    starts_in: String,
     profile: ProfileId,
     profiles: Vec<ProfileChoice>,
     options: DraftOptions,
@@ -125,7 +125,7 @@ pub(crate) fn NothingOpen(
                 div { class: "console-empty-hint", "Pick the directory it works in: a workspace, a Claude Code project, a ghq repository, or any folder." }
             }
             div { class: "launch-form",
-                StartsInEnvironment { environment: environment.clone() }
+                StartsInEnvironment { name: starts_in }
                 div { class: "launch-form-label", "Starts in" }
                 div { class: "launch-form-where", "A scratch session" }
                 ProfileChoices { environment, current: profile, profiles, keys: k_profile, onchoose: onprofile }

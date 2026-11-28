@@ -2,6 +2,7 @@ use adroit_model::EnvironmentId;
 use adroit_protocol::{Event, Request, Version};
 
 use super::Link;
+use crate::content::Tab;
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::scenario::Scenario;
@@ -84,6 +85,29 @@ fn naming_the_window_s_own_environment_does_not_greet_its_host_again() {
     });
     assert!(run.last_effects().is_empty());
     assert_eq!(run.state().hosts.name(&here()), "This computer");
+}
+
+#[test]
+fn a_draft_names_its_own_environment_and_nothing_open_the_window_s() {
+    let run = Scenario::new()
+        .send(Msg::EnvironmentOpened {
+            environment: here(),
+            name: "This computer".into(),
+        })
+        .send(Msg::EnvironmentOpened {
+            environment: there(),
+            name: "Work machine".into(),
+        });
+    let hosts = &run.state().hosts;
+    // (tab, named)
+    let cases = [
+        (Some(Tab::draft(there(), "/w")), "Work machine"),
+        (Some(Tab::draft(here(), "/w")), "This computer"),
+        (None, "This computer"),
+    ];
+    for (tab, named) in cases {
+        assert_eq!(hosts.name_of(tab.as_ref()), named, "{tab:?}");
+    }
 }
 
 #[test]
