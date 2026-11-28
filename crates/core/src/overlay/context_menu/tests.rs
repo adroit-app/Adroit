@@ -108,7 +108,7 @@ fn a_workspace_or_worktree_starts_sessions_and_shells_in_it() {
     assert_eq!(
         actions(Target::Row(Item::Workspace(here(), "/api".into())), None),
         [
-            &[Action::CursorGo, Action::CursorCopy][..],
+            &[Action::CursorGo, Action::CursorCopy, Action::CursorReveal][..],
             &starts,
             &[Action::WorkspaceRemove]
         ]
@@ -118,7 +118,7 @@ fn a_workspace_or_worktree_starts_sessions_and_shells_in_it() {
         actions(Target::Row(Item::Worktree(here(), "/api".into())), None),
         [
             &OPENS[..],
-            &[Action::CursorCopy],
+            &[Action::CursorCopy, Action::CursorReveal],
             &starts,
             &[Action::WorktreeClose]
         ]
@@ -169,6 +169,8 @@ fn a_file_opens_where_its_key_says_copies_its_path_makes_beside_it_and_closes_it
             &OPENS[..],
             &[
                 Action::CursorCopy,
+                Action::FileSystem,
+                Action::CursorReveal,
                 Action::SessionNew,
                 Action::ShellOpen,
                 Action::NeovimOpen,
@@ -321,5 +323,31 @@ fn every_entry_of_a_heading_s_menu_shows_an_icon_and_has_a_row_in_the_table() {
     for (action, label) in entries(&target, None, &here(), Reach::Machine { retryable: true }) {
         assert!(action.icon().is_some(), "{label}");
         assert!(action.spec().row.is_some(), "{label}");
+    }
+}
+
+#[test]
+fn a_directory_opens_with_the_system_and_is_revealed_after_its_path_is_copied() {
+    assert_eq!(
+        actions(Target::Row(dir_row()), None)[..4],
+        [
+            Action::CursorGo,
+            Action::CursorCopy,
+            Action::FileSystem,
+            Action::CursorReveal
+        ]
+    );
+}
+
+#[test]
+fn a_file_is_not_offered_to_be_opened_on_github() {
+    let file = Item::File {
+        environment: here(),
+        worktree: "/api".into(),
+        path: "/api/a.rs".into(),
+        dir: false,
+    };
+    for row in [file, dir_row()] {
+        assert!(!actions(Target::Row(row), None).contains(&Action::CursorBrowse));
     }
 }

@@ -146,6 +146,12 @@ the work machine's trash. Files and directories marked, as in fern, are copied,
 cut or trashed together in place of the one selected, and stand out until they
 are.
 
+A file or a directory, or every one marked, is opened in the app the system
+opens it with, as in fern. A file, a directory, a worktree or a workspace is
+also shown in the Finder from its row's menu
+([keys](reference/keys.md#actions)). Both work on files of this computer
+only: on a work machine elsewhere, the status line says why nothing opens.
+
 A row of a session, a shell or a Neovim shows the numbers of the content's tabs
 it is shown in, and the row of what the focused window shows stands out.
 

@@ -74,6 +74,7 @@ pub enum Action {
     FileMove,
     FilePaste,
     FileTrash,
+    FileSystem,
     FileMark,
     PasteOverwrite,
     PasteRename,
@@ -340,7 +341,7 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::CursorCopy, "cursor.copy", "copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path")
         .icon(Icon::Copy)
         .row("Copy", Go),
-    S::new(A::CursorReveal, "cursor.reveal", "in the details panel, show the selected file of the overview in the system's file manager")
+    S::new(A::CursorReveal, "cursor.reveal", "show the selected file, directory, worktree or workspace of the tree in the system's file manager; in the details panel, the selected file of the overview")
         .icon(Icon::FolderSearch)
         .row(crate::chrome::REVEAL_IN_FILE_MANAGER, Go),
     S::new(A::CursorBrowse, "cursor.browse", "open the selected pull request or issue on GitHub in the browser")
@@ -370,7 +371,10 @@ pub static ACTIONS: &[ActionSpec] = &[
     S::new(A::FileTrash, "file.trash", "move the file or directory selected to the work machine's trash, after asking")
         .icon(Icon::Trash)
         .row("Move to Trash", End),
-    S::new(A::FileMark, "file.mark", "mark the file or directory selected, or unmark it; `file.copy`, `file.move` and `file.trash` take every one marked rather than the one selected")
+    S::new(A::FileSystem, "file.system", "open the file or directory selected in the app the system opens it with, as fern's `open:system` does")
+        .icon(Icon::ExternalLink)
+        .row("Open with Default App", Go),
+    S::new(A::FileMark, "file.mark", "mark the file or directory selected, or unmark it; `file.copy`, `file.move`, `file.trash` and `file.system` take every one marked rather than the one selected")
         .says("Mark"),
     S::new(A::PasteOverwrite, "paste.overwrite", "when a name pasted is taken, put the one there in the trash and paste in its place").says("Overwrite"),
     S::new(A::PasteRename, "paste.rename", "when a name pasted is taken, type another name to paste it by").says("Rename"),
@@ -692,6 +696,7 @@ mod tests {
             FileMove,
             FilePaste,
             FileTrash,
+            FileSystem,
             FileMark,
             PasteOverwrite,
             PasteRename,

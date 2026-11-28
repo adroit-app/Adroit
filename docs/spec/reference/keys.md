@@ -55,9 +55,9 @@ changes them ([keys](../keys.md)).
 | `cursor.vsplit` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new window split off the focused one, beside it; in the details panel, the selected image of Resources | `tree`: `v` |
 | `cursor.tab` |  | open the selected session, shell, worktree or file as `cursor.go` does, in a new tab after the one shown, though a window shows it already; in the details panel, the selected image of Resources | `tree`: `t` |
 | `cursor.fold` |  | fold the selected node when it is open, or else the row it sits under, going there; in the details panel, go back out to the list what it shows was opened from | `tree`: `h`<br>`details`: `Escape`, `Backspace` |
-| `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `x` |
+| `cursor.close` |  | close every window showing the selected session, shell or Neovim, or the selected file in its viewer or its Neovim; what they showed runs on | `tree`: `q` |
 | `cursor.copy` |  | copy the path of the selected file, worktree or workspace, or the name of the selected session, shell or Neovim; in the details panel, the selected link of the overview: its address, or its file's path | `tree`: `y`<br>`details`: `y` |
-| `cursor.reveal` |  | in the details panel, show the selected file of the overview in the system's file manager |  |
+| `cursor.reveal` |  | show the selected file, directory, worktree or workspace of the tree in the system's file manager; in the details panel, the selected file of the overview |  |
 | `cursor.browse` |  | open the selected pull request or issue on GitHub in the browser | `tree`: `g x`<br>`viewer`: `g x` |
 | `filer.down` |  | move to the next file or directory, in the tree's files or the picker's directories | `filer`: `j`, `ArrowDown` |
 | `filer.up` |  | move to the previous file or directory | `filer`: `k`, `ArrowUp` |
@@ -71,7 +71,8 @@ changes them ([keys](../keys.md)).
 | `file.move` |  | put the file or directory selected on the system clipboard, to be moved where it is pasted | `tree`: `M` |
 | `file.paste` |  | copy the files and directories on the system clipboard into the directory selected, the one the file selected is in, or the top of the worktree from its Files heading, as `file.new` makes there; move them, after asking, when `file.move` put them there; a name taken there already is left as it is | `tree`: `P` |
 | `file.trash` |  | move the file or directory selected to the work machine's trash, after asking | `tree`: `D` |
-| `file.mark` |  | mark the file or directory selected, or unmark it; `file.copy`, `file.move` and `file.trash` take every one marked rather than the one selected | `tree`: `-` |
+| `file.system` |  | open the file or directory selected in the app the system opens it with, as fern's `open:system` does | `tree`: `x` |
+| `file.mark` |  | mark the file or directory selected, or unmark it; `file.copy`, `file.move`, `file.trash` and `file.system` take every one marked rather than the one selected | `tree`: `-` |
 | `paste.overwrite` |  | when a name pasted is taken, put the one there in the trash and paste in its place | `confirm`: `f` |
 | `paste.rename` |  | when a name pasted is taken, type another name to paste it by | `confirm`: `r` |
 | `waiting.next` | Next Waiting | open the next session waiting on you as `cursor.go` does, with the keys in its console; repeats ([keys](../keys.md#repeating)) | `global`: `Mod+j` |
@@ -292,7 +293,7 @@ changes them ([keys](../keys.md)).
 "$" = "shell.open"
 "e" = "neovim.open"
 "O" = "session.resume"
-"x" = "cursor.close"
+"q" = "cursor.close"
 "X" = "session.stop"
 "R" = "session.rename"
 "y" = "cursor.copy"
@@ -310,6 +311,7 @@ changes them ([keys](../keys.md)).
 "M" = "file.move"
 "P" = "file.paste"
 "D" = "file.trash"
+"x" = "file.system"
 "-" = "file.mark"
 "}" = "workspace.next"
 "{" = "workspace.prev"

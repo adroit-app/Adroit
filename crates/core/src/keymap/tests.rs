@@ -612,6 +612,7 @@ fn the_filer_moves_as_fern_does() {
         ("M", Action::FileMove),
         ("P", Action::FilePaste),
         ("D", Action::FileTrash),
+        ("x", Action::FileSystem),
         ("-", Action::FileMark),
         // What the filer leaves unbound is the tree's.
         ("s", Action::CursorSplit),
@@ -651,12 +652,12 @@ fn in_the_tree_what_starts_beside_a_row_moved_off_the_keys_that_open_it() {
 }
 
 #[test]
-fn in_the_tree_x_closes_the_row_s_windows_capital_x_stops_and_y_copies() {
+fn in_the_tree_q_closes_the_row_s_windows_capital_x_stops_and_y_copies() {
     let map = Keymap::defaults();
     let sidebar = [Context::Tree, Context::Global];
     let console = [Context::Console, Context::Global];
     assert_eq!(
-        step(&map, &sidebar, &[], "x"),
+        step(&map, &sidebar, &[], "q"),
         Step::Run(Action::CursorClose)
     );
     assert_eq!(

@@ -248,6 +248,7 @@ pub(crate) fn perform(
         | Action::FileMove
         | Action::FilePaste
         | Action::FileTrash
+        | Action::FileSystem
         | Action::FileMark => {
             let Some(row) = cur.filter(|_| on_list) else {
                 return Vec::new();
@@ -257,6 +258,7 @@ pub(crate) fn perform(
                 Action::FileMove => tree::clipboard::hold(state, &row, true),
                 Action::FilePaste => tree::clipboard::paste(&row),
                 Action::FileMark => tree::clipboard::mark(state, &row),
+                Action::FileSystem => tree::clipboard::open_with_system(state, &row),
                 _ => tree::clipboard::trash(state, &row),
             }
         }
@@ -424,8 +426,19 @@ pub(crate) fn perform(
                 None => Vec::new(),
             }
         }
-        // Only the overview's files are revealed.
-        Action::CursorReveal => Vec::new(),
+        Action::CursorReveal => match cur.as_ref().map(Item::own) {
+            Some(
+                Item::File {
+                    environment, path, ..
+                }
+                | Item::Worktree(environment, path)
+                | Item::Workspace(environment, path),
+            ) => vec![Effect::Reveal {
+                environment: environment.clone(),
+                path: path.display().to_string(),
+            }],
+            _ => Vec::new(),
+        },
         Action::WaitingNext | Action::WaitingPrev => {
             let current = match cur.as_ref().map(Item::own) {
                 Some(Item::Waiting(environment, id) | Item::Session(environment, id)) => {
